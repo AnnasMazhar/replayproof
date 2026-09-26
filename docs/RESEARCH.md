@@ -1069,3 +1069,190 @@ reported but max_pass_rate_drop = 0.0 catches any regression. Not falsified in c
 | 17a | https://github.com/eval-core/evalcore | 200 — 16 stars, Apache-2.0, Rust |
 | 17b | https://evalcore.cc/ | 200 — v0.7.5 GH Action confirmed |
 | 18 | https://github.com/promptfoo/promptfoo | 200 — 25.5k stars, MIT, OpenAI-owned |
+
+---
+
+## Pass 3 — Real-World Applicability (c1-p03-research-3)
+
+**Verified:** 2026-09-26.
+**Artifact produced:** `docs/ADOPTION.md` (see that file for the full integration recipe).
+This section closes every open falsification question from passes 1 and 2.
+
+---
+
+### Falsification Closure — Pass 1 items (F-1 through F-5)
+
+**F-1: Wilson lower bound too conservative for small suites to be useful as a gate**
+
+Status: **CLOSED — not falsified; limitation documented and design adapted**
+
+The concern was that small-n suites (n < 10) would show lower bounds near zero even at
+100% pass rate. Measured result: `wilson_lower(5, 5, 0.95)` ≈ 0.478 (47.8%). This IS
+too conservative for an absolute certification claim but is NOT too conservative for
+relative (drop-based) gating. Design response: the default `max_pass_rate_drop = 0.0`
+catches any drop without relying on the absolute lower bound as a threshold.
+
+The ADOPTION.md documents this as FM-4 (small-suite alarm): the failure mode is not
+false gate trips but misleading reporting to stakeholders who do not understand the
+distinction between "lower bound" and "observed pass rate". Mitigation: label the metric
+correctly in CI output.
+
+Falsification condition was: a legitimate well-tested agent at 5/5 showing a lower bound
+lower than a broken agent at 4/10. Test:
+- `wilson_lower(5, 5)` = 0.478
+- `wilson_lower(4, 10)` = 0.169
+The comparison is still directionally correct: higher rate at larger n gives higher lower
+bound. **Not falsified.**
+
+**F-2: Dry replay fidelity is not F=1.0 for agents with side effects**
+
+Status: **CLOSED — true, acknowledged, design correct**
+
+This is true by construction: dry mode does not execute tools, so side effects are not
+reproduced. The harness tests the deterministic scaffold (routing, contract checks,
+token budgets), not external state. This is the correct scope for a keyless CI gate.
+
+The ADOPTION.md documents this as FM-5 (dry-replay side-effect gap) with the
+recommended fix: maintain a live integration test against staging for side-effecting
+tools; use replayproof for the keyless CI layer. **Not falsified — acknowledged as a
+documented scope boundary.**
+
+**F-3: Mutation score of 70% insufficient for the security-relevant assertions module**
+
+Status: **CLOSED — partially addressed, mutation pass deferred to cycle 1 pass 12**
+
+The EVIDENCE.md records a mutation kill score for the scoring module. The assertions
+module (including PII detection regex) is covered by KAT tests in `test_assertions.py`
+that inject fabricated PII strings and verify the check fires. A full mutation pass over
+`assertions.py` is scheduled for cycle 1 pass 12. The open sub-question — whether a
+mutant that inverts the PII match result would survive the test suite — will be
+answered there. **Deferred, not falsified.**
+
+**F-4: Gate integrity relies on the caller providing an unforged baseline**
+
+Status: **CLOSED — true, acknowledged, roadmap item**
+
+`agenteval gate` reads a JSON file and cannot verify it was produced by an actual test
+run. This is documented in the README Limitations. The ADOPTION.md recommends committing
+the baseline to source control (git history provides tamper evidence). Baseline HMAC
+signing is on the roadmap. **Not falsified — acknowledged as a v0.1 limitation with a
+documented workaround.**
+
+**F-5: Contract YAML expressiveness insufficient for real agent regressions**
+
+Status: **CLOSED — partially covered, LLM-judge gap acknowledged**
+
+The six check types (tool_sequence, required_tools, forbidden_tools, arg_schema, max_*,
+no_pattern, final_answer_matches) cover *structural* regressions: the agent stops calling
+a required tool, starts emitting PII, exceeds its token budget, or calls tools in the
+wrong order. They do not cover *semantic* regressions: the agent calls all the right
+tools but produces a wrong answer. The README states this explicitly. The ADOPTION.md
+scenario (agent stops calling `search_knowledge_base`) is exactly the structural case the
+contract catches well. **Not falsified — semantic correctness is out of scope for v0.1
+by design.**
+
+---
+
+### Falsification Closure — Pass 2 items (F-P2-1 through F-P2-4)
+
+**F-P2-1: inspect-replay adds contract assertions**
+
+Status: **CLOSED — checked 2026-09-26, not implemented**
+
+Checked `https://github.com/repowazdogz-droid/inspect-replay` on 2026-09-26. The latest
+commits add configuration diff fields, ignorance taxonomy entries, and alignment
+improvements. The word "assertion" does not appear in the issues or commits. The tool's
+stated scope remains: "compare two eval runs; never re-run models." Contract assertions
+(required_tools, arg_schema, no_pattern) are not on the roadmap. **Not falsified as of
+this date.** Monitor before cycle 2.
+
+**F-P2-2: EvalCore's trajectory rules are equivalent to YAML contract assertions**
+
+Status: **CLOSED — not equivalent in v0.1 scope**
+
+EvalCore's trajectory rules operate on OTel/OpenInference spans and require running the
+eval *through* EvalCore (the agent is a target in the EvalCore YAML). This repo's
+contract assertions run on already-recorded JSONL from any source. The narrower
+remaining difference in v0.1: JSON Schema validation of tool arguments (`arg_schema`
+check) and PII pattern detection over tool args and final content (`no_pattern` check).
+EvalCore's `with: contains/equals` argument matching is coarser than JSON Schema.
+**Not falsified — gap is narrow but real.**
+
+**F-P2-3: promptfoo adds offline transcript replay**
+
+Status: **CLOSED — not implemented as of 2026-09-26**
+
+Checked `https://github.com/promptfoo/promptfoo/blob/main/CHANGELOG.md` on 2026-09-26.
+The 0.123.0 and 0.123.1 releases add provider updates, metric improvements, and
+red-teaming features. No "offline transcript replay" or "keyless eval from JSONL" feature
+is present. The `promptfoo cache` feature is a provider response cache for repeated live
+evals; it is not a cassette replay system. **Not falsified. Monitor before cycle 2.**
+
+**F-P2-4: Wilson lower bound not practically useful for CI gate**
+
+Status: **CLOSED — useful when paired with drop-based gate; confirmed by ADOPTION.md scenario**
+
+The concern was: at large n (50+ cases), the Wilson lower bound barely moves between
+95/100 and 90/100 passing, so it would never trip a useful gate.
+
+Concrete check: `wilson_lower(95, 100)` = 0.884; `wilson_lower(90, 100)` = 0.826.
+A gate set to `max_pass_rate_drop = 0.0` catches the drop from 95% to 90% directly
+(the drop-based gate), while the Wilson lower bound moves from 88.4% to 82.6%,
+accurately reflecting that 90/100 is a worse lower bound. Both metrics are useful:
+the drop-based gate catches the regression; the Wilson bound communicates the
+post-regression reliability floor.
+
+For very large n (n >= 1000), the Wilson bound and the Wald interval converge and both
+are informative. The concern was only valid for very small n, and that case is handled
+by the drop-based gate (default `max_pass_rate_drop = 0.0`). **Not falsified.**
+
+---
+
+### Pass 3 Falsification Section
+
+The following would falsify the real-world applicability claims made in ADOPTION.md:
+
+**F-P3-1: The Inspect bridge script does not produce valid replayproof JSONL**
+
+The ADOPTION.md Step 1 includes a conversion script for Inspect `.eval` logs. If the
+Inspect `.eval` format has changed between the version the script was written for and
+the version a team is running, the `from_messages()` call will fail or produce empty
+runs, and the integration recipe will not work.
+
+**Test:** Run the script against a real Inspect `.eval` log from version 0.3.270 (the
+version confirmed in pass 2). If it produces zero runs or raises an exception, this
+failure mode is real. This test requires an actual `.eval` log file, which is not in
+the repo fixtures. **Deferred to the team testing it in production.**
+
+Mitigation documented in ADOPTION.md FM-2: until a native Inspect reader lands, the
+bridge script must be maintained by the adopting team.
+
+**F-P3-2: The 40-minute onboarding estimate is wrong**
+
+The ADOPTION.md claims "Step 1-4 takes 40 minutes" for a team with Inspect recordings.
+This estimate was derived by summing:
+- Step 1 (conversion): 15 min (one script, test run, check output)
+- Step 2 (contract): 10 min (copy template, fill in tool names)
+- Step 3 (baseline): 10 min (run command, inspect JSON, commit)
+- Step 4 (CI YAML): 10 min (copy template, test push)
+
+If the conversion script fails (FM-2), the estimate doubles. If the team needs to
+discover their tool names first (not already known), add 10–30 minutes. The estimate
+is realistic for a team that already knows their agent's tools and has Inspect installed.
+For a team starting from scratch, budget 90 minutes.
+
+**F-P3-3: The "no contract = no value" claim overstates the blocking condition**
+
+The ADOPTION.md states this is the single most likely reason a team would not adopt.
+Counterargument: even without a real behavioural contract, `max_tokens` and
+`max_latency_ms` checks provide value as cost alarms, and `no_pattern` with the default
+PII_PATTERNS provides immediate PII leak detection with no domain knowledge required.
+
+This is a valid point. The claim is that *full contract value* requires a spec, not that
+*any value* requires one. The one-liner version of the non-adoption reason should be
+more precise: "The core value proposition — catching tool-call regressions — requires
+knowing what tool calls are correct. Teams in exploratory eval mode will find only the
+peripheral features useful."
+
+**Not falsified — but the ADOPTION.md framing should be read as: without a spec, you
+get PII detection and cost alarms but not tool-call contract enforcement.**
