@@ -1,0 +1,27 @@
+name: research_contract
+checks:
+  - type: required_tools
+    id: required_tools
+    severity: error
+    names:
+      - search_docs
+
+  - type: max_tool_calls
+    id: max_tool_calls
+    severity: error
+    n: 6
+
+  - type: max_tokens
+    id: max_tokens
+    severity: warn
+    n: 4000
+
+  - type: no_pattern
+    id: no_pii_email
+    severity: error
+    field_name: final_content
+    regex: '[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}'
+
+  - type: final_answer_not_empty
+    id: final_answer_not_empty
+    severity: error
