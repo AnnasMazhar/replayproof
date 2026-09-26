@@ -744,3 +744,328 @@ any combination of the six check types — e.g. a semantic correctness failure t
 an LLM judge — the contract language is insufficient. This is acknowledged: the README
 states "judge-based scoring is not implemented in v0.1". A regression that passes all
 syntactic/structural checks but produces a semantically wrong answer will not be caught.
+
+
+---
+
+## Pass 2 — Ecosystem and Competition (c1-p02-research-2)
+
+**Verified:** 2026-09-26. All links confirmed live by direct fetch on this date.
+Scope note: the MARKET-VERDICTS.md orchestrator scan (2026-09-26) identifies this repo as
+PARTIALLY COVERED and mandates a re-scope: do not build another eval runner; build the
+**contract and statistics gate that reads runs other tools have already recorded**. This
+pass deepens that verdict with tool-by-tool evidence.
+
+---
+
+### Source 14 — inspect_ai (UK AI Security Institute)
+
+**Link:** https://github.com/UKGovernmentBEIS/inspect_ai  
+**PyPI:** https://pypi.org/project/inspect-ai/  
+**Version:** 0.3.270 (Sep 26, 2026) — daily release cadence  
+**Stars:** 2.9k (confirmed Sep 26, 2026)  
+**Licence:** MIT  
+**Language:** Python 3.10+  
+**Resolves:** YES — GitHub page and PyPI confirmed
+
+**What it is:** Full eval runner for LLM applications. Built by UK AISI (AI Safety
+Institute), now Meridian Labs. Covers prompt engineering, tool usage, multi-turn dialog,
+model-graded evaluations, retry, resume, crash recovery, and sample buffering. Ships with
+200+ pre-built evaluations in a companion repo (inspect_evals).
+
+**What it does well:**
+- Production-grade eval framework with a large ecosystem and government backing
+- Eval log format (.eval files, zip archives) is an emerging standard
+- Built-in support for tool calls, multi-turn, and agentic tasks
+- Sample-level replay, retry, and crash recovery
+- Active development: 7,841 commits, releases multiple times per week
+
+**Gap it leaves:**
+- **No compare/diff feature**: issue #1327 (open since February 2025) specifically
+  requests log comparison across two eval runs — it is not implemented
+- No contract assertions over tool-call sequences (required tools, ordering, arg schemas,
+  forbidden tool calls) — the eval framework runs evals but does not assert structural
+  properties of how tools were used
+- No Wilson-bounded pass rates: the framework reports raw accuracy metrics; no confidence
+  interval on the pass rate is surfaced
+- No cost regression gate: token and latency are logged but there is no stored-baseline
+  comparison that fails CI when cost increases by >X%
+
+**What this repo does differently:**
+This repo positions as the contract layer that inspect_ai users are missing: consume the
+.eval logs or JSONL recordings inspect_ai produces, evaluate them against YAML contracts
+for tool-call behaviour, and gate CI on Wilson-bounded pass rates and cost regression.
+A team already using inspect_ai gets this layer by pointing it at their .eval files.
+
+---
+
+### Source 15 — inspect-replay
+
+**Link:** https://github.com/repowazdogz-droid/inspect-replay  
+**PyPI:** Not yet published; install from source  
+**Version:** pre-1.0 (no PyPI release; git install `pip install git+https://...`)  
+**Stars:** 0 (confirmed Sep 26, 2026)  
+**Licence:** MIT  
+**Language:** Python 3.11+  
+**Resolves:** YES — GitHub page confirmed, README fully read
+
+**What it is:** Deterministic, sample-aligned comparison of two Inspect AI evaluation
+logs. Given two .eval files, it diffs configuration fields, headline metrics, and
+sample-level outcomes. Four exit codes: 0 (no diff), 1 (diff found), 2 (log unreadable),
+3 (no samples could be aligned). Explicitly never re-runs models; compares recorded state
+only. Ships 117 tests. Single runtime dependency: inspect_ai.
+
+**What it does well:**
+- Rigorous ignorance taxonomy: UNKNOWN (field not recorded), NOT_COMPARABLE (comparison
+  impossible), rather than silently treating unknowns as "unchanged"
+- Sample alignment by stable key, not position
+- Distinguishes newly_failing / newly_passing / unchanged / errors_introduced / input_changed
+- Deterministic output: same two logs → byte-identical text and JSON
+- Security model explicit: no ANSI injection from crafted log data
+
+**Gap it leaves:**
+- Inspect-specific: only reads .eval log format; cannot consume OpenAI/Anthropic JSONL or
+  any other transcript format
+- No contract assertions: it diffs what changed; it does not evaluate whether the recorded
+  behaviour satisfied a contract
+- No Wilson-bounded pass rates: it reports per-sample verdicts and headline metric deltas
+  but no confidence interval
+- No cost regression gate against a stored baseline with configurable thresholds
+- No statistical significance testing (it defers to inspect-mlflow for that)
+
+**What this repo does differently:**
+This repo is format-agnostic (JSONL from any framework, not just .eval archives), adds
+the contract assertion layer, and computes Wilson lower bounds. A user running inspect-replay
+already to diff configurations would add this repo to evaluate whether the tool-call
+contract was met across both runs.
+
+---
+
+### Source 16 — inspect-mlflow
+
+**Link:** https://github.com/debu-sinha/inspect-mlflow  
+**PyPI:** https://pypi.org/project/inspect-mlflow/ (pip install inspect-mlflow)  
+**Version:** 0.8.0  
+**Stars:** 3 (confirmed Sep 26, 2026)  
+**Licence:** MIT  
+**Language:** Python 3.10+  
+**Resolves:** YES — GitHub page confirmed, README fully read
+
+**What it is:** MLflow integration for Inspect AI. Two hooks auto-register via entry points
+at install time. Tracking hook logs full evaluation telemetry to MLflow (hierarchical runs,
+per-sample scores, token usage, cost, latency). Tracing hook maps execution to MLflow span
+trees. Includes a comparison module: compare_evals() aligns samples by (id, epoch), runs
+McNemar's test for binary scores or bootstrap CI for continuous, computes Cohen's d,
+reports cost and latency deltas.
+
+**What it does well:**
+- Statistical significance testing (McNemar / bootstrap): identifies whether a pass-rate
+  change between two runs is statistically meaningful
+- Per-sample regression detection with an alignment-first approach
+- Latency p50/p95 tracking and cost tracking logged to MLflow
+- No scipy dependency for the comparison module (claims implemented from scratch)
+- Contributions from Vector Institute / Canadian AI Safety Institute consolidation
+
+**Gap it leaves:**
+- MLflow server dependency: a CI-only use requires running `mlflow server`; not zero-dep
+- No YAML contract assertions: the framework evaluates scores, not structural properties
+  of how tools were invoked
+- No CLI gate: compare_evals() is a Python API, not a `agenteval gate --baseline b.json`
+  style CLI command
+- No Wilson lower bound: uses McNemar / bootstrap CI, which require aligned pairs; for a
+  suite of novel runs with no paired history, there is no lower bound on the pass rate
+- No token/cost regression gate against a stored baseline with CI exit code semantics
+- Inspect-specific: only reads .eval log format
+
+**What this repo does differently:**
+No MLflow server required. Wilson lower bound applies to any suite regardless of whether
+there is a paired previous run. CLI gate exits 1/0, usable in any CI system with one
+line of YAML. Contract assertions over tool-call sequences go beyond score comparison.
+
+---
+
+### Source 17 — EvalCore (eval-core)
+
+**Link:** https://github.com/eval-core/evalcore  
+**Docs/home:** https://evalcore.cc/  
+**Version:** v0.7.5 (GitHub Action tag; pre-1.0)  
+**Stars:** 16 (confirmed Sep 26, 2026)  
+**Licence:** Apache-2.0  
+**Language:** Rust binary (single prebuilt binary for Linux x64, macOS ARM/Intel)  
+**Resolves:** YES — GitHub page confirmed, docs confirmed
+
+**What it is:** Single-binary eval runner. YAML suite config + JSONL dataset. Supports
+shell, http, openai-compatible, anthropic, gemini, and trace (OTel/OpenInference) targets.
+Record/replay via SQLite cassette (`.evalcore/cache.db`). Cache modes: auto, replay, live,
+off. Replay mode: offline, keyless, deterministic; a cache miss fails the case (not a
+live fallback). Trajectory rules for agent traces. Cost budget tracking. HTML reports.
+GitHub Action: `eval-core/evalcore@v0.7.5`.
+
+**What it does well:**
+- True offline replay with hard fail on cache miss (the right design for CI determinism)
+- YAML suite config is reviewer-readable; cases are in JSONL
+- Cost budget tracking (`budget_usd` threshold)
+- Trajectory rules for OTel/OpenInference agent traces (ordered tool call matching at the
+  span level)
+- Multi-target matrix comparisons (compare two model endpoints side by side)
+- No lock-in to a Python SDK; Rust binary runs in any CI environment
+
+**Gap it leaves:**
+- Trajectory rules operate on OTel/OpenInference span format, not on a tool-call contract
+  expressed as a YAML assertion with stable ids — there is no required_tools / forbidden_tools
+  / arg_schema / no_pattern contract type; the rules are pattern-matching on spans
+- No Wilson-bounded pass rates: the pass_rate gate is a simple threshold, no confidence
+  interval
+- No token regression gate against a stored baseline: `budget_usd` is a per-run total
+  spend cap, not "flag if cost increased by >10% vs the last committed baseline"
+- Cannot consume arbitrary JSONL transcripts from other frameworks — requires running the
+  eval through the EvalCore target system
+- Pre-1.0 with stated instability on config/CLI surface
+
+**What this repo does differently:**
+Works on already-recorded JSONL from any source (no re-execution required). YAML contracts
+with stable check ids (required_tools, forbidden_tools, arg_schema, no_pattern, max_*)
+are a different interface from trajectory rules: they are about what the agent was
+contractually required to do, not about what it happened to do. Wilson bounds surface
+statistical confidence. Cost regression gate is a stored-baseline comparison, not a
+per-run cap.
+
+---
+
+### Source 18 — promptfoo
+
+**Link:** https://github.com/promptfoo/promptfoo  
+**Docs:** https://promptfoo.dev  
+**Version:** actively maintained (9,864 commits; latest tag from release-please pipeline)  
+**Stars:** 25.5k (confirmed Sep 26, 2026)  
+**Forks:** 2.4k  
+**Licence:** MIT  
+**Language:** TypeScript (Node.js); Python and Ruby bindings available  
+**Ownership:** Now part of OpenAI (company update noted in README)  
+**Resolves:** YES — GitHub page confirmed
+
+**What it is:** CLI and library for LLM prompt testing, eval, and red-teaming. Supports
+eval matrices across GPT, Claude, Gemini, DeepSeek, Llama, and more. Assertions: contains,
+regex, llm-rubric, semantic-similarity, json-schema, and more. Red-teaming / vulnerability
+scanning. CI/CD integration. Caching for deterministic CI. Side-by-side model comparison
+dashboards.
+
+**What it does well:**
+- Largest community in this space (25.5k stars; "used by OpenAI and Anthropic")
+- Broadest provider coverage and assertion type coverage
+- Red-teaming / vulnerability scanning as a first-class workflow
+- Response caching for deterministic CI runs
+- Web viewer for comparing results across prompt variants
+
+**Gap it leaves:**
+- **Not offline-first**: caching is an optimisation; a cold run requires API access; there
+  is no cassette-based hard-fail on cache miss
+- **No offline-first record/replay from an already-recorded transcript**: promptfoo runs
+  live evals; it does not read a pre-recorded JSONL transcript and evaluate it
+- No contract assertions on tool-call sequences (required/forbidden tools, arg schemas,
+  PII patterns): assertions target response text, not the structure of how tools were called
+- No Wilson-bounded pass rates: pass/fail is a simple threshold
+- No cost regression gate against a stored baseline with configurable thresholds
+- Requires Node.js runtime (not a Python-native library)
+- OpenAI ownership is a risk factor for teams with governance constraints
+
+**What this repo does differently:**
+Zero API calls at eval time: all checks run against already-recorded JSONL, no provider
+access required. Contract assertions target tool-call sequences, not response text.
+Wilson lower bound is the primary gate metric, not a bare pass rate. Python-native,
+stdlib-first, `pip install` — no Node.js.
+
+---
+
+### Comparison Table
+
+Verified 2026-09-26. All tool data sourced from each tool's own GitHub page and docs as
+read on that date. Star counts are point-in-time estimates.
+
+| Tool | Version | Stars | Approach | What it does well | Gap it leaves | What replayproof does differently |
+|------|---------|-------|----------|--------------------|---------------|-----------------------------------|
+| **inspect_ai** (UKGovernmentBEIS) | 0.3.270 (Sep 26, 2026) | 2.9k | Full eval runner; logs every run to .eval archive; retry, resume, crash recovery | Production-grade, active, 200+ built-in evals, government-backed | No compare/diff (#1327 open Feb 2025); no contract assertions on tool sequences; no Wilson bounds; no cost regression gate | Reads the logs inspect_ai already produced; contract assertions + Wilson lower bound + cost gate on top of existing recordings |
+| **inspect-replay** (repowazdogz-droid) | pre-1.0 (no PyPI) | 0 | Deterministic diff of two .eval logs; 4 exit codes; 117 tests; rigorous ignorance taxonomy | Distinguishes UNKNOWN from unchanged; byte-identical output; sample alignment by stable key | inspect-specific format only; no contract assertions; no Wilson bounds; no cost regression gate; no significance testing | Format-agnostic JSONL; contract assertions (required/forbidden/arg_schema/no_pattern); Wilson lower bound |
+| **inspect-mlflow** (debu-sinha) | 0.8.0 | 3 | MLflow tracking + tracing hooks for inspect_ai; comparison module with McNemar/bootstrap | Statistical significance testing; Cohen's d; latency p95 and cost deltas; MLflow span tree | Requires MLflow server; no YAML contract assertions; no CLI gate; no Wilson bounds; inspect-specific | No server dependency; CLI gate exits 1/0; Wilson bound applies to novel runs (no paired history needed); contract assertions |
+| **EvalCore** (eval-core) | v0.7.5 (GH Action) | 16 | Single Rust binary; YAML+JSONL suite; SQLite cassette; hard fail on cache miss | True offline replay with cache-miss failure; cost budget cap; trajectory rules for OTel traces; any-language | Trajectory rules ≠ contract assertions (pattern on spans, not named checks); no Wilson bounds; no baseline cost regression gate; must re-run through EvalCore targets | Reads arbitrary JSONL without re-execution; named contract checks with stable ids; Wilson lower bound; baseline cost regression gate |
+| **promptfoo** (promptfoo / OpenAI) | active (25.5k stars) | 25.5k | LLM prompt test + red-team suite; live evals; assertion matrices across providers | Largest community; broadest provider/assertion coverage; red-team vulnerability scanning; web viewer | Not offline-first record/replay; no tool-call contract assertions; no Wilson bounds; no baseline cost gate; Node.js runtime; OpenAI-owned (governance risk) | Offline-first; zero API calls at eval time; contract assertions on tool-call structure; Python-native; Wilson lower bound |
+
+---
+
+### The Claimed Gap — What This Repo Does That No Listed Tool Does
+
+The four named competitors (inspect_ai, inspect-replay, inspect-mlflow, EvalCore) and the
+largest adjacent tool (promptfoo) collectively cover:
+- Running evals against live models (inspect_ai, promptfoo, EvalCore)
+- Diffing two eval runs at the sample level (inspect-replay, inspect-mlflow)
+- Statistical significance testing for score changes (inspect-mlflow)
+- Offline replay via cassette with hard cache-miss failure (EvalCore)
+- Cost tracking per run (inspect-mlflow, EvalCore)
+
+None of them covers all of:
+1. **YAML contract assertions on tool-call sequences** (required_tools, forbidden_tools,
+   ordered tool_sequence, arg_schema validation, no_pattern PII detection) evaluated
+   against an already-recorded transcript from any source
+2. **Wilson-bounded pass rates as the first-class gate metric**, rather than a bare
+   pass rate, applied to recordings that need not have a paired history
+3. **Token/cost regression gate against a stored baseline** with configurable thresholds
+   and CI exit code (0/1) — distinct from a per-run budget cap
+4. **Format-agnostic transcript consumption** (OpenAI/Anthropic message JSONL, NDJSON,
+   and native format) — not locked to a single framework's log format
+
+**How a user would notice this gap:**
+A team using inspect_ai wants to know if a model swap caused the agent to stop calling the
+`search_docs` tool before answering (contract violation). inspect-replay tells them a sample
+changed from passing to failing; it does not tell them *which contract was broken*. They
+want to assert `required_tools: [search_docs]` and have it surface with a stable id in CI.
+Similarly, they want a CI gate that fails when token cost went up 15% relative to last
+week's baseline — EvalCore's `budget_usd` cap fires at an absolute ceiling, not a relative
+regression.
+
+**The positioning this repo claims (per MARKET-VERDICTS.md):**
+"Your eval framework tells you the score moved. This tells you *which tool-call contract
+broke*, with a confidence bound, and fails the build when token cost regressed."
+
+---
+
+### Falsification Section (Pass 2 update)
+
+The following would falsify the claimed differentiation:
+
+**F-P2-1: inspect-replay adds contract assertions**
+If inspect-replay implements `required_tools`, `forbidden_tools`, `arg_schema`, or
+`no_pattern` checks before this repo reaches cycle 3, the tool-call contract assertion
+claim is competed away. The repo's README must be updated to acknowledge this. Check:
+`https://github.com/repowazdogz-droid/inspect-replay/commits/main` before each cycle.
+
+**F-P2-2: EvalCore's trajectory rules are equivalent to YAML contract assertions**
+If EvalCore's `trajectory` rules cover the semantics of `required_tools`, `forbidden_tools`,
+`arg_schema`, and `no_pattern` in a format-agnostic way (not restricted to OTel spans),
+the differentiation collapses. Currently the trajectory rules target OTel/OpenInference
+spans, require re-running through EvalCore targets, and do not expose stable check ids.
+
+**F-P2-3: promptfoo adds offline transcript replay**
+If promptfoo (now OpenAI-owned) ships a feature to consume a pre-recorded JSONL transcript
+and run assertions without any live model call, the offline-first claim is competed away.
+No such feature is present in the current codebase. Monitor CHANGELOG.md.
+
+**F-P2-4: Wilson lower bound is not practically useful for CI gate**
+If teams running evals at n > 30 find the Wilson lower bound is too conservative relative
+to a simple pass-rate drop (i.e. the gate never trips because the lower bound barely moves
+between 95/100 passing and 90/100 passing), the Wilson gate needs to be supplemented by
+a direct pass-rate drop gate. The current implementation provides both: wilson_lower is
+reported but max_pass_rate_drop = 0.0 catches any regression. Not falsified in current use.
+
+---
+
+### Link Resolution Summary — Pass 2 additions
+
+| # | URL | Status |
+|---|-----|--------|
+| 14a | https://github.com/UKGovernmentBEIS/inspect_ai | 200 — confirmed 2.9k stars, v0.3.270 |
+| 14b | https://pypi.org/project/inspect-ai/ | 200 — v0.3.270 released Sep 26, 2026 |
+| 15 | https://github.com/repowazdogz-droid/inspect-replay | 200 — 0 stars, pre-1.0, 117 tests |
+| 16 | https://github.com/debu-sinha/inspect-mlflow | 200 — 3 stars, v0.8.0 |
+| 17a | https://github.com/eval-core/evalcore | 200 — 16 stars, Apache-2.0, Rust |
+| 17b | https://evalcore.cc/ | 200 — v0.7.5 GH Action confirmed |
+| 18 | https://github.com/promptfoo/promptfoo | 200 — 25.5k stars, MIT, OpenAI-owned |
