@@ -1,0 +1,96 @@
+# COMPARISONS — where replayproof fits, and where it does not
+
+Every cell below was checked against the tool's own documentation or repository on
+**2026-09-26**. Nothing here is inferred from marketing copy. Where a capability was not
+found in a tool's docs, the cell says so rather than guessing. Star counts and release
+dates are point-in-time from the GitHub API and PyPI on that date; they will drift.
+
+**Position claim (the only one):** a layer over recorded runs that answers three
+questions an eval runner does not — which tool-call contract broke, what the pass rate
+is with a 95% Wilson lower bound instead of a bare percentage, and whether token cost or
+latency regressed against a stored baseline.
+
+## Point-in-time facts (fetched 2026-09-26)
+
+| Tool | Licence | Stars | Version / release |
+|---|---|---|---|
+| EvalCore (`eval-core/evalcore`) | Apache-2.0 | 16 | v0.7.5 released 2026-07-19; Rust, crates.io; pre-1.0 |
+| inspect_ai (`UKGovernmentBEIS/inspect_ai`) | MIT | 2,862 | PyPI 0.3.270 published 2026-09-26 |
+| inspect-replay (`repowazdogz-droid/inspect-replay`) | MIT | 0 | not published to PyPI (404), install from source |
+| inspect-mlflow (`debu-sinha/inspect-mlflow`) | MIT | 3 | PyPI 0.8.1 published 2026-09-15 |
+| DeepEval (`confident-ai/deepeval`) | Apache-2.0 | 18,453 | python-v4.2.4 published 2026-09-22 |
+| promptfoo (`promptfoo/promptfoo`) | MIT | 25,477 | 0.123.1 published 2026-09-18 |
+| replayproof (this repo, `agenteval`) | MIT | 0 (not launched) | 0.1.0, 2026-09-26 |
+
+## The table
+
+| | Licence | Offline replay, no keys | Tool-call contract assertions | Confidence bounds on pass rate | Cost regression gate | Reads other tools' transcripts |
+|---|---|---|---|---|---|---|
+| **EvalCore** | Apache-2.0 (Rust binary) | **Yes.** `--cache replay` "never falls through to a live request", needs no provider key, a cache miss fails the case | **Yes.** `trajectory` scorer on recorded traces: `must_call`, `must_not_call`, `before`/`after` ordering, `max_steps`, and `with:` arg matchers limited to `contains` / `equals` | **No.** `pass_rate` / `mean_score` are absolute floors; trials report pass fractions and flakiness, no interval bound | **No delta gate.** Cost and tokens are reported per case and run; `run.budget_usd` is an absolute per-run cap, and baselines store per-case pass/fail only ("no gate results or timing baked in") | **Yes, partly.** OTel / OpenInference exports and its own trajectory JSON. Not Inspect `.eval`, not message JSONL |
+| **inspect_ai + inspect-replay** | MIT (both) | **Partial.** inspect-replay compares two recorded `.eval` logs offline and keyless; inspect_ai itself re-runs models and needs keys | **No.** Custom scorers can be written; inspect-replay diffs config fields, metrics and sample outcomes — it never looks at tool-call structure | **stderr, not a bound.** inspect_ai exposes `stderr()` and `bootstrap_stderr()` metrics on scores; no Wilson lower bound, and no default interval on a bare pass rate | **No.** Absolute token / turn limits exist in inspect_ai; there is no stored-baseline cost delta gate | **Inspect only.** inspect-replay reads `.eval` logs and nothing else; inspect_ai writes them |
+| **inspect-mlflow** | MIT (Python, needs an MLflow tracking server) | **No replay story.** Hooks run against live Inspect evals; the comparison afterwards reads stored logs without calling a model | **No.** Tool calls are counted as telemetry (`total_tool_calls`); nothing asserts on sequence, arguments or forbidden tools | **Yes, for paired runs.** Comparison auto-selects McNemar's test for binary scores or a bootstrap CI for continuous ones, plus Cohen's d. Requires two aligned runs | **Reported, not gated.** Comparison computes `baseline_total_cost_usd` vs `candidate_total_cost_usd`, but there is no CLI command that exits non-zero on a cost delta | **Inspect only.** It is an entry-point hook for inspect_ai; the comparison reads Inspect logs |
+| **DeepEval / promptfoo** | Apache-2.0 (DeepEval) · MIT (promptfoo) | **No.** Neither documents a record/replay cache. promptfoo caches provider responses (14-day TTL in `~/.promptfoo/cache`), and its own FAQ says strict offline use needs local providers or Enterprise on-prem. DeepEval: "Most of deepeval's metrics are LLM-as-a-Judge metrics and default to OpenAI" | **Yes — the strongest row against us.** promptfoo ships `tool-call-f1`, `is-valid-openai-tools-call`, and `trajectory:tool-used` / `tool-args-match` / `tool-sequence` / `step-count` (needs trace data). DeepEval ships `ToolCorrectnessMetric` and argument checks, LLM-judged (`usesLLMs`) | **Not found.** Neither docs set contains "confidence interval" or "wilson" for pass rates (searched 2026-09-26) | **Absolute only.** promptfoo's `cost` assertion checks cost is at or below a threshold; DeepEval has no cost gate (`token_cost` is a test-case field). Neither compares cost to a stored baseline | **promptfoo:** receives OTLP traces from your app or a tracing service. **DeepEval:** builds test cases from framework integrations. Neither reads Inspect `.eval` |
+| **replayproof** | MIT (Python) | **Yes, by construction.** It never calls a model: recorded runs are the only input. README: "No API keys required. All tests run offline." | **Yes, deterministic and named.** 10 checks in a YAML contract: `tool_sequence`, `required_tools`, `forbidden_tools`, `arg_schema` (full JSON Schema validation of a tool's arguments), `max_tool_calls`, `max_tokens`, `max_latency_ms`, `no_pattern` (PII regex), `final_answer_matches`, `final_answer_not_empty` | **Yes, first-class.** 95% Wilson score lower bound in `SuiteResult`; the README demo reports 4/4 = 100% observed with a 51.0% lower bound | **Yes, delta against a stored baseline.** Any pass-rate drop, tokens +10%, cost +10%, or p95 latency +25% trips the gate and exits 1 (thresholds configurable) | **Own JSONL plus OpenAI/Anthropic-style message lists** via `record.from_messages()`. An Inspect `.eval` reader is named as a target in `docs/RESEARCH.md` but is **not implemented in v0.1** |
+
+## Where this repo loses — read this first
+
+- **EvalCore owns offline replay.** Content-addressed cassette, `--cache replay` with a
+  hard fail on miss, no key, Rust binary, GitHub Action. That is the headline this repo
+  originally wanted, already shipped and more mature. Do not claim replay innovation.
+- **inspect-replay owns log diffing.** Sample alignment by stable id, a real ignorance
+  taxonomy (`UNKNOWN` / `NOT_CHECKED` / `NOT_COMPARABLE` rather than a false green), and
+  four distinct exit codes (0 no diff, 1 diff, 2 unreadable, 3 nothing alignable). It also
+  documents its own assurance boundary. This repo has no sample-aligned two-log diff.
+- **promptfoo has the broadest tool-call assertion surface** of anything in the table —
+  trajectory assertions over OpenTelemetry traces plus `tool-call-f1` across OpenAI,
+  Anthropic and Google tool-call shapes — and 25k stars of community behind it.
+- **inspect-mlflow does real significance testing** (McNemar / bootstrap CI / Cohen's d).
+  A Wilson lower bound is a confidence bound on one suite, not a paired test between two.
+- **EvalCore's `trajectory` rules already cover required, forbidden, ordering and step
+  budgets on recorded traces.** So "tool-call contract assertions" on their own is not a
+  unique claim. The narrower, defensible difference: named YAML checks with JSON-Schema
+  argument validation and PII patterns, a Wilson bound printed next to the pass rate, and
+  a cost *delta* against a committed baseline — evaluated over a transcript that already
+  exists, without re-running anything through a specific runner.
+- **v0.1 does not read Inspect `.eval` logs.** It reads its own JSONL and normalises
+  OpenAI/Anthropic-style message lists. Say "planned", not "supported".
+
+## Sources fetched for this file
+
+- `eval-core/evalcore` README + evalcore.cc guides (record/replay, agents-and-traces,
+  gates-and-baselines, trials-and-statistics, cost-and-budgets)
+- `UKGovernmentBEIS/inspect_ai` repo, issue #1327 (open, created 2025-02-16), docs
+  (`stderr`, `bootstrap_stderr`, token limits)
+- `repowazdogz-droid/inspect-replay` README (exit codes, prior art, no PyPI)
+- `debu-sinha/inspect-mlflow` README, `tests/test_comparison.py` (cost delta fields),
+  PyPI release metadata
+- `confident-ai/deepeval` docs (`metrics-tool-correctness.mdx`, FAQ), GitHub API
+- `promptfoo/promptfoo` docs (`expected-outputs/deterministic.md`, `caching.md`,
+  `tracing.md`, FAQ), GitHub API
+- This repo: `README.md`, `CHANGELOG.md`, `src/agenteval/assertions.py`,
+  `src/agenteval/budget.py`, `src/agenteval/record.py`
+
+## Choose this when…
+
+- **EvalCore** — choose it when you want to record once and replay the whole suite in CI,
+  offline and keyless, with a cache miss failing the case. replayproof composes: export
+  the trace, then assert the contract over it.
+- **inspect_ai + inspect-replay** — choose them when you need the eval runner itself
+  (retry, resume, logs) plus a rigorous, honest diff of two runs. Choose replayproof when
+  the question is "which contract broke", not "which sample moved".
+- **inspect-mlflow** — choose it when you have two aligned runs and need to know whether
+  the change is statistically meaningful, and you already run an MLflow server.
+- **DeepEval / promptfoo** — choose promptfoo for breadth of providers, assertions and
+  red-teaming, and DeepEval for an LLM-judged metric library inside pytest. Choose
+  replayproof when the question is structural, deterministic, and must cost zero keys.
+- **replayproof** — choose it when recordings already exist, the gate must be
+  deterministic, and one command has to fail the build on a broken tool contract, a
+  Wilson-uncertain pass rate, or a token-cost regression.
+
+## How it composes with Inspect
+
+Inspect runs the eval and writes the `.eval` log; inspect-replay tells you which samples
+changed and refuses to pretend it can compare what it cannot; replayproof sits on top of
+the same recordings and tells you which tool-call contract broke, with a 95% Wilson bound,
+and exits non-zero when token cost regressed against your stored baseline.
+

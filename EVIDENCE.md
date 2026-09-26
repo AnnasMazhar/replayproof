@@ -27,7 +27,7 @@ Installed 1 package in 0.91ms
 $ .venv/bin/python -m pytest -q
 ........................................................................[76%]
 ......................                                                   [100%]
-94 passed in 3.28s
+94 passed in 4.78s
 ```
 
 ---
@@ -162,6 +162,14 @@ PASS: gate exits correctly (0 on good, 1 on regressed)
 ## 5. Gate exit codes
 
 ```
+$ .venv/bin/agenteval run \
+    --contract examples/contracts/research.yaml \
+    --runs examples/recordings/sample_run.jsonl \
+    --output /tmp/sample_result.json; echo "EXIT: $?"
+# Evaluation Report: research
+[... 4/4 PASS ...]
+EXIT: 0
+
 $ .venv/bin/agenteval gate \
     --baseline examples/recordings/sample_result.json \
     --current examples/recordings/sample_result.json; echo "EXIT: $?"
@@ -183,7 +191,7 @@ EXIT: 1
 ## 6. Version check
 
 ```
-$ python -c "import agenteval; print(agenteval.__version__)"
+$ .venv/bin/python -c "import agenteval; print(agenteval.__version__)"
 0.1.0
 ```
 
@@ -238,4 +246,18 @@ in the core Wilson score or pass rate logic.
 4. `ruff check .` clean, `ruff format --check .` clean. PASS.
 5. README contains genuine results table produced by demo. PASS.
 6. No files outside the repo modified. No push. PASS.
-7. Commits are conventional, no AI attribution. PASS (to be done at commit time).
+7. Commits are conventional, no AI attribution. PASS.
+
+---
+
+## Pass c1-p04 verification (2026-09-26)
+
+Confirming all passing criteria for implement pass 1:
+
+- Branch: feat/v0.1
+- 94 tests pass, 0 failures
+- ruff check and ruff format --check both clean
+- bash examples/run_demo.sh completes with real results table
+- Gate exits 1 on regressed run, 0 on good run
+- python -c "import agenteval; print(agenteval.__version__)" → 0.1.0
+- Mutation score 82.6% (>= 70% target)

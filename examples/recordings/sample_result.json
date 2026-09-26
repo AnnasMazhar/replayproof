@@ -1,0 +1,43 @@
+{
+  "suite_name": "research",
+  "pass_rate": 1.0,
+  "wilson_lower": 0.5101091634281154,
+  "total_tokens_in": 0,
+  "total_tokens_out": 0,
+  "total_cost_usd": 0.0,
+  "p50_latency_ms": 0.04065750181325711,
+  "p95_latency_ms": 0.06613904988626017,
+  "n_cases": 4,
+  "n_passed": 4,
+  "cases": [
+    {
+      "case_id": "How do solar panels work",
+      "passed": true,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "latency_ms": 0.07033799920463935
+    },
+    {
+      "case_id": "How long does installation take",
+      "passed": true,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "latency_ms": 0.042345003748778254
+    },
+    {
+      "case_id": "What is net metering",
+      "passed": true,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "latency_ms": 0.034894997952505946
+    },
+    {
+      "case_id": "What types of batteries are used for storage",
+      "passed": true,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "latency_ms": 0.03896999987773597
+    }
+  ],
+  "metadata": {}
+}
