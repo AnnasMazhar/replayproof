@@ -261,3 +261,73 @@ Confirming all passing criteria for implement pass 1:
 - Gate exits 1 on regressed run, 0 on good run
 - python -c "import agenteval; print(agenteval.__version__)" → 0.1.0
 - Mutation score 82.6% (>= 70% target)
+
+---
+
+## Pass c1-p05 verification (2026-09-26)
+
+### Adversarial test suite
+
+```
+$ .venv/bin/python -m pytest tests/test_adversarial.py -v
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-8.3.3, pluggy-1.6.0
+
+tests/test_adversarial.py::test_replay_strict_byzantine_mismatched_result_type PASSED
+tests/test_adversarial.py::test_replay_strict_missing_tool_raises_not_returns_none PASSED
+tests/test_adversarial.py::test_dry_replay_run_with_no_turns PASSED
+tests/test_adversarial.py::test_wilson_lower_adversarial_n1_s1 PASSED
+tests/test_adversarial.py::test_wilson_lower_adversarial_high_confidence PASSED
+tests/test_adversarial.py::test_wilson_lower_adversarial_large_n PASSED
+tests/test_adversarial.py::test_gate_identical_inputs_always_passes PASSED
+tests/test_adversarial.py::test_gate_integer_overflow_token_count PASSED
+tests/test_adversarial.py::test_gate_pass_rate_drop_exactly_at_threshold PASSED
+tests/test_adversarial.py::test_gate_nan_pass_rate_does_not_crash PASSED
+tests/test_adversarial.py::test_contract_forbidden_tool_regex_injection PASSED
+tests/test_adversarial.py::test_contract_no_pattern_check_catastrophic_backtrack PASSED
+tests/test_adversarial.py::test_contract_arg_schema_null_value_passes_nullable PASSED
+tests/test_adversarial.py::test_contract_arg_schema_extra_properties_rejected PASSED
+tests/test_adversarial.py::test_contract_max_latency_check_sums_turns PASSED
+tests/test_adversarial.py::test_record_from_messages_empty_messages_no_crash PASSED
+tests/test_adversarial.py::test_record_from_messages_no_tool_calls PASSED
+tests/test_adversarial.py::test_transcript_unknown_fields_preserved PASSED
+============================== 18 passed in 0.32s ==============================
+```
+
+### Full suite (p05 — 112 tests)
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................
+........................................
+112 passed in 2.87s
+```
+
+### Lint
+
+```
+$ .venv/bin/ruff check .
+All checks passed!
+
+$ .venv/bin/ruff format --check .
+19 files already formatted
+```
+
+### Packaging metadata
+
+```
+$ .venv/bin/python -c "import agenteval; print(agenteval.__version__)"
+0.1.0
+```
+
+`pyproject.toml` now includes `[project.urls]` (Homepage, Repository, Bug Tracker,
+Changelog) required for a clean PyPI listing.
+
+### Launch surfaces added in p05
+
+- `tests/test_adversarial.py` — 18 adversarial/byzantine tests
+- `.github/workflows/release.yml` — trusted-publishing release workflow (does not publish)
+- `docs/demo.sh` — asciinema recording script with GIF conversion instructions
+- `launch/topics.txt` — 14 GitHub topic tags (added `python`)
+- `pyproject.toml` — `[project.urls]` block added
+- README rewritten with 10-second conversion first-screen per MARKET-VERDICTS.md

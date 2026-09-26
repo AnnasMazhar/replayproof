@@ -17,6 +17,12 @@ dependencies = [
 [project.scripts]
 agenteval = "agenteval.cli:main"
 
+[project.urls]
+Homepage = "https://github.com/AnnasMazhar/agent-eval-harness"
+Repository = "https://github.com/AnnasMazhar/agent-eval-harness"
+"Bug Tracker" = "https://github.com/AnnasMazhar/agent-eval-harness/issues"
+Changelog = "https://github.com/AnnasMazhar/agent-eval-harness/blob/main/CHANGELOG.md"
+
 [project.optional-dependencies]
 dev = [
     "pytest==8.3.3",

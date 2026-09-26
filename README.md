@@ -1,10 +1,23 @@
 # agent-eval-harness
 
-[![CI](https://github.com/openclaw/agent-eval-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/openclaw/agent-eval-harness/actions/workflows/ci.yml)
+[![CI](https://github.com/AnnasMazhar/agent-eval-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/AnnasMazhar/agent-eval-harness/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Deterministic, offline-replayable regression testing for LLM agents.
+Your eval framework tells you the score moved.
+This tells you **which tool-call contract broke**, with a 95% confidence bound,
+and **fails the build** when token cost regressed against your stored baseline.
+
+For AI engineers who already record agent runs and want deterministic CI gates
+without paying for a live LLM on every run.
+
+```bash
+pip install agent-eval-harness
+agenteval run --contract contracts/research.yaml --runs recordings/sample_run.jsonl --output result.json
+agenteval gate --baseline baseline.json --current result.json   # exit 1 on regression
+```
+
+No API keys required. All evaluation runs offline against committed recordings.
 
 ## What problem this solves
 
@@ -12,8 +25,13 @@ Agent behaviour is software behaviour: it should be recorded, replayed, asserted
 compared across model versions without requiring live API calls. Most LLM evaluation
 frameworks require network access on every CI run, produce non-deterministic results, and
 give no way to tell whether a model update regressed behaviour or just changed it. This
-harness records agent runs to JSONL, replays them offline against contracts, computes
-honest confidence intervals on pass rates, and gates CI on regressions.
+harness reads recorded runs — from your existing eval tool, or its own JSONL — and gates
+CI on three questions: which tool-call contract broke, what the pass rate actually is
+(not just the percentage, but a 95% Wilson lower bound), and whether token cost or latency
+regressed against the baseline you committed.
+
+Composable with Inspect AI, EvalCore, and any tool that writes JSONL or OpenAI-style
+message lists. Not a runner — no models, no providers, no keys.
 
 ## Design
 
@@ -37,15 +55,21 @@ Record agent run  ──►  Run.jsonl  ──►  Contract.evaluate  ──► 
 ## Install
 
 ```bash
-uv venv && uv pip install -e '.[dev]'
+pip install agent-eval-harness
 ```
 
-No API keys required. All tests run offline.
+Or from source (no API keys needed — runs entirely offline):
+
+```bash
+git clone https://github.com/AnnasMazhar/agent-eval-harness
+cd agent-eval-harness
+uv venv && uv pip install -e '.[dev]'
+```
 
 ## 60-second quickstart
 
 ```bash
-# Run the end-to-end demo (uses committed fixture recordings — no LLM needed)
+# Run the end-to-end demo — uses committed fixture recordings, no LLM needed
 bash examples/run_demo.sh
 ```
 
@@ -118,6 +142,41 @@ prevents false confidence from small suites.
 Reference: Wilson (1927), *JASA* 22(158):209-212. Applied to LLM evals:
 D'Oro et al. (2026), arxiv 2605.08261.
 
+## Contract YAML
+
+Declare what a correct agent run looks like:
+
+```yaml
+# contracts/research.yaml
+name: research
+checks:
+  - type: required_tools
+    names: [search_docs]
+  - type: forbidden_tools
+    names: [send_email]
+  - type: max_tool_calls
+    n: 6
+  - type: max_tokens
+    n: 4000
+  - type: no_pattern
+    field_name: final_content
+    regex: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+```
+
+Each check has a stable `id`, `severity` (`error` or `warn`), and a named fault it
+catches. See [docs/DESIGN.md](docs/DESIGN.md) for the full check reference.
+
+## Where this fits relative to other tools
+
+See [COMPARISONS.md](COMPARISONS.md) for a full factual table. The short version:
+
+- **EvalCore** owns offline replay with a content-addressed cache — use it to record runs.
+  This tool reads those recordings and asserts contracts over them.
+- **inspect_ai + inspect-replay** owns sample-aligned log diffing — use it when the
+  question is "which sample moved". Use this when the question is "which contract broke".
+- **promptfoo** has the broadest tool-call assertion surface and 25k stars. Choose it for
+  breadth and red-teaming. Choose this for deterministic, keyless, baseline-gated CI.
+
 ## Limitations
 
 - **Replay cannot validate non-deterministic sampling.** Dry-mode replay freezes the LLM
@@ -141,8 +200,12 @@ D'Oro et al. (2026), arxiv 2605.08261.
   It detects structured PII (email, SSN, phone, credit card) but not free-form PII
   (names, addresses, unformatted numbers).
 
+- **v0.1 does not read Inspect `.eval` logs.** It reads its own JSONL and normalises
+  OpenAI/Anthropic-style message lists. Inspect log import is planned.
+
 ## Roadmap
 
+- Inspect `.eval` log reader
 - Hierarchical bootstrap for nested evaluation structures
 - Judge-based scoring plugin API
 - HTML report with per-case expandable details
