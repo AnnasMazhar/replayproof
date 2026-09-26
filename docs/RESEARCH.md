@@ -670,11 +670,16 @@ serve as a useful absolute threshold — every suite of size 5 would show a lowe
 
 **Test:** `wilson_lower(5, 5)` should return a value that is a useful lower bound.
 
-**Result:** `wilson_lower(5, 5, 0.95)` ≈ 0.478 (47.8%). For a suite of 5 runs with 5
-passing, the 95% Wilson lower bound is ~48%. This IS useful as a relative bound (if the
-next run also passes 5/5, the lower bound stays ~48%; if it drops to 4/5, the lower bound
+**Result:** `wilson_lower(5, 5, 0.95)` = 0.5655 (56.6%). For a suite of 5 runs with 5
+passing, the 95% Wilson lower bound is ~57%. This IS useful as a relative bound (if the
+next run also passes 5/5, the lower bound stays ~57%; if it drops to 4/5, the lower bound
 drops to ~28%). However, it is NOT useful as an absolute threshold for certification
 (one cannot claim "the agent passes 90% of tasks" from n=5).
+
+**Correction note:** an earlier version of this document stated 0.478 (47.8%). That was
+wrong by ~9 percentage points. The correct formula for p_hat=1.0 simplifies to
+1/(1 + z^2/n), giving 1/1.7683 = 0.5655. A KAT (`test_wilson_lower_n5_s5`) was added
+to the test suite to prevent this value from regressing.
 
 **Design response:** The README states this explicitly as a limitation: "For n < 10, the
 95% Wilson lower bound may be too conservative to be useful as an absolute threshold. Use
@@ -683,7 +688,7 @@ relative (drop-based) gates for small suites." The gate uses `max_pass_rate_drop
 
 **Falsification condition:** If a legitimate, well-tested agent with 5/5 passing shows a
 lower bound that is lower than a knowingly-broken agent with 4/5 passing at n=10 — this
-would mean the bounds are misleading in comparisons. Test: `wilson_lower(5,5) = 0.478`
+would mean the bounds are misleading in comparisons. Test: `wilson_lower(5,5) = 0.5655`
 vs `wilson_lower(4,10) = 0.169`. The comparison is still directionally correct (higher
 pass rate at larger n gives higher lower bound). Not falsified.
 
@@ -1087,7 +1092,7 @@ This section closes every open falsification question from passes 1 and 2.
 Status: **CLOSED — not falsified; limitation documented and design adapted**
 
 The concern was that small-n suites (n < 10) would show lower bounds near zero even at
-100% pass rate. Measured result: `wilson_lower(5, 5, 0.95)` ≈ 0.478 (47.8%). This IS
+100% pass rate. Measured result: `wilson_lower(5, 5, 0.95)` = 0.5655 (56.6%). This IS
 too conservative for an absolute certification claim but is NOT too conservative for
 relative (drop-based) gating. Design response: the default `max_pass_rate_drop = 0.0`
 catches any drop without relying on the absolute lower bound as a threshold.
@@ -1099,7 +1104,7 @@ correctly in CI output.
 
 Falsification condition was: a legitimate well-tested agent at 5/5 showing a lower bound
 lower than a broken agent at 4/10. Test:
-- `wilson_lower(5, 5)` = 0.478
+- `wilson_lower(5, 5)` = 0.5655
 - `wilson_lower(4, 10)` = 0.169
 The comparison is still directionally correct: higher rate at larger n gives higher lower
 bound. **Not falsified.**

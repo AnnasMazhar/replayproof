@@ -255,7 +255,7 @@ not a bypass.
 | -- | -------- | ------- | -------- | ------ |
 | F1 | minor | Gate has no integrity check on current.json: a developer can hand-craft the JSON to make any run appear green | Bypass 1 above: `compare({'pass_rate': 1.0, ...}, Baseline(...))` returns ok=True | Accepted limitation. CI integrity is the caller's responsibility. README Limitations section notes this. |
 | F2 | limitation | 38 surviving mutants in `_normal_quantile` are not detected by the test suite | EVIDENCE.md mutation section; these are in an approximation branch that is never reached for standard CI values (0.95, 0.99) | Accepted limitation. The approximation branch is dead code for tested inputs. Adding tests for non-standard confidence levels would kill these. |
-| F3 | limitation | Wilson lower bound for very small n (n < 5) may be too conservative to be useful as a gate threshold | `wilson_lower(5, 5) = 0.478` — lower bound is 48% even for 5/5 | Accepted limitation. Documented in README. Addressed by requiring minimum sample size in production use. |
+| F3 | limitation | Wilson lower bound for very small n (n < 5) may be too conservative to be useful as a gate threshold | `wilson_lower(5, 5) = 0.5655` — lower bound is 57% even for 5/5. Correction: an earlier version of this finding stated 0.478 (48%), which was wrong by ~9pp. The correct value is 0.5655. KAT `test_wilson_lower_n5_s5` was added to prevent regression. | Fixed: wrong value corrected; KAT added. |
 
 No blocker or major findings. All minor findings and limitations are documented above.
 

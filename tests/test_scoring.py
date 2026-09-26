@@ -33,6 +33,11 @@ Faults detected by this module:
 - test_percentile_p50: catches an incorrect percentile interpolation.
 
 - test_compute_suite_cost: catches cost computation bugs when pricing is provided.
+
+- test_wilson_lower_n5_s5: catches an implementation returning ~0.478 for
+  wilson_lower(5, 5). The correct value is ~0.566. RESEARCH.md and
+  ADVERSARIAL_REVIEW.md both stated 0.478 (wrong by ~9pp). The correct formula
+  gives 1/(1 + z^2/n) for p_hat=1.0, which equals ~0.566 at z=1.96, n=5.
 """
 
 import os
@@ -153,6 +158,49 @@ class TestWilsonLower:
         assert lower_99 < lower_95, (
             f"99% CI lower bound ({lower_99:.4f}) should be < "
             f"95% lower bound ({lower_95:.4f}) for the same data."
+        )
+
+    def test_wilson_lower_n5_s5(self) -> None:
+        """Fault detected: returning 0.478 for wilson_lower(5, 5) instead of ~0.566.
+
+        This KAT exists because the adversarial review (F3) and RESEARCH.md both
+        claimed the value was 0.478 (~47.8%). The actual formula gives 0.5655 (~56.6%).
+        The error was 9 percentage points — large enough to mislead any reader using
+        this as a gate argument.
+
+        Hand computation (n=5, s=5, p_hat=1.0, z=1.959963985):
+            term_under_root = 1.0*(1.0-1.0)/5 + z^2/(4*25)
+                            = 0 + 3.84158/(100)
+                            = 0.0384158
+            sqrt(...)       = 0.19601...
+
+            numerator  = 1.0 + z^2/(2*5) - z*sqrt(...)
+                       = 1.0 + 3.84158/10 - 1.959963985*0.19601
+                       = 1.0 + 0.384158 - 0.384158
+                       = 1.0
+            denominator = 1 + z^2/5 = 1 + 0.768316 = 1.768316
+
+            lower = 1.0 / 1.768316 = 0.56549...
+
+        The key insight: for p_hat=1.0, the sqrt term equals z^2/(2n) exactly,
+        so numerator always simplifies to 1.0, and the result is 1/(1 + z^2/n).
+        This is strictly > 0.5 for any finite n with z=1.96.
+
+        The wrong value 0.478 would arise from using z=1.64 (one-sided 95%) or
+        from a denominator error — both are detectable by this test.
+        """
+        result = wilson_lower(successes=5, n=5, confidence=0.95)
+        expected = 0.5655
+        assert abs(result - expected) < 0.005, (
+            f"wilson_lower(5, 5) = {result:.4f}, expected ~{expected:.4f}. "
+            "RESEARCH.md and ADVERSARIAL_REVIEW.md claimed 0.478, which is wrong. "
+            "See hand computation in this docstring."
+        )
+        # Must be strictly greater than 0.5 (the halfway point) — a common wrong
+        # implementation that returns <0.5 for perfect small-n scores is caught here.
+        assert result > 0.5, (
+            f"wilson_lower(5, 5) = {result:.4f} should be > 0.5; "
+            "an implementation returning <0.5 for 5/5 is incorrect."
         )
 
 
