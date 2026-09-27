@@ -51,6 +51,8 @@ Faults detected by this module:
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from agenteval.assertions import CheckResults
@@ -335,3 +337,47 @@ class TestComputeSuite:
         assert (
             suite.to_dict()["suite_name"] == "cycle2-test-suite"
         ), f"suite_name not preserved: {suite.to_dict()['suite_name']}"
+
+
+class TestWilsonLowerInputValidation:
+    """Tests for AR2-MIN-2 fix: wilson_lower rejects invalid inputs.
+
+    Faults detected:
+    - test_wilson_lower_rejects_successes_gt_n: catches implementations that
+      silently accept successes > n (returns nonsensical or clamped value).
+      Fault injection: remove the validation guard => test fails (no ValueError raised).
+    - test_wilson_lower_rejects_negative_successes: catches implementations that
+      accept negative success counts.
+    """
+
+    def test_wilson_lower_rejects_successes_gt_n(self) -> None:
+        """Fault: wilson_lower(10, 5) returns a value instead of raising.
+
+        successes=10 with n=5 is physically impossible (more successes than trials).
+        The adversarial review (AR2-MIN-2) showed this returned 1.0 silently.
+        After fix: must raise ValueError.
+        """
+        with pytest.raises(ValueError, match="successes.*<=.*n|more successes than total"):
+            wilson_lower(10, 5, 0.95)
+
+    def test_wilson_lower_rejects_negative_successes(self) -> None:
+        """Fault: wilson_lower(-1, 5) accepts negative success count."""
+        with pytest.raises(ValueError, match="successes.*>=.*0"):
+            wilson_lower(-1, 5, 0.95)
+
+    def test_wilson_lower_accepts_zero_successes(self) -> None:
+        """Boundary: successes=0 is valid (0/n = 0% pass rate).
+
+        This must NOT raise — it is a legal input.
+        Hand computation: p_hat=0, lower bound approaches 0 for large n.
+        """
+        result = wilson_lower(0, 10, 0.95)
+        assert 0.0 <= result < 0.1, f"wilson_lower(0, 10) should be near 0, got {result}"
+
+    def test_wilson_lower_accepts_n_eq_successes(self) -> None:
+        """Boundary: successes == n is valid (100% pass rate).
+
+        Must NOT raise — the validated edge case from c1-p08.
+        """
+        result = wilson_lower(5, 5, 0.95)
+        assert abs(result - 0.5655) < 0.001, f"wilson_lower(5, 5) should be ~0.5655, got {result}"

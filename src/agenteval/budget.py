@@ -2,12 +2,18 @@
 
 A baseline is a persisted SuiteResult dict (JSON).  The gate trips if ANY
 metric degrades beyond its configured tolerance.
+
+Zero-baseline behaviour: when a baseline metric is exactly zero, the
+percentage-increase gate for that metric cannot compute a meaningful ratio and
+is skipped.  This is expected on the first run (no prior data).  The skipped
+gates are recorded in GateReport.skipped_zero_baseline so callers can surface
+them in CI output and avoid silent pass-throughs on corrupted baselines.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -39,16 +45,22 @@ class GateReport:
     Fields:
         ok: True if all gates pass (no regression).
         trips: List of tripped gate details.
+        skipped_zero_baseline: Names of percentage gates that were skipped
+            because the baseline value was zero.  These gates are NOT enforced;
+            callers should surface this list in CI output so a corrupted or
+            empty baseline does not silently disable regression detection.
     """
 
     ok: bool
     trips: tuple[GateTripDetail, ...]
+    skipped_zero_baseline: tuple[str, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable dict."""
         return {
             "ok": self.ok,
             "trips": [t.to_dict() for t in self.trips],
+            "skipped_zero_baseline": list(self.skipped_zero_baseline),
         }
 
 
@@ -117,16 +129,22 @@ def compare(
 ) -> GateReport:
     """Compare current metrics against the baseline and return a GateReport.
 
+    Percentage-increase gates (tokens, latency, cost) are skipped when the
+    baseline value is zero — the ratio is undefined, typically meaning this is
+    the first run.  Skipped gates are listed in GateReport.skipped_zero_baseline
+    so CI can surface them rather than silently passing.
+
     Args:
         current: Dict produced by ``SuiteResult.to_dict()``.
         baseline: The stored Baseline to compare against.
         tolerances: Gate thresholds; defaults to Tolerances() if not given.
 
     Returns:
-        GateReport with ok=True if all gates pass.
+        GateReport with ok=True if all enforced gates pass.
     """
     tol = tolerances if tolerances is not None else Tolerances()
     trips: list[GateTripDetail] = []
+    skipped: list[str] = []
 
     # Pass-rate gate: trip if pass rate drops more than allowed.
     cur_pass = float(current.get("pass_rate", 0.0))
@@ -156,6 +174,8 @@ def compare(
                     direction="increase",
                 )
             )
+    else:
+        skipped.append("total_tokens")
 
     # Latency gate.
     cur_lat = float(current.get("p95_latency_ms", 0.0))
@@ -171,6 +191,8 @@ def compare(
                     direction="increase",
                 )
             )
+    else:
+        skipped.append("p95_latency_ms")
 
     # Cost gate.
     cur_cost = float(current.get("total_cost_usd", 0.0))
@@ -186,5 +208,7 @@ def compare(
                     direction="increase",
                 )
             )
+    else:
+        skipped.append("total_cost_usd")
 
-    return GateReport(ok=len(trips) == 0, trips=tuple(trips))
+    return GateReport(ok=len(trips) == 0, trips=tuple(trips), skipped_zero_baseline=tuple(skipped))

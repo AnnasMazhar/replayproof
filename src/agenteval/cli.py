@@ -251,6 +251,12 @@ def _cmd_gate(args: argparse.Namespace) -> int:
                     f"{t.metric:<25} {t.baseline_value:>12.4f} "
                     f"{t.current_value:>12.4f} {t.threshold:>12.4f}"
                 )
+        if gate.skipped_zero_baseline:
+            print(
+                "Warning: the following gates were not enforced because the "
+                "baseline value is zero (first-run or corrupted baseline): "
+                + ", ".join(gate.skipped_zero_baseline)
+            )
 
     return 0 if gate.ok else 1
 

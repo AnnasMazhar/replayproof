@@ -299,3 +299,70 @@ class TestTranscriptRoundTrip:
         }
         run = Run.from_dict(d)
         assert run.metadata.get("future_unknown_field") == "should_be_preserved"
+
+
+class TestGateZeroBaselineSurfaces:
+    """Tests for AR2-MAJ-4 fix: zero-baseline gates are surfaced, not silently skipped.
+
+    Faults detected:
+    - test_zero_baseline_tokens_reported_as_skipped: catches a gate that silently
+      passes when baseline tokens are zero without recording which gates were skipped.
+      Fault injection: remove skipped_zero_baseline from GateReport => test fails.
+    - test_zero_baseline_does_not_trip: catches a gate that incorrectly trips on
+      zero-baseline (would block first-run baselines).
+    - test_nonzero_baseline_tokens_not_skipped: catches regression where a
+      non-zero baseline is incorrectly listed in skipped_zero_baseline.
+    """
+
+    def test_zero_baseline_tokens_reported_as_skipped(self) -> None:
+        """Fault: GateReport has no skipped_zero_baseline, hiding silent bypass.
+
+        When baseline tokens are 0, the token gate is skipped; the gate must
+        record 'total_tokens' in skipped_zero_baseline so CI can surface it.
+        """
+        baseline_dict = _suite_dict(tokens_in=0, tokens_out=0, cost=0.0, p95_latency=0.0)
+        current_dict = _suite_dict(tokens_in=999999, tokens_out=999999, cost=1000.0)
+        baseline = Baseline(baseline_dict)
+        report = compare(current_dict, baseline)
+        # Gate passes (no trip) because baseline is zero — that's expected for first run.
+        assert report.ok, "Gate should pass (baseline is zero, first-run scenario)"
+        # But ALL three percentage gates must be in skipped_zero_baseline.
+        assert "total_tokens" in report.skipped_zero_baseline, (
+            "total_tokens gate was silently skipped without being recorded; "
+            "skipped_zero_baseline=" + str(report.skipped_zero_baseline)
+        )
+        assert "p95_latency_ms" in report.skipped_zero_baseline
+        assert "total_cost_usd" in report.skipped_zero_baseline
+
+    def test_zero_baseline_does_not_trip(self) -> None:
+        """Fault: gate incorrectly trips when baseline is zero (blocks first run)."""
+        baseline_dict = _suite_dict(tokens_in=0, tokens_out=0)
+        current_dict = _suite_dict(tokens_in=500, tokens_out=200)
+        baseline = Baseline(baseline_dict)
+        report = compare(current_dict, baseline)
+        assert report.ok, (
+            "Gate must not trip when baseline tokens are zero (first-run baseline); "
+            "trips=" + str([t.metric for t in report.trips])
+        )
+
+    def test_nonzero_baseline_tokens_not_skipped(self) -> None:
+        """Fault: non-zero baseline token gate incorrectly listed as skipped."""
+        baseline_dict = _suite_dict(tokens_in=100, tokens_out=50)
+        current_dict = _suite_dict(tokens_in=100, tokens_out=50)
+        baseline = Baseline(baseline_dict)
+        report = compare(current_dict, baseline)
+        assert (
+            "total_tokens" not in report.skipped_zero_baseline
+        ), "total_tokens should not be in skipped_zero_baseline when baseline is non-zero"
+
+    def test_gate_report_to_dict_includes_skipped(self) -> None:
+        """Fault: to_dict() omits skipped_zero_baseline, losing information for CLI output."""
+        baseline_dict = _suite_dict(tokens_in=0, tokens_out=0, cost=0.0)
+        current_dict = _suite_dict(tokens_in=100, tokens_out=50, cost=0.5)
+        baseline = Baseline(baseline_dict)
+        report = compare(current_dict, baseline)
+        d = report.to_dict()
+        assert (
+            "skipped_zero_baseline" in d
+        ), "to_dict() must include skipped_zero_baseline for CLI/JSON output"
+        assert isinstance(d["skipped_zero_baseline"], list)

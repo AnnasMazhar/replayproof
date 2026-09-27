@@ -64,14 +64,22 @@ class TestMarkdownReport:
 
         Any substring matching a date/time pattern like 2026-09-26 or
         12:34:56 indicates the report is not stable across runs.
+        Injection tested: adding datetime.now() (renders as '2026-09-27 12:34:56.789')
+        or datetime.utcnow().isoformat() (renders as '2026-09-27T12:34:56') both fail.
         """
         suite = _make_suite()
         md = to_markdown(suite)
-        # Match ISO dates and HH:MM:SS patterns.
-        date_pattern = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
-        assert not date_pattern.search(md), (
-            "Markdown report must not contain wall-clock timestamps. Found: "
-            + str(date_pattern.findall(md))
+        # Matches both ISO-T form (2026-09-27T12:34:56) and space form (2026-09-27 12:34:56)
+        # and standalone dates (2026-09-27) and standalone times (12:34:56).
+        date_pattern = re.compile(r"\d{4}-\d{2}-\d{2}")
+        time_pattern = re.compile(r"\d{2}:\d{2}:\d{2}")
+        date_hits = date_pattern.findall(md)
+        time_hits = time_pattern.findall(md)
+        assert not date_hits, "Markdown report must not contain date strings. Found: " + str(
+            date_hits
+        )
+        assert not time_hits, "Markdown report must not contain time strings. Found: " + str(
+            time_hits
         )
 
     def test_markdown_contains_pass_rate(self) -> None:

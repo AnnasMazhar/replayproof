@@ -117,6 +117,13 @@ def wilson_lower(successes: int, n: int, confidence: float = 0.95) -> float:
     """
     if n == 0:
         return 0.0
+    if successes < 0:
+        raise ValueError(f"successes must be >= 0, got {successes}")
+    if successes > n:
+        raise ValueError(
+            f"successes ({successes}) must be <= n ({n}); "
+            "received more successes than total trials"
+        )
 
     # z is the two-sided normal quantile for the given confidence level.
     # For 0.95: z = 1.959963985...  We use a lookup for common values

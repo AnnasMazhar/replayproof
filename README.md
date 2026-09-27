@@ -12,12 +12,14 @@ For AI engineers who already record agent runs and want deterministic CI gates
 without paying for a live LLM on every run.
 
 ```bash
-pip install agent-eval-harness
+pip install git+https://github.com/AnnasMazhar/agent-eval-harness
 agenteval run --contract contracts/research.yaml --runs recordings/sample_run.jsonl --output result.json
 agenteval gate --baseline baseline.json --current result.json   # exit 1 on regression
 ```
 
-No API keys required. All evaluation runs offline against committed recordings.
+Note: `pip install agent-eval-harness` installs a **different, unrelated package** on PyPI
+(Franck Ndzomga, 2026-02-09). Install from the git URL above or from source — the PyPI name
+`replayproof` is reserved for the v0.2 release.
 
 ## What problem this solves
 
@@ -55,7 +57,7 @@ Record agent run  ──►  Run.jsonl  ──►  Contract.evaluate  ──► 
 ## Install
 
 ```bash
-pip install agent-eval-harness
+pip install git+https://github.com/AnnasMazhar/agent-eval-harness
 ```
 
 Or from source (no API keys needed — runs entirely offline):

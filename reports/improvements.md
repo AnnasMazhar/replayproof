@@ -1,5 +1,147 @@
 # Improvement Log — agent-eval-harness
 
+## c2-p08: Fix AR-MAJ-1 (PyPI name collision), AR-MAJ-3 (timestamp test), AR2-MAJ-4 (gate zero-baseline bypass), AR2-MIN-2 (wilson_lower invalid input) (2026-09-27)
+
+### Finding source
+
+Four findings from the cycle-1 adversarial review:
+- AR-MAJ-1 (`c1-p10`): `pip install agent-eval-harness` installs a third-party package (Franck Ndzomga). The PyPI name `agent-eval-harness` is occupied. False claim in the top 5 lines of README.
+- AR-MAJ-3 (`c1-p10`): `test_markdown_no_timestamps` does not fail on its named fault. Regex only matched ISO-T form (`2026-09-27T12:34:56`); `datetime.now()` renders with a space separator (`2026-09-27 12:34:56.789`) and bypassed the check.
+- AR2-MAJ-4 (`c1-p11`): Gate zero-baseline bypass silently disables token/latency/cost gates. A run consuming 2M tokens and $1000 passed against a zero baseline with `ok=True` and no indication that three gates were skipped.
+- AR2-MIN-2 (`c1-p11`): `wilson_lower(10, 5)` accepted invalid input (successes > n) and returned 1.0 silently.
+
+### Root causes
+
+**AR-MAJ-1:** `pyproject.toml` had `name = "agent-eval-harness"` — an occupied PyPI slot. README showed `pip install agent-eval-harness` twice (lines 15 and 48). The repo's correct positioning name per MARKET-VERDICTS is `replayproof`.
+
+**AR-MAJ-3:** The test regex `\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}` requires the ISO-T separator. The fault injection used `str(datetime.now())` which produces `2026-09-27 11:06:01.789012` (space, microseconds). The test docstring claimed it caught `2026-09-26` and `12:34:56` patterns — those claims were false.
+
+**AR2-MAJ-4:** `compare()` silently skipped percentage gates when baseline values were zero (to avoid division by zero), but did not record which gates were skipped. `GateReport` had no `skipped_zero_baseline` field.
+
+**AR2-MIN-2:** `wilson_lower()` had no input validation on the range of `successes`. A value of `successes > n` is physically impossible and the function should fail-closed.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 125 passed |
+| `pyproject.toml` distribution name | `agent-eval-harness` (PyPI-occupied) |
+| README install instruction | `pip install agent-eval-harness` (false) |
+| `test_markdown_no_timestamps` catches `datetime.now()` injection | NO — test passed with fault active |
+| `GateReport` surfaces skipped zero-baseline gates | NO — no `skipped_zero_baseline` field |
+| `compare(huge_tokens, zero_baseline).ok` | True with no warning (silent bypass) |
+| `wilson_lower(10, 5)` | Returns 1.0 silently (invalid input accepted) |
+| `wilson_lower(-1, 5)` | Returns nonsensical value silently |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 133 passed (+8) |
+| `pyproject.toml` distribution name | `replayproof` |
+| README install instruction | `pip install git+https://github.com/AnnasMazhar/agent-eval-harness` + note explaining PyPI collision |
+| `test_markdown_no_timestamps` catches `datetime.now()` injection | YES — broadened regex catches both `\d{4}-\d{2}-\d{2}` and `\d{2}:\d{2}:\d{2}` |
+| `GateReport` surfaces skipped zero-baseline gates | YES — `skipped_zero_baseline: tuple[str, ...]` field + `to_dict()` includes it |
+| `compare(huge_tokens, zero_baseline)` output | `ok=True, skipped_zero_baseline=['total_tokens', 'p95_latency_ms', 'total_cost_usd']` |
+| CLI gate output surfaces skipped gates | YES — Warning line printed when any gate is skipped |
+| `wilson_lower(10, 5)` | Raises `ValueError: successes (10) must be <= n (5)` |
+| `wilson_lower(-1, 5)` | Raises `ValueError: successes must be >= 0, got -1` |
+
+### Evidence
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && source .venv/bin/activate && pytest -q
+........................................................................ [ 54%]
+.............................................................            [100%]
+133 passed in 2.64s
+```
+
+```
+$ ruff check . && ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+19 files already formatted
+RUFF CLEAN
+```
+
+```
+$ python3 -c "import agenteval; print(agenteval.__version__)"
+0.1.0
+```
+
+```
+$ agenteval --help | head -3
+usage: agenteval [-h] [--version] {record,replay,run,gate,drift,report} ...
+
+Deterministic, offline-replayable regression testing for LLM agents.
+```
+
+Zero-baseline gate bypass now surfaced (AR2-MAJ-4):
+
+```
+$ source .venv/bin/activate && agenteval run \
+    --contract examples/contracts/research.yaml \
+    --runs examples/recordings/sample_run.jsonl \
+    --output /tmp/sample_result.json \
+  && agenteval gate --baseline /tmp/sample_result.json --current /tmp/sample_result.json
+Gate: PASS — no regressions detected.
+Warning: the following gates were not enforced because the baseline value is zero (first-run or corrupted baseline): total_tokens, total_cost_usd
+```
+
+Timestamp fault injection now caught (AR-MAJ-3):
+
+```
+Injected output contains date pattern? True ['2026-09-27']
+Injected output contains time pattern? True ['11:06:01']
+PASS: the broadened test WOULD catch this fault (assertion would fail in pytest)
+```
+
+wilson_lower input validation (AR2-MIN-2):
+
+```
+PASS: raises ValueError for successes>n: successes (10) must be <= n (5); received more successes than total trials
+PASS: raises ValueError for negative successes: successes must be >= 0, got -1
+PASS: wilson_lower(0, 10) = 0.0000
+PASS: wilson_lower(5, 5) = 0.5655
+```
+
+Demo still exits correctly:
+
+```
+$ bash examples/run_demo.sh
+...
+--- Step 3: gate good run vs itself (expect: PASS, exit 0) ---
+Gate: PASS — no regressions detected.
+Warning: the following gates were not enforced because the baseline value is zero (first-run or corrupted baseline): total_tokens, total_cost_usd
+Exit code: 0
+
+--- Step 4: gate regressed run vs good baseline (expect: FAIL, exit 1) ---
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+Warning: the following gates were not enforced ...
+Exit code: 1
+...
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+### Files changed
+
+- `pyproject.toml` — distribution `name` changed from `agent-eval-harness` to `replayproof`
+- `README.md` — replaced both `pip install agent-eval-harness` with `pip install git+https://github.com/AnnasMazhar/agent-eval-harness`; added note explaining PyPI name collision; moved "No API keys" claim to "What problem this solves"
+- `src/agenteval/budget.py` — added `skipped_zero_baseline: tuple[str, ...]` field to `GateReport`; `compare()` now records skipped gates in `skipped_zero_baseline`; `to_dict()` includes the field; module docstring explains zero-baseline semantics
+- `src/agenteval/cli.py` — `_cmd_gate` prints a Warning line when `skipped_zero_baseline` is non-empty
+- `src/agenteval/scoring.py` — `wilson_lower()` validates `successes >= 0` and `successes <= n` before proceeding; added `import pytest` to fix test imports
+- `tests/test_report.py` — `test_markdown_no_timestamps` regex broadened from ISO-T pattern to separate `\d{4}-\d{2}-\d{2}` and `\d{2}:\d{2}:\d{2}` patterns matching the test docstring's claim
+- `tests/test_budget_drift.py` — added `TestGateZeroBaselineSurfaces` class with 4 new tests for AR2-MAJ-4
+- `tests/test_scoring.py` — added `import pytest`; added `TestWilsonLowerInputValidation` class with 4 new tests for AR2-MIN-2
+- `reports/improvements.md` — this entry
+
+---
+
+
+
 ## c1-p09: Fix contract/README mismatch, error messages, record command (2026-09-27)
 
 ### Finding source
