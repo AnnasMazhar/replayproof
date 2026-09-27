@@ -39,19 +39,42 @@ def test_readme_quickstart_runs_verbatim(tmp_path: Path) -> None:
     result = tmp_path / "result.json"
 
     # 1. record a run once — becomes the baseline
-    r1 = _run([_agenteval(), "run", "--contract", str(CONTRACT),
-               "--runs", str(SAMPLE), "--output", str(baseline)], tmp_path)
+    r1 = _run(
+        [
+            _agenteval(),
+            "run",
+            "--contract",
+            str(CONTRACT),
+            "--runs",
+            str(SAMPLE),
+            "--output",
+            str(baseline),
+        ],
+        tmp_path,
+    )
     assert r1.returncode == 0, f"step 1 failed:\n{r1.stdout}\n{r1.stderr}"
     assert baseline.exists(), "step 1 produced no baseline file"
 
     # 2. record again — a run whose tool-call contract regressed
-    r2 = _run([_agenteval(), "run", "--contract", str(CONTRACT),
-               "--runs", str(REGRESSED), "--output", str(result)], tmp_path)
+    r2 = _run(
+        [
+            _agenteval(),
+            "run",
+            "--contract",
+            str(CONTRACT),
+            "--runs",
+            str(REGRESSED),
+            "--output",
+            str(result),
+        ],
+        tmp_path,
+    )
     assert r2.returncode == 0, f"step 2 failed:\n{r2.stdout}\n{r2.stderr}"
 
     # 3. gate it — must exit 1 on the regression (a gate that cannot fail is not a gate)
-    r3 = _run([_agenteval(), "gate", "--baseline", str(baseline),
-               "--current", str(result)], tmp_path)
+    r3 = _run(
+        [_agenteval(), "gate", "--baseline", str(baseline), "--current", str(result)], tmp_path
+    )
     assert r3.returncode == 1, (
         "gate must exit 1 on the regressed run as the README states; "
         f"got {r3.returncode}\n{r3.stdout}\n{r3.stderr}"
