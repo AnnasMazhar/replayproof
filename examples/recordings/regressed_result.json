@@ -1,0 +1,47 @@
+{
+  "suite_name": "research",
+  "pass_rate": 0.5,
+  "wilson_lower": 0.15003898911025654,
+  "total_tokens_in": 0,
+  "total_tokens_out": 0,
+  "total_cost_usd": 0.0,
+  "p50_latency_ms": 0.024239998310804367,
+  "p95_latency_ms": 0.06375935299729463,
+  "n_cases": 4,
+  "n_passed": 2,
+  "cases": [
+    {
+      "case_id": "How do solar panels work",
+      "passed": false,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "latency_ms": 0.0015429977793246508,
+      "failure_reason": "required_tools: Required tools not called: ['search_docs']"
+    },
+    {
+      "case_id": "How long does installation take",
+      "passed": true,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "latency_ms": 0.06672800373053178,
+      "failure_reason": ""
+    },
+    {
+      "case_id": "What is net metering",
+      "passed": true,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "latency_ms": 0.04693699884228408,
+      "failure_reason": ""
+    },
+    {
+      "case_id": "What types of batteries are used for storage",
+      "passed": false,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "latency_ms": 0.0011779993656091392,
+      "failure_reason": "no_pii_email: Forbidden pattern '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}' found in field 'final_content'"
+    }
+  ],
+  "metadata": {}
+}
