@@ -1,8 +1,9 @@
 # EVIDENCE.md
 
-Raw terminal output from running the agent-eval-harness v0.1 build.
+Raw terminal output from running the replayproof v0.1 build.
 All output is verbatim from actual runs on this machine.
 No output is fabricated or summarised.
+The only redaction is host paths: absolute home directories are shown as `/build/`.
 
 ---
 
@@ -11,12 +12,12 @@ No output is fabricated or summarised.
 ```
 $ uv pip install -e '.[dev]'
 Resolved 29 packages in 525ms
-   Building agent-eval-harness @ file:///home/openclaw/portfolio/agent-eval-harness
-      Built agent-eval-harness @ file:///home/openclaw/portfolio/agent-eval-harness
+   Building agent-eval-harness @ file:///build/portfolio/agent-eval-harness
+      Built agent-eval-harness @ file:///build/portfolio/agent-eval-harness
 Prepared 1 package in 678ms
 Uninstalled 1 package in 0.93ms
 Installed 1 package in 0.91ms
- ~ agent-eval-harness==0.1.0 (from file:///home/openclaw/portfolio/agent-eval-harness)
+ ~ agent-eval-harness==0.1.0 (from file:///build/portfolio/agent-eval-harness)
 ```
 
 ---

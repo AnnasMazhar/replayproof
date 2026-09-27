@@ -198,7 +198,7 @@ Four findings from the cycle-1 adversarial review:
 ### Evidence
 
 ```
-$ cd /home/openclaw/portfolio/agent-eval-harness && source .venv/bin/activate && pytest -q
+$ cd /build/portfolio/agent-eval-harness && source .venv/bin/activate && pytest -q
 ........................................................................ [ 54%]
 .............................................................            [100%]
 133 passed in 2.64s
@@ -346,7 +346,7 @@ The `record` command was left as a stub after the implementation pass.
 ### Evidence
 
 ```
-$ cd /home/openclaw/portfolio/agent-eval-harness && source .venv/bin/activate && pytest -q
+$ cd /build/portfolio/agent-eval-harness && source .venv/bin/activate && pytest -q
 ........................................................................ [ 63%]
 .........................................                                [100%]
 113 passed in 2.68s
@@ -456,7 +456,7 @@ z = 1.96 (two-sided), or from a denominator error — both detectable by the new
 ### Evidence
 
 ```
-$ cd /home/openclaw/portfolio/agent-eval-harness && source .venv/bin/activate && pytest -q
+$ cd /build/portfolio/agent-eval-harness && source .venv/bin/activate && pytest -q
 ........................................................................ [ 63%]
 .........................................                                [100%]
 113 passed in 3.35s
@@ -528,7 +528,7 @@ z = 1.96 (two-sided), or from a denominator error — both detectable by the new
 ### Evidence
 
 ```
-$ cd /home/openclaw/portfolio/agent-eval-harness && source .venv/bin/activate && pytest -q
+$ cd /build/portfolio/agent-eval-harness && source .venv/bin/activate && pytest -q
 ........................................................................ [ 63%]
 .........................................                                [100%]
 113 passed in 3.35s

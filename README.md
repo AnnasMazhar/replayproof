@@ -1,6 +1,6 @@
-# agent-eval-harness
+# replayproof
 
-[![CI](https://github.com/AnnasMazhar/agent-eval-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/AnnasMazhar/agent-eval-harness/actions/workflows/ci.yml)
+[![CI](https://github.com/AnnasMazhar/replayproof/actions/workflows/ci.yml/badge.svg)](https://github.com/AnnasMazhar/replayproof/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -12,7 +12,7 @@ For AI engineers who already record agent runs and want deterministic CI gates
 without paying for a live LLM on every run.
 
 ```bash
-pip install git+https://github.com/AnnasMazhar/agent-eval-harness
+pip install git+https://github.com/AnnasMazhar/replayproof
 agenteval run --contract contracts/research.yaml --runs recordings/sample_run.jsonl --output result.json
 agenteval gate --baseline baseline.json --current result.json   # exit 1 on regression
 ```
@@ -57,14 +57,14 @@ Record agent run  ──►  Run.jsonl  ──►  Contract.evaluate  ──► 
 ## Install
 
 ```bash
-pip install git+https://github.com/AnnasMazhar/agent-eval-harness
+pip install git+https://github.com/AnnasMazhar/replayproof
 ```
 
 Or from source (no API keys needed — runs entirely offline):
 
 ```bash
-git clone https://github.com/AnnasMazhar/agent-eval-harness
-cd agent-eval-harness
+git clone https://github.com/AnnasMazhar/replayproof
+cd replayproof
 uv venv && uv pip install -e '.[dev]'
 ```
 

@@ -7,8 +7,8 @@
     "........................................................................ [ 64%]",
     "........................................                                 [100%]",
     "112 passed in 2.58s",
-    "   Building agent-eval-harness @ file:///home/openclaw/portfolio/agent-eval-harness",
-    "      Built agent-eval-harness @ file:///home/openclaw/portfolio/agent-eval-harness",
+    "   Building agent-eval-harness @ file:///build/portfolio/agent-eval-harness",
+    "      Built agent-eval-harness @ file:///build/portfolio/agent-eval-harness",
     "Uninstalled 1 package in 0.76ms",
     "Installed 1 package in 2ms"
   ],
