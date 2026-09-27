@@ -16,6 +16,13 @@ TestDrift:
 - test_drift_classifies_fix: catches drift() that misclassifies fix as regression.
 - test_drift_stable_pass: catches drift() that marks stable-pass as something else.
 - test_drift_token_delta_total: catches drift() that does not aggregate token deltas.
+
+TestGateNonFiniteRejection:
+- test_compare_rejects_nan_pass_rate: catches a gate that accepts NaN pass_rate,
+  returning ok=True on a corrupted run file (C2P11-MAJ-2).
+- test_compare_rejects_inf_pass_rate: catches a gate that accepts infinity pass_rate.
+- test_compare_rejects_nan_latency: catches a gate that accepts NaN latency.
+- test_compare_rejects_inf_cost: catches a gate that accepts infinity cost.
 """
 
 import os
@@ -227,6 +234,82 @@ class TestDrift:
         assert (
             report.most_diverged[0].case_id == "c3"
         ), f"Most diverged should be c3, got {report.most_diverged[0].case_id}"
+
+
+class TestGateNonFiniteRejection:
+    """Tests for C2P11-MAJ-2: gate must reject NaN/infinity metrics (fail closed).
+
+    Root cause: NaN comparisons in Python return False for all comparisons
+    (including `drop > threshold`), so a NaN pass_rate would silently produce
+    ok=True — the gate's core safety property inverted.  A corrupted run file
+    must raise ValueError immediately, not pass.
+
+    Faults detected:
+    - test_compare_rejects_nan_pass_rate: catches a gate that returns ok=True
+      for NaN pass_rate instead of raising ValueError.  The named fault is:
+      remove the math.isfinite guard in compare() => NaN slips through, `drop`
+      is NaN, `drop > threshold` is False, gate returns ok=True.
+    - test_compare_rejects_inf_pass_rate: same fault path with +infinity.
+    - test_compare_rejects_nan_latency: same fault path for p95_latency_ms.
+    - test_compare_rejects_inf_cost: same fault path for total_cost_usd.
+    """
+
+    def test_compare_rejects_nan_pass_rate(self) -> None:
+        """Fault: gate accepts NaN pass_rate and returns ok=True (C2P11-MAJ-2).
+
+        NaN comparisons always return False, so `drop > threshold` is False for
+        NaN, causing the gate to return ok=True on a corrupted run file.
+        Inject: remove the isfinite check => compare({'pass_rate': nan, ...}) -> ok=True.
+        """
+        baseline_dict = _suite_dict(pass_rate=0.9)
+        current_corrupted = _suite_dict(pass_rate=float("nan"))
+        baseline = Baseline(baseline_dict)
+        with pytest.raises(ValueError, match="pass_rate"):
+            compare(current_corrupted, baseline)
+
+    def test_compare_rejects_inf_pass_rate(self) -> None:
+        """Fault: gate accepts +inf pass_rate and returns ok=True.
+
+        Inject: remove the isfinite check => compare({'pass_rate': inf, ...}) -> ok=True
+        (inf - 0.9 = inf, but inf > 0.0 would actually trip, so the test also ensures
+        we don't silently accept -inf which would suppress a trip).
+        """
+        baseline_dict = _suite_dict(pass_rate=0.9)
+        current_corrupted = _suite_dict(pass_rate=float("inf"))
+        baseline = Baseline(baseline_dict)
+        with pytest.raises(ValueError, match="pass_rate"):
+            compare(current_corrupted, baseline)
+
+    def test_compare_rejects_nan_latency(self) -> None:
+        """Fault: gate accepts NaN latency and skips the latency gate silently.
+
+        NaN latency would cause the latency gate to silently pass (NaN > threshold
+        is False), allowing a run with corrupted latency data through.
+        Inject: remove isfinite for p95_latency_ms => gate passes silently.
+        """
+        baseline_dict = _suite_dict(p95_latency=200.0)
+        current_corrupted = _suite_dict(p95_latency=0.0)
+        # Manually override the latency to NaN post-construction.
+        current_corrupted = dict(current_corrupted)
+        current_corrupted["p95_latency_ms"] = float("nan")
+        baseline = Baseline(baseline_dict)
+        with pytest.raises(ValueError, match="p95_latency_ms"):
+            compare(current_corrupted, baseline)
+
+    def test_compare_rejects_inf_cost(self) -> None:
+        """Fault: gate accepts +inf cost and silently passes the cost gate.
+
+        cost_increase = (inf - baseline) / baseline = inf, which IS > threshold.
+        But -inf would suppress a trip.  Either way, non-finite values in run
+        files are corrupted data and must not enter the gate logic.
+        Inject: remove isfinite for total_cost_usd => inf passes into division.
+        """
+        baseline_dict = _suite_dict(cost=0.01)
+        current_corrupted = dict(_suite_dict(cost=0.01))
+        current_corrupted["total_cost_usd"] = float("inf")
+        baseline = Baseline(baseline_dict)
+        with pytest.raises(ValueError, match="total_cost_usd"):
+            compare(current_corrupted, baseline)
 
 
 class TestTranscriptRoundTrip:

@@ -1,5 +1,167 @@
 # Improvement Log — agent-eval-harness
 
+## c3-p08: Fix C2P11-MAJ-2 (gate accepts NaN/infinity) and C2P11-MAJ-1 (wilson_lower accepts negative confidence) (2026-09-27)
+
+### Finding source
+
+Adversarial review c2-p11 (cycle 2, adversarial pass 2). Two open major findings:
+
+- **C2P11-MAJ-2 (headline):** `compare()` accepts NaN/infinity in current metrics and
+  returns `ok=True`. A corrupted run file silently passes the gate. Root: NaN comparisons
+  in Python return False for all orderings; `drop > threshold` is False when `drop` is NaN,
+  so no gate ever trips. This inverts the gate's core safety property.
+- **C2P11-MAJ-1:** `wilson_lower()` accepts negative confidence values without raising.
+  `wilson_lower(3, 5, -0.5)` returned `0.733332` silently (meaningless value).
+
+### Root causes
+
+**C2P11-MAJ-2:** `compare()` extracted float metrics from the current dict with
+`float(current.get("pass_rate", 0.0))` and used them in comparisons directly. Python's
+IEEE 754 NaN semantics mean `float("nan") > 0.0 == False`, so the gate reported `ok=True`
+for any current dict where pass_rate was NaN, effectively disabling the pass_rate gate.
+Same problem for inf (which would incidentally trip, but the principle is wrong — non-finite
+values must not enter the arithmetic at all).
+
+**C2P11-MAJ-1:** `wilson_lower()` validated `successes` and `n` but not `confidence`.
+A negative `confidence` is passed to `_normal_quantile((1 + confidence) / 2)`. For
+`confidence=-0.5`, that's `_normal_quantile(0.25)` — a valid call that returns a negative
+z-score. The Wilson formula then runs with a wrong z and produces a plausible-looking float.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 138 passed |
+| `compare({'pass_rate': float('nan'), ...}, baseline).ok` | `True` (silent bypass — C2P11-MAJ-2) |
+| `compare({'pass_rate': float('inf'), ...}, baseline).ok` | `True` (silent bypass — C2P11-MAJ-2) |
+| `compare({'p95_latency_ms': float('nan'), ...}, baseline).ok` | `True` (silent bypass) |
+| `wilson_lower(3, 5, -0.5)` | `0.733332` (garbage, no error — C2P11-MAJ-1) |
+| `wilson_lower(3, 5, 0.0)` | returns float silently (invalid confidence) |
+| `wilson_lower(3, 5, 1.5)` | returns float silently (invalid confidence) |
+| Tests for NaN/inf gate rejection | NONE |
+| Tests for confidence validation | NONE |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 149 passed (+11) |
+| `compare({'pass_rate': float('nan'), ...}, baseline).ok` | `ValueError: current['pass_rate'] is not finite` |
+| `compare({'pass_rate': float('inf'), ...}, baseline).ok` | `ValueError: current['pass_rate'] is not finite` |
+| `compare({'p95_latency_ms': float('nan'), ...}, baseline).ok` | `ValueError: current['p95_latency_ms'] is not finite` |
+| `wilson_lower(3, 5, -0.5)` | `ValueError: confidence must be in (0, 1), got -0.5` |
+| `wilson_lower(3, 5, 0.0)` | `ValueError: confidence must be in (0, 1), got 0.0` |
+| `wilson_lower(3, 5, 1.5)` | `ValueError: confidence must be in (0, 1), got 1.5` |
+| Tests for NaN/inf gate rejection | YES — 4 tests in `TestGateNonFiniteRejection` |
+| Tests for confidence validation | YES — 7 tests in `TestWilsonLowerConfidenceValidation` |
+
+### Evidence
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest -q
+........................................................................ [ 48%]
+........................................................................ [ 96%]
+.....                                                                    [100%]
+149 passed in 14.95s
+```
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+20 files already formatted
+RUFF CLEAN
+```
+
+NaN gate rejection (C2P11-MAJ-2 fix):
+
+```
+$ .venv/bin/python -c "
+from agenteval.budget import compare, Baseline
+import math
+baseline = Baseline({'pass_rate': 0.9, 'total_tokens_in': 100, 'total_tokens_out': 100,
+    'p95_latency_ms': 100.0, 'total_cost_usd': 0.0})
+for name, val in [('nan', float('nan')), ('inf', float('inf'))]:
+    try:
+        compare({'pass_rate': val, 'total_tokens_in': 100, 'total_tokens_out': 100,
+                 'p95_latency_ms': 100.0, 'total_cost_usd': 0.0}, baseline)
+        print(f'FAIL {name}: no error raised (gate bypassed)')
+    except ValueError as e:
+        print(f'PASS {name}: ValueError raised: {e}')
+"
+PASS nan: ValueError raised: current['pass_rate'] is not finite (nan); corrupted run files must not be passed to the gate
+PASS inf: ValueError raised: current['pass_rate'] is not finite (inf); corrupted run files must not be passed to the gate
+```
+
+Confidence validation (C2P11-MAJ-1 fix):
+
+```
+$ .venv/bin/python -c "
+from agenteval.scoring import wilson_lower
+for conf, desc in [(-0.5, 'negative'), (0.0, 'zero'), (1.0, 'one'), (1.5, 'gt one'), (0.95, 'valid')]:
+    try:
+        result = wilson_lower(3, 5, conf)
+        print(f'PASS {desc} ({conf}): result={result:.4f}')
+    except ValueError as e:
+        print(f'PASS {desc} ({conf}): ValueError: {e}')
+"
+PASS negative (-0.5): ValueError: confidence must be in (0, 1), got -0.5
+PASS zero (0.0): ValueError: confidence must be in (0, 1), got 0.0
+PASS one (1.0): ValueError: confidence must be in (0, 1), got 1.0
+PASS gt one (1.5): ValueError: confidence must be in (0, 1), got 1.5
+PASS valid (0.95): result=0.2307
+```
+
+New tests for C2P11-MAJ-2 (`TestGateNonFiniteRejection`):
+
+```
+$ .venv/bin/python -m pytest -q tests/test_budget_drift.py::TestGateNonFiniteRejection -v
+tests/test_budget_drift.py::TestGateNonFiniteRejection::test_compare_rejects_nan_pass_rate PASSED
+tests/test_budget_drift.py::TestGateNonFiniteRejection::test_compare_rejects_inf_pass_rate PASSED
+tests/test_budget_drift.py::TestGateNonFiniteRejection::test_compare_rejects_nan_latency PASSED
+tests/test_budget_drift.py::TestGateNonFiniteRejection::test_compare_rejects_inf_cost PASSED
+4 passed in 0.36s
+```
+
+New tests for C2P11-MAJ-1 (`TestWilsonLowerConfidenceValidation`):
+
+```
+$ .venv/bin/python -m pytest -q tests/test_scoring.py::TestWilsonLowerConfidenceValidation -v
+tests/test_scoring.py::TestWilsonLowerConfidenceValidation::test_wilson_lower_rejects_negative_confidence PASSED
+tests/test_scoring.py::TestWilsonLowerConfidenceValidation::test_wilson_lower_rejects_small_negative_confidence PASSED
+tests/test_scoring.py::TestWilsonLowerConfidenceValidation::test_wilson_lower_rejects_zero_confidence PASSED
+tests/test_scoring.py::TestWilsonLowerConfidenceValidation::test_wilson_lower_rejects_confidence_one PASSED
+tests/test_scoring.py::TestWilsonLowerConfidenceValidation::test_wilson_lower_rejects_confidence_gt_one PASSED
+tests/test_scoring.py::TestWilsonLowerConfidenceValidation::test_wilson_lower_accepts_095_confidence PASSED
+tests/test_scoring.py::TestWilsonLowerConfidenceValidation::test_wilson_lower_accepts_099_confidence PASSED
+7 passed in 0.28s
+```
+
+Demo still passes:
+
+```
+$ bash examples/run_demo.sh | grep -E "=== Demo complete|PASS: gate exits"
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+### Files changed
+
+- `src/agenteval/budget.py` — added `import math`; added non-finite guard at start of
+  `compare()` for `pass_rate`, `p95_latency_ms`, `total_cost_usd`; updated module
+  docstring to document the fail-closed semantics
+- `src/agenteval/scoring.py` — added `if not (0.0 < confidence < 1.0): raise ValueError`
+  guard in `wilson_lower()` before calling `_normal_quantile`
+- `tests/test_budget_drift.py` — updated module docstring; added `TestGateNonFiniteRejection`
+  class (4 tests): `test_compare_rejects_nan_pass_rate`, `test_compare_rejects_inf_pass_rate`,
+  `test_compare_rejects_nan_latency`, `test_compare_rejects_inf_cost`
+- `tests/test_scoring.py` — updated module docstring; added `TestWilsonLowerConfidenceValidation`
+  class (7 tests) covering negative, zero, ≥1 confidence values, and boundary 0.95/0.99
+- `reports/improvements.md` — this entry
+
+---
+
+
+
 ## c2-p09: Fix ADOPTION.md broken contract examples, README Contract YAML sync, COMPARISONS star count (2026-09-27)
 
 ### Finding source

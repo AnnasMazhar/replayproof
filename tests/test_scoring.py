@@ -46,6 +46,15 @@ Faults detected by this module:
 
 - test_compute_suite_name_preserved: catches mutations to the suite_name default or
   string concatenation in metadata. The suite name must round-trip through to_dict().
+
+TestWilsonLowerConfidenceValidation (new, C2P11-MAJ-1):
+- test_wilson_lower_rejects_negative_confidence: catches wilson_lower(3, 5, -0.5)
+  returning a garbage float (0.733) instead of raising ValueError.  The adversarial
+  review found this returned 0.733332 silently.
+- test_wilson_lower_rejects_zero_confidence: catches confidence=0 edge.
+- test_wilson_lower_rejects_confidence_geq_1: catches confidence>=1 edge.
+- test_wilson_lower_accepts_095_confidence: verifies the guard does not break the
+  standard 95% confidence value.
 """
 
 import os
@@ -381,3 +390,64 @@ class TestWilsonLowerInputValidation:
         """
         result = wilson_lower(5, 5, 0.95)
         assert abs(result - 0.5655) < 0.001, f"wilson_lower(5, 5) should be ~0.5655, got {result}"
+
+
+class TestWilsonLowerConfidenceValidation:
+    """Tests for C2P11-MAJ-1 fix: wilson_lower rejects negative/invalid confidence.
+
+    Root cause: the function previously only validated successes and n but
+    did not check confidence.  A negative confidence value is fed to
+    _normal_quantile, which computes (1 + confidence) / 2 — a value in (0, 0.5)
+    for negative confidence — and returns a negative z.  The formula then
+    produces a number that looks plausible but is mathematically meaningless.
+    The function must fail-closed: if confidence is not in (0, 1), raise.
+
+    Faults detected:
+    - test_wilson_lower_rejects_negative_confidence: catches implementations
+      that accept negative confidence and return a value.
+      Fault injection: remove the `if not (0 < confidence < 1)` guard =>
+      wilson_lower(3, 5, -0.5) = 0.733 (garbage, not an error) => test fails.
+    - test_wilson_lower_rejects_zero_confidence: catches confidence=0 edge.
+    - test_wilson_lower_rejects_confidence_geq_1: catches confidence>=1 edge.
+    - test_wilson_lower_accepts_boundary_confidence_values: verifies common
+      valid values still work after adding the guard.
+    """
+
+    def test_wilson_lower_rejects_negative_confidence(self) -> None:
+        """Fault: wilson_lower(3, 5, -0.5) returns 0.733 instead of raising (C2P11-MAJ-1).
+
+        The adversarial review showed: wilson_lower(3, 5, -0.5) = 0.733332
+        and labeled it a vulnerability.  After fix: must raise ValueError.
+        """
+        with pytest.raises(ValueError, match="confidence.*\\(0, 1\\)|confidence must be"):
+            wilson_lower(3, 5, -0.5)
+
+    def test_wilson_lower_rejects_small_negative_confidence(self) -> None:
+        """Fault: small negative confidence accepted, producing garbage z-score."""
+        with pytest.raises(ValueError, match="confidence"):
+            wilson_lower(3, 5, -0.1)
+
+    def test_wilson_lower_rejects_zero_confidence(self) -> None:
+        """Fault: confidence=0 accepted; z=_normal_quantile(0.5)=0, lower=p_hat (wrong)."""
+        with pytest.raises(ValueError, match="confidence"):
+            wilson_lower(3, 5, 0.0)
+
+    def test_wilson_lower_rejects_confidence_one(self) -> None:
+        """Fault: confidence=1.0 accepted; z=inf, lower approaches 0 or NaN."""
+        with pytest.raises(ValueError, match="confidence"):
+            wilson_lower(3, 5, 1.0)
+
+    def test_wilson_lower_rejects_confidence_gt_one(self) -> None:
+        """Fault: confidence=1.5 accepted; (1+1.5)/2=1.25 -> _normal_quantile raises."""
+        with pytest.raises(ValueError, match="confidence"):
+            wilson_lower(3, 5, 1.5)
+
+    def test_wilson_lower_accepts_095_confidence(self) -> None:
+        """Boundary: 0.95 is the standard value and must still work after the guard."""
+        result = wilson_lower(90, 100, 0.95)
+        assert abs(result - 0.82566) < 0.005
+
+    def test_wilson_lower_accepts_099_confidence(self) -> None:
+        """Boundary: 0.99 is another standard value; must still work."""
+        result = wilson_lower(90, 100, 0.99)
+        assert 0.0 < result < 0.82566  # 99% CI lower bound is tighter
