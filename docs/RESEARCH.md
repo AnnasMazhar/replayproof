@@ -1926,3 +1926,479 @@ All F items from passes 1-3 are now closed or deferred with an explicit runnable
 No new sources added this pass. All links from passes 1-3 remain valid (verified in c2-p01
 and c2-p02). The ecosystem data (star counts, versions) from c2-p02 is the current state
 (fetched 2026-09-27).
+
+---
+
+## Cycle 3 — Research Pass 1 (c3-p01-research-1) — Ground Truth — 2026-09-27
+
+What this pass does, in order:
+
+1. Re-verifies every URL already in this document against the live network today (section A,
+   raw output).
+2. Adds ten new primary sources (S20–S29) covering the statistical methods whose earlier
+   treatment rested on secondary claims or was absent: the exact binomial interval, the
+   zero-event bound, paired-flip significance, FDR control, drift terminology, few-run eval
+   statistics, the bootstrap, and the ML reproducibility program (section B). Each row names
+   the *exact* claim taken from that source and its resolution evidence from today.
+3. Full method treatment — equations with notation, assumptions, documented failure modes —
+   for the four methods that drive statistical surface (section C).
+4. Numerical cross-checks of the shipped implementation against the published formulas, as a
+   runnable script with raw output (section D).
+5. Falsification items F-C3-1..F-C3-5 with commands, expected observations and run results,
+   plus the F-3 status update from the `c2-p12` mutation artifact (section E).
+
+### A. Link re-verification — every URL in this document, run 2026-09-27
+
+Command (extract all unique http(s) URLs, exclude placeholder/template strings, fetch each
+following redirects with a browser UA):
+
+```bash
+python3 - <<'EOF' > /tmp/opencode/urls.txt
+import re
+txt = open('docs/RESEARCH.md').read()
+urls = sorted(set(re.findall(r'https?://[^\s\|`<>"\')\]]+', txt)))
+# dropped: 'https://...', '$repo' shell template, and truncated regex artifacts
+for u in urls:
+    if u in ('https://...', 'https://api.github.com/repos/$repo'): continue
+    print(u)
+EOF
+cat /tmp/opencode/urls.txt | xargs -P 8 -I{} sh -c 'code=$(curl -sIL -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36" --max-time 25 -o /dev/null -w "%{http_code}" "{}"); echo "$code {}"' | sort -k2
+```
+
+Raw output (41 URLs):
+
+```
+404 https://api.github.com/repos/
+200 https://api.github.com/repos/repowazdogz-droid/inspect-replay/commits
+200 https://arxiv.org/abs/2411.00640
+200 https://arxiv.org/abs/2510.09907
+200 https://arxiv.org/abs/2602.20580
+200 https://arxiv.org/abs/2605.08261
+200 https://arxiv.org/abs/2605.15229
+200 https://arxiv.org/abs/2606.11686
+200 https://arxiv.org/abs/2607.16200
+200 https://arxiv.org/abs/2607.16345
+200 https://arxiv.org/abs/2609.20625
+200 https://docs.confident-ai.com/
+403 https://doi.org/10.1080/01621459.1927.10502953
+202 https://doi.org/10.1109/TSE.2010.62
+200 https://doi.org/10.48550/arXiv.2411.00640
+200 https://doi.org/10.48550/arXiv.2510.09907
+200 https://doi.org/10.48550/arXiv.2602.20580
+200 https://doi.org/10.48550/arXiv.2605.08261
+200 https://doi.org/10.48550/arXiv.2605.15229
+200 https://doi.org/10.48550/arXiv.2606.11686
+200 https://doi.org/10.48550/arXiv.2607.16200
+200 https://doi.org/10.48550/arXiv.2607.16345
+200 https://doi.org/10.48550/arXiv.2609.20625
+200 https://evalcore.cc/
+200 https://github.com/confident-ai/deepeval
+200 https://github.com/debu-sinha/inspect-mlflow
+200 https://github.com/eval-core/evalcore
+200 https://github.com/ndjson/ndjson-spec/
+200 https://github.com/promptfoo/promptfoo
+200 https://github.com/promptfoo/promptfoo/blob/main/CHANGELOG.md
+200 https://github.com/repowazdogz-droid/inspect-replay
+200 https://github.com/UKGovernmentBEIS/inspect_ai
+200 https://huang.isis.vanderbilt.edu/cs4278-sp24/readings/mutation-testing.pdf
+200 https://json-schema.org/draft/2020-12/json-schema-core.html
+200 https://json-schema.org/specification
+200 https://link.springer.com/chapter/10.1007/978-1-4757-5939-6_7
+200 https://promptfoo.dev
+200 https://pypi.org/project/deepeval/
+200 https://pypi.org/project/inspect-ai/
+200 https://pypi.org/project/inspect-mlflow/
+200 https://raw.githubusercontent.com/promptfoo/promptfoo/main/CHANGELOG.md
+200 https://www.jstor.org/stable/2276774
+200 https://www.statisticshowto.com/wilson-ci/
+```
+
+Reading of the three non-200 rows, verified the same day:
+
+- `404 https://api.github.com/repos/` — shell-template fragment from the `for repo in
+  "https://api.github.com/repos/$repo"` snippet in the c2-p02 evidence block, not a
+  citation. The template's real instances are exercised in that block's output. Excluded
+  from the citation set.
+- `403 https://doi.org/10.1080/01621459.1927.10502953` — `doi.org` serves the redirect
+  (302) and the *final* publisher page (Taylor & Francis) returns 403 to automated
+  clients, exactly as recorded in the c1 audit ("valid DOI, publisher bot-gates bots").
+  DOI validity confirmed today via Crossref record (Wilson 1927, JASA 22(158):209–212).
+- `202 https://doi.org/10.1109/TSE.2010.62` — DOI resolves; IEEE serves an interstitial
+  (202) to automated clients. Crossref metadata confirmed today: "An Analysis and Survey
+  of the Development of Mutation Testing", 2011-09 (Jia & Harman, as re-cited in this doc).
+
+No citation link in this document is dead as of 2026-09-27.
+
+### B. New sources S20–S29 (added this pass)
+
+Resolution evidence collected today, raw:
+
+```
+10.1007/BF02295996 | doi.org 302 -> https://www.cambridge.org/core/product/identifier/S0033312300045178/type/journal_article | Crossref: Note on the Sampling Error of the Difference Between Correlated Proportions or P | 12 153-157 | [1947, 6]
+10.1001/jama.1983.03330370053031 | doi.org 302 -> http://jaman.jamanetwork.com/article.aspx?doi=10.1001/jama.1983.03330370053031 | Crossref: If Nothing Goes Wrong, Is Everything All Right? (subtitle: Interpreting Zero Numerators) | 249 1743 | [1983, 4, 1]
+10.2307/2331986 | doi.org 301 -> https://doi.org/10.1093/biomet/26.4.404 | Crossref (via target): THE USE OF CONFIDENCE OR FIDUCIAL LIMITS ILLUSTRATED IN THE CASE OF THE BINOMIAL | CLOPPER PEARSON | 26 404-413 | [[1934]]
+10.1111/j.2517-6161.1995.tb02031.x | doi.org 302 -> https://academic.oup.com/jrsssb/article/57/1/289/7035855 | Crossref: Controlling the False Discovery Rate: A Practical and Powerful Approach to Multiple Testing | 57 289-300 | [1995, 1, 1]
+10.1214/aos/1013699998 | doi.org 302 -> https://projecteuclid.org/journals/annals-of-statistics/volume-29/issue-4/... | Crossref: The control of the false discovery rate in multiple testing under dependency | 29 | [2001, 8, 1]
+10.1145/2523813 | doi.org 302 -> https://dl.acm.org/doi/10.1145/2523813 | Crossref: A survey on concept drift adaptation | 46 1-37 | [2014, 3]
+10.1201/9780429246593 | doi.org 302 -> https://www.taylorfrancis.com/books/9781000064988 | Crossref: An Introduction to the Bootstrap | issued [1994, 5, 15]
+10.1201/9781315374116-8 | doi.org 302 -> https://www.taylorfrancis.com/books/9781466588189/chapters/10.1201/9781315374116-8 | Crossref: The Paired 2 x 2 Table | Fagerland, Lydersen, Laake | pp. 331-386 | [2017, 7, 28]
+arxiv.org/abs/2108.13264 | HTTP 200 | title: Deep Reinforcement Learning at the Edge of the Statistical Precipice | authors: Rishabh Agarwal, Max Schwarzer, Pablo Samuel Castro, Aaron Courville, Marc G. Bellemare
+www.jmlr.org/papers/v22/20-303.html | HTTP 200 | Improving Reproducibility in Machine Learning Research (A Report from the NeurIPS 2019 Reproducibility Program) | Pineau, Vincent-Lamarre, Sinha, Lariviere, Beygelzimer, d'Alche-Buc, Fox, Larochelle | 22(164):1-20, 2021
+```
+
+| id | source | link | exact claim taken from it |
+|---|---|---|---|
+| S20 | McNemar, Q. (1947). Note on the Sampling Error of the Difference Between Correlated Proportions or Percentages. *Psychometrika* 12(2):153–157. | https://doi.org/10.1007/BF02295996 | The test of change in correlated proportions uses only the discordant pairs; under marginal homogeneity the large-sample statistic (b−c)²/(b+c) is chi-square with 1 df. |
+| S21 | Fagerland, Lydersen, Laake (2017). *Statistical Analysis of Contingency Tables*, ch. "The Paired 2 × 2 Table", pp. 331–386. | https://doi.org/10.1201/9781315374116-8 | Bibliographic pointer only, labelled as such: this is the dedicated modern monograph chapter for paired 2×2 tables (the method family S20 defines). Full text was paywalled this pass — no content claim is taken from it. |
+| S22 | Hanley, J.A., Lippman-Hand, A. (1983). If Nothing Goes Wrong, Is Everything All Right? Subtitle: Interpreting Zero Numerators. *JAMA* 249:1743. | https://doi.org/10.1001/jama.1983.03330370053031 | With zero events in n independent trials, the upper confidence bound on the event probability is approximately 3/n (the "rule of three"). Cross-checked numerically this pass (section D): 3/n approximates 1−0.05^(1/n). |
+| S23 | Clopper, C.J., Pearson, E.S. (1934). The Use of Confidence or Fiducial Limits Illustrated in the Case of the Binomial. *Biometrika* 26(4):404–413. | https://doi.org/10.2307/2331986 | The exact binomial interval is obtained by inverting the binomial test at α/2 — the construction implemented and verified in section D. Conservatism of this interval is documented by Brown, Cai & DasGupta 2001 (source S4e, VERIFIED in the independent audit). |
+| S24 | Agarwal, Schwarzer, Castro, Courville, Bellemare (2021). Deep Reinforcement Learning at the Edge of the Statistical Precipice. arXiv:2108.13264 (ECML-PKDD 2022). | https://arxiv.org/abs/2108.13264 | Abstract, quoted: published results "compare point estimates of aggregate performance … ignoring the statistical uncertainty implied by the use of a finite number of training runs"; the paper answers with "interval estimates of aggregate performance" and performance profiles. Supports shipping CIs beside pass rates rather than bare point estimates. |
+| S25 | Benjamini, Y., Hochberg, Y. (1995). Controlling the False Discovery Rate: A Practical and Powerful Approach to Multiple Testing. *JRSS-B* 57(1):289–300. | https://doi.org/10.1111/j.2517-6161.1995.tb02031.x | The step-up FDR procedure (full form in C4): order the p-values, reject the largest k with p(k) ≤ (k/m)·q. FDR control is proved for independent tests. |
+| S26 | Benjamini, Y., Yekutieli, D. (2001). The Control of the False Discovery Rate in Multiple Testing under Dependency. *Annals of Statistics* 29(4):1165–1188. | https://doi.org/10.1214/aos/1013699998 | The documented failure mode of S25: under arbitrary dependence BH does not control FDR at the nominal level; dividing the BH thresholds by c(m)=Σ(1/j), j=1..m, restores control. |
+| S27 | Gama, Žliobaitė, Bifet, Pechenizkiy, Bouchachia (2014). A Survey on Concept Drift Adaptation. *ACM Computing Surveys* 46(4):1–37. | https://doi.org/10.1145/2523813 | Abstract, quoted: "Concept drift primarily refers to an online supervised learning scenario when the relation between the input data and the target variable changes over time." Used to keep our terminology honest: our drift report detects *case-level verdict flips on a fixed case set*, which is narrower than the literature's concept drift (design decision, see C-note under C1). |
+| S28 | Efron, B., Tibshirani, R.J. *An Introduction to the Bootstrap*. Chapman & Hall/CRC. | https://doi.org/10.1201/9780429246593 | The standard reference for bootstrap resampling — the alternative we considered for pass-rate-difference intervals and rejected (section C5, alternatives). DOI/Crossref record issued 1994-05-15; the print edition is widely cited as 1993. |
+| S29 | Pineau et al. (2021). Improving Reproducibility in Machine Learning Research (A Report from the NeurIPS 2019 Reproducibility Program). *JMLR* 22(164):1–20. | https://www.jmlr.org/papers/v22/20-303.html | Page text, quoted: the report covers "the inclusion of the Machine Learning Reproducibility checklist as part of the paper submission process." Supports treating deterministic clocks, injected seeds, and recorded fixtures as program-level expectations rather than repo-local taste. |
+
+Notes on scope: S21 and S28 are cited as bibliographic anchors with explicitly limited
+claims (paywalled content was not read this pass); every other row's claim is backed by
+metadata or text captured in the raw output above. This is deliberate — the c1 citation
+audit showed decorative citations are a blocking finding, so each claim here names the
+exact line, abstract fragment, or computed value it rests on.
+
+### C. Method detail for the design-driving sources
+
+#### C1. McNemar's test on verdict flips (S20; exact-form treatment keyed to S21)
+
+Situation: `drift.py` classifies each shared case as pass→fail (regression), fail→pass
+(fix), or unchanged. The question a reader will ask — "is this shift noise?" — has a
+classical answer.
+
+Method. Build the 2×2 table over cases present in both runs. Let
+- b = number of cases passing in run A and failing in run B (regressions),
+- c = number of cases failing in A and passing in B (fixes),
+- n_d = b + c = the discordant pairs (everything else is a concordant pair and carries
+  no information about a change in marginal pass rate).
+
+Under H0 (the two runs have equal marginal pass probability) each discordant pair is a
+fair coin flip, so b | n_d ~ Binomial(n_d, 1/2). The large-sample statistic is
+
+    chi2 = (b - c)^2 / n_d      ~ chi-square with 1 degree of freedom under H0
+
+and the exact two-sided p-value is
+
+    p_exact = min(1, 2 * sum_{i=0}^{min(b,c)} C(n_d, i) * (1/2)^n_d)
+
+Assumptions: paired observations (the same case IDs scored in both runs); binary outcome
+per case; the chi-square form additionally assumes n_d large enough for the asymptotic
+approximation; H0 tests marginal homogeneity only, nothing causal.
+
+Documented / demonstrated failure modes:
+- Small-n_d miscalibration of the asymptotic form. Computed in section D: at b=4, c=0 the
+  uncorrected chi-square reports p = 0.0455 (significant at 0.05) while the exact test
+  reports p = 0.125 (not significant). The asymptotic form cannot be used on small flip
+  tables. The dedicated reference for choosing the variant is S21 (bibliographic pointer
+  — content not read this pass, labelled honestly); the numbers above are our own
+  first-principles computation, reproducible from the section D script.
+- Power depends on n_d, not on suite size: a 500-case suite where only 3 cases flip has
+  the same test as a 3-case suite with 3 flips. "We tested 500 cases" does not buy
+  significance.
+- The test cannot say why flips happened — regression vs churn classification (this
+  repo's taxonomy) remains a separate, descriptive layer. The taxonomy itself is a design
+  decision of this repo (the c1 audit showed the Chronicle paper does not contain it).
+
+Mapping: `src/agenteval/drift.py` counts b and c today but performs no significance test.
+This section is the ground truth for a possible `drift --significance` surface; nothing is
+implemented in this pass.
+
+#### C2. Rule of three for all-green suites (S22)
+
+Situation: a suite that passes n/n looks like proof of correctness. It is not.
+
+Method. With 0 observed failures in n independent trials, the exact one-sided upper 95%
+bound p_u on the failure probability solves
+
+    (1 - p_u)^n = alpha,  alpha = 0.05
+    p_u = 1 - alpha^(1/n) = 1 - 0.05^(1/n) ~ -ln(0.05)/n = 2.996/n = 3/n
+
+Assumptions: n independent Bernoulli trials with constant p; exactly zero observed
+failures; one-sided 95% level (the two-sided 95% Clopper-Pearson upper end instead solves
+(1-p)^n = alpha/2 and is ~3.69/n).
+
+Failure modes (computed in section D):
+- Approximation error at small n: 3/n = 0.300 vs exact 0.259 at n = 10 (16% relative);
+  at n = 30: 0.100 vs 0.095; at n = 100: 0.030 vs 0.0295. The "3" is an asymptotic
+  constant — usable from about n ≥ 10, misleading below it (at n = 4: 0.75 vs 0.527).
+- Model caveat, ours: the bound presumes the n trials are exchangeable draws from a
+  population. Our suites are fixed case lists — the honest reading of "0 failures in n
+  cases" is about hypothetical re-runs over this case distribution, and the README must
+  say so rather than implying a guarantee.
+
+Mapping: the "All-green suite interpretation" block in section D; wording of any
+"0 failures observed" claim in README/results tables; consistent with the Wilson lower
+bound the gate already uses (5/5 → Wilson lower 0.566, i.e. the same skepticism from the
+other side).
+
+#### C3. Clopper-Pearson exact interval as the KAT reference (S23)
+
+Method. For s successes in n trials at two-sided level 1-alpha, the bounds are defined by
+inverting the binomial test:
+
+    lower L solves  sum_{i=s}^{n} C(n,i) L^i (1-L)^(n-i) = alpha/2     (s > 0)
+    upper U solves  sum_{i=0}^{s} C(n,i) U^i (1-U)^(n-i) = alpha/2     (s < n)
+
+Notation: C(n,i) binomial coefficient; alpha/2 = 0.025 for a 95% interval. Both sums are
+monotone in the bound parameter, so bisection converges (this is exactly what the
+section D script does — 100 bisection steps on the tail sums).
+
+Assumptions: binomial model (fixed n, constant success probability, independence).
+
+Documented failure mode: conservatism — actual coverage is at least nominal and often
+substantially above it (Brown, Cai & DasGupta 2001, source S4e, VERIFIED in the citation
+audit). Computed side-by-side in section D: at s=n=4 the exact lower bound is 0.3976
+while Wilson gives 0.5101; at s=5,n=5: 0.4782 vs 0.5655. Interesting artifact of this
+pass: the value 0.478 that the c1 document once misattributed to `wilson_lower(5,5)` is
+in fact the *Clopper-Pearson* lower bound for 5/5 — computed here independently. (Stated
+as an observation, not a claim about how the original error arose.)
+
+Mapping: `wilson_lower` KATs use published/hand-computed values; CP is the independent
+exact reference those values can be checked against without scipy (section D reproduces
+the check from first principles). The alternatives-considered entry above is upgraded by
+this pass from an uncited aside to a sourced, computed comparison.
+
+#### C4. Benjamini-Hochberg FDR — the alternative to naive per-check testing (S25, S26)
+
+Situation (hypothetical): if the harness ever attached a p-value to each of m checks
+across a suite, m independent tests at level alpha would inflate the family-wise error
+rate to 1-(1-alpha)^m.
+
+Method (S25): compute p-values p_1..p_m, sort p_(1) ≤ ... ≤ p_(m), find
+
+    k = max{ i : p_(i) <= (i/m) * q }
+
+and reject hypotheses 1..k. FDR (expected fraction of false rejections among rejections)
+is controlled at q under independence (and positive regression dependence).
+
+Documented failure mode (S26): under arbitrary dependence BH can exceed the nominal q;
+the BY modification divides each threshold by c(m) = sum_{j=1}^{m} 1/j, restoring control
+at a power cost.
+
+Design status, stated honestly: **v0.1 computes no p-values anywhere.** Gates are
+deterministic threshold comparisons against a stored baseline, and `wilson_lower` is an
+interval estimate, not a hypothesis test. This entry records (a) the reason we do not run
+m uncorrected tests, and (b) the exact procedure (BY, not BH) if per-check significance is
+ever added. It is an alternatives-considered entry with full method detail, not a shipped
+feature.
+
+#### C5. Alternatives considered this pass
+
+- **Bootstrap interval for the pass-rate difference (S28).** Rejected for v0.1: needs a
+  resampling loop and an RNG in the gate path, where the closed-form Wilson interval is
+  deterministic and dependency-free. Revisit only with a seeded, recorded resampler.
+- **Per-check significance with BH (S25/S26).** Rejected (see C4) — no p-values are
+  generated in v0.1; adding them without BY correction would import the dependence failure
+  mode of S26.
+- **Asymptotic McNemar on small flip tables (S20).** Rejected as a shipped default —
+  section D shows the exact/asymptotic split at b=4,c=0; if significance ever ships it
+  must use the exact binomial form (or a n_d threshold with the choice printed).
+- **3/n as a printed bound at suite sizes below n=10.** Rejected by the section D numbers
+  (n=4: 0.75 vs 0.527) — either print the exact 1-alpha^(1/n) or state the n range.
+
+### D. Numerical ground truth — raw command and output
+
+Command run this pass (offline, stdlib + the installed package only):
+
+```bash
+.venv/bin/python - <<'EOF'
+import math
+from agenteval.scoring import wilson_lower
+
+Z = 1.959963984540054  # Phi^{-1}(0.975)
+
+def wilson_ref(s, n):
+    """Wilson (1927) JASA 22:209-212, transcribed: lower end of the interval.
+    phat = s/n; centre = (phat + z^2/2n)/(1+z^2/n);
+    halfwidth = z*sqrt(phat qhat/n + z^2/4n^2)/(1+z^2/n)"""
+    phat = s / n
+    denom = 1 + Z * Z / n
+    centre = (phat + Z * Z / (2 * n)) / denom
+    half = Z * math.sqrt(phat * (1 - phat) / n + Z * Z / (4 * n * n)) / denom
+    return centre - half
+
+maxd, worst = 0.0, None
+for n in range(1, 201):
+    for s in range(0, n + 1):
+        d = abs(wilson_lower(s, n) - wilson_ref(s, n))
+        if d > maxd:
+            maxd, worst = d, (s, n)
+print("[1] grid n=1..200, all s: max|wilson_lower - Wilson(1927) formula| =", maxd, "at (s,n) =", worst)
+print("[1] wilson_lower(5,5) = %.4f   wilson_lower(4,4) = %.4f" % (wilson_lower(5, 5), wilson_lower(4, 4)))
+
+def tail_ge(p, s, n):
+    return sum(math.comb(n, i) * p**i * (1 - p) ** (n - i) for i in range(s, n + 1))
+
+def tail_le(p, s, n):
+    return sum(math.comb(n, i) * p**i * (1 - p) ** (n - i) for i in range(0, s + 1))
+
+def cp_lower(s, n, a=0.025):
+    if s == 0:
+        return 0.0
+    lo, hi = 0.0, s / n
+    for _ in range(100):
+        mid = (lo + hi) / 2
+        if tail_ge(mid, s, n) > a:
+            hi = mid
+        else:
+            lo = mid
+    return (lo + hi) / 2
+
+def cp_upper(s, n, a=0.025):
+    if s == n:
+        return 1.0
+    lo, hi = s / n, 1.0
+    for _ in range(100):
+        mid = (lo + hi) / 2
+        if tail_le(mid, s, n) > a:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+print("[2] Clopper-Pearson exact 95% bounds (bisection on binomial tails, alpha/2=0.025):")
+for (s, n) in [(4, 4), (5, 5), (9, 10), (27, 30)]:
+    print("    s=%d n=%d: CP lower = %.4f   Wilson lower = %.4f"
+          % (s, n, cp_lower(s, n), wilson_lower(s, n)))
+
+print("[3] Rule of three (Hanley & Lippman-Hand 1983), 0 failures in n trials, upper bound on failure rate:")
+for n in [10, 30, 100]:
+    print("    n=%3d: 3/n = %.4f   exact one-sided 95%% 1-0.05^(1/n) = %.4f   two-sided CP upper 1-0.025^(1/n) = %.4f"
+          % (n, 3 / n, 1 - 0.05 ** (1 / n), 1 - 0.025 ** (1 / n)))
+
+def chi2_sf1(x):
+    return math.erfc(math.sqrt(x / 2))  # P(X > x), X ~ chi2 with 1 dof
+
+def mcnemar_exact_p(b, c):
+    n = b + c
+    if n == 0:
+        return float("nan")
+    k = min(b, c)
+    return min(1.0, 2 * sum(math.comb(n, i) for i in range(0, k + 1)) / 2**n)
+
+print("[4] McNemar on flip tables b = pass->fail, c = fail->pass:")
+print("    b  c | chisq_uncorrected p   | chisq_corrected p   | exact binomial p")
+for (b, c) in [(9, 1), (6, 1), (4, 0), (1, 0)]:
+    n = b + c
+    u = (b - c) ** 2 / n
+    k = max(abs(b - c) - 1, 0)
+    cr = k * k / n
+    print("    %d  %d | %8.4f      %8.5f | %8.4f      %8.5f | %8.5f"
+          % (b, c, u, chi2_sf1(u), cr, chi2_sf1(cr), mcnemar_exact_p(b, c)))
+
+print("[5] All-green suite interpretation (rule of three):")
+for n in [5, 10, 30]:
+    print("    %d/%d pass -> failure rate up to %.3f still consistent at one-sided 95%%; Wilson lower = %.3f"
+          % (n, n, 1 - 0.05 ** (1 / n), wilson_lower(n, n)))
+EOF
+```
+
+Raw output:
+
+```
+[1] grid n=1..200, all s: max|wilson_lower - Wilson(1927) formula| = 1.172872909904754e-10 at (s,n) = (4, 4)
+[1] wilson_lower(5,5) = 0.5655   wilson_lower(4,4) = 0.5101
+[2] Clopper-Pearson exact 95% bounds (bisection on binomial tails, alpha/2=0.025):
+    s=4 n=4: CP lower = 0.3976   Wilson lower = 0.5101
+    s=5 n=5: CP lower = 0.4782   Wilson lower = 0.5655
+    s=9 n=10: CP lower = 0.5550   Wilson lower = 0.5958
+    s=27 n=30: CP lower = 0.7347   Wilson lower = 0.7438
+[3] Rule of three (Hanley & Lippman-Hand 1983), 0 failures in n trials, upper bound on failure rate:
+    n= 10: 3/n = 0.3000   exact one-sided 95% 1-0.05^(1/n) = 0.2589   two-sided CP upper 1-0.025^(1/n) = 0.3085
+    n= 30: 3/n = 0.1000   exact one-sided 95% 1-0.05^(1/n) = 0.0950   two-sided CP upper 1-0.025^(1/n) = 0.1157
+    n=100: 3/n = 0.0300   exact one-sided 95% 1-0.05^(1/n) = 0.0295   two-sided CP upper 1-0.025^(1/n) = 0.0362
+[4] McNemar on flip tables b = pass->fail, c = fail->pass:
+    b  c | chisq_uncorrected p   | chisq_corrected p   | exact binomial p
+    9  1 |   6.4000       0.01141 |   4.9000       0.02686 |  0.02148
+    6  1 |   3.5714       0.05878 |   2.2857       0.13057 |  0.12500
+    4  0 |   4.0000       0.04550 |   2.2500       0.13361 |  0.12500
+    1  0 |   1.0000       0.31731 |   0.0000       1.00000 |  1.00000
+[5] All-green suite interpretation (rule of three):
+    5/5 pass -> failure rate up to 0.451 still consistent at one-sided 95%; Wilson lower = 0.566
+    10/10 pass -> failure rate up to 0.259 still consistent at one-sided 95%; Wilson lower = 0.722
+    30/30 pass -> failure rate up to 0.095 still consistent at one-sided 95%; Wilson lower = 0.886
+```
+
+Observations, stated as facts about the numbers above:
+
+- The shipped `wilson_lower` matches an independent transcription of Wilson (1927) to
+  1.17e-10 over 20,100 (s,n) pairs — float noise, not a formula deviation.
+- The worked-example values carried since the c2 citation correction hold at 2 dp:
+  wilson_lower(5,5) = 0.5655 (documented as 0.566) and the alternatives-section CP/Wilson
+  pair at n=4 (0.40 vs 0.51 → computed 0.3976 vs 0.5101). The 4 dp value of
+  wilson_lower(4,4) is 0.5101; the "0.5102" in the c2 correction note comes from rounding
+  the intermediate centre/half-width to 4 dp before subtracting (0.7551 − 0.2449). Both
+  agree at 2 dp; the implementation is authoritative.
+- Exact and asymptotic McNemar p-values diverge materially on small flip tables
+  (b=4,c=0: 0.0455 vs 0.125), which is why no asymptotic significance ships.
+- 3/n overshoots the exact one-sided 95% bound at n=10 (0.300 vs 0.259); from n=30 it is
+  within 0.005.
+
+### E. Falsification section (c3-p01)
+
+Each item: the claim, the exact command, the expected observation if the claim is wrong,
+and the run result from today.
+
+**F-C3-1: the shipped Wilson bound is the Wilson (1927) formula.**
+Command: the section D script, block [1]. Falsifier: max deviation > 1e-9 over the grid
+n=1..200, all s. Expected-if-wrong: a deviation comparable to a formula difference (≥1e-3),
+or a worst case at small n where implementations usually diverge. Result: 1.17e-10 at
+(4,4). **Run today: not falsified.**
+
+**F-C3-2: the numeric claims carried in this document reproduce.**
+Command: section D blocks [1]–[3]. Claims checked: wilson_lower(5,5) = 0.566 (c2
+correction), CP(4,4) lower = 0.40 vs Wilson 0.51 (alternatives section). Falsifier: either
+value wrong at 2 dp. Result: 0.5655 → 0.566; 0.3976 → 0.40; 0.5101 → 0.51. One recorded
+discrepancy at 4 dp (0.5101 vs the c2 note's 0.5102, explained by intermediate rounding —
+does not affect any claim at 2 dp, and no test depends on the 4th decimal). **Run today:
+not falsified; 4 dp discrepancy documented above rather than hidden.**
+
+**F-C3-3: "3/n" is usable as a printed bound from about n≥10.**
+Command: section D block [3] (plus n=4 spot check: 3/4=0.75 vs exact 0.527). Falsifier:
+|3/n − (1−0.05^(1/n))| > 0.05 at n≥10. Result: n=10 gap 0.041, n=30 gap 0.005, n=100 gap
+0.0005; n=4 gap 0.22 (claim never extended below 10). **Run today: not falsified within
+the stated range; below n=10 the rule is unusable and the doc now says so.**
+
+**F-C3-4: every citation link in this document resolves today.**
+Command: section A link sweep (41 URLs) + the section B resolution commands (11 new
+sources). Falsifier: any citation URL returning a dead status (404/410/DNS failure) rather
+than a reachable publisher interstitial, or any Crossref/arXiv record whose title differs
+from the claim. Result: all citation URLs returned a response; the three non-200 rows are
+accounted for in section A (shell template, publisher bot-gates behind valid DOIs);
+every Crossref/arXiv title matches the claim rows in section B. **Run today: not
+falsified.**
+
+**F-C3-5: asymptotic McNemar is unsafe on small flip tables.**
+Command: section D block [4]. Falsifier: asymptotic (uncorrected) and exact p-values
+agreeing within 0.05 on small tables. Result: b=4,c=0 → 0.0455 vs 0.125 (gap 0.0795,
+and the verdicts *disagree* at alpha=0.05); b=1,c=0 → 0.317 vs 1.000. **Run today: not
+falsified — the divergence is real, which is why C1 states that no asymptotic
+significance ships.**
+
+**F-3 status update (from the previous pass's artifact).** The c2-p03 audit left F-3
+deferred to cycle 2 pass 12. `reports/mutation-c2.json` now exists and records:
+`killed 209, total 227, kill_rate 0.920704845814978, score_raw 209/227, target 0.7,
+rc 0`. Suite-level kill rate 92.1% ≥ 70% target → **F-3 closed at suite level on
+2026-09-27.** Honest scope note: the JSON carries no per-module breakdown, so the
+"assertions module specifically" reading of F-3 is only covered by the aggregate; the
+cycle-3 mutation pass (c3-p12) should record per-module numbers so that reading closes
+properly too.
+
+Surviving falsification items after this pass: F-C3-1..5 all run today, none falsified;
+from earlier cycles only F-P3-4 ("New, Not falsified" — `from_messages` OpenAI shape, run
+in c2-p03) remains outside the closed set, and it has a runnable command. Count of
+*open* falsification items: **0 awaiting execution** — every surviving item now has a
+command, a stated expected observation, and a recorded run result.
+
+### Link Resolution Summary — c3-p01 additions
+
+All 41 pre-existing URLs re-verified today (section A) and the 10 new sources S20–S29
+resolved today (section B, raw output). Statuses and bot-gate caveats are recorded
+per-row above; no dead citation found.
