@@ -235,7 +235,14 @@ def _cmd_gate(args: argparse.Namespace) -> int:
         )
         return 1
 
-    gate = compare(current, baseline, Tolerances())
+    try:
+        gate = compare(current, baseline, Tolerances())
+    except ValueError as exc:
+        # Exit 2 (not 1): a NaN/inf metric is a corrupted input file, not a
+        # measured regression, and must never be scored as a pass either.
+        print(f"error: cannot score gate: {exc}", file=sys.stderr)
+        print("error: gate metrics must be finite numbers", file=sys.stderr)
+        return 2
 
     if args.format == "json":
         print(json.dumps(gate.to_dict(), indent=2))

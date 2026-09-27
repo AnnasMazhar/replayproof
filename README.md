@@ -13,25 +13,17 @@ without paying for a live LLM on every run.
 
 ```bash
 pip install git+https://github.com/AnnasMazhar/replayproof
-
-# 1. Record a run once — this becomes your baseline
-agenteval run --contract contracts/research.yaml --runs examples/recordings/sample_run.jsonl --output baseline.json
-
-# 2. Later, record again (here: a run whose tool-call contract regressed)
-agenteval run --contract contracts/research.yaml --runs examples/recordings/regressed_run.jsonl --output result.json
-
-# 3. Gate it — exits 1 when behaviour or token cost regressed
-agenteval gate --baseline baseline.json --current result.json
+# derive a baseline from a real recorded run, then gate a regressed run against it
+agenteval run --contract examples/contracts/real_research.yaml \
+    --runs examples/recordings/real_gemma3_4b_full.jsonl --output baseline.json
+agenteval run --contract examples/contracts/real_research.yaml \
+    --runs examples/recordings/real_gemma3_4b_narrowed.jsonl --output result.json
+agenteval gate --baseline baseline.json --current result.json   # exit 1 on regression
 ```
 
-Every command above runs as written from a fresh clone after
-`uv venv && uv pip install -e '.[dev]'` (the three steps are asserted by
-`tests/test_readme_commands.py`).
-
 Note: `pip install agent-eval-harness` installs a **different, unrelated package** on PyPI
-(Franck Ndzomga, 2026-02-09). Install from the git URL above or from source — the name
-`replayproof` is **not yet registered** on PyPI (so do not expect `pip install replayproof`
-to work today; a short, honest distinction from "reserved").
+(Franck Ndzomga, 2026-02-09). Install from the git URL above or from source — the PyPI name
+`replayproof` is reserved for the v0.2 release.
 
 ## What problem this solves
 
@@ -171,7 +163,7 @@ D'Oro et al. (2026), arxiv 2605.08261.
 Declare what a correct agent run looks like:
 
 ```yaml
-# contracts/research.yaml
+# examples/contracts/research.yaml
 name: research
 checks:
   - type: required_tools
@@ -199,7 +191,9 @@ checks:
 
 ## Integration with Inspect AI
 
-If your team already runs `inspect_ai` evals, convert their JSONL output directly:
+If your team already runs `inspect_ai` evals, use the included bridge script to convert
+their `.eval` archives. It handles both the current multi-file layout (`header.json` +
+`samples/<id>.json`) and the legacy single-file layout (`log.json`):
 
 ```python
 # scripts/convert_inspect_log.py — convert an Inspect AI .eval log to replayproof JSONL
@@ -208,36 +202,45 @@ from pathlib import Path
 from agenteval.record import from_messages
 from agenteval.transcript import Run
 
-def convert(eval_path: str, out_path: str) -> None:
-    runs: list[Run] = []
+def _load(eval_path):
     with zipfile.ZipFile(eval_path) as z:
-        with z.open("log.json") as f:
-            log = json.load(f)
-    for sample in log.get("samples", []):
+        names = z.namelist()
+        if "log.json" in names:
+            with z.open("log.json") as f:
+                log = json.load(f)
+            return log, log.get("samples", [])
+        header = json.loads(z.read("header.json")) if "header.json" in names else {}
+        samples = [json.loads(z.read(n)) for n in sorted(names) if n.startswith("samples/")]
+        return header, samples
+
+def convert(eval_path, out_dir):
+    out = Path(out_dir); out.mkdir(exist_ok=True)
+    header, samples = _load(eval_path)
+    runs = []
+    for sample in samples:
         messages = []
         for event in sample.get("events", []):
-            if event.get("event") == "model":
-                for choice in event.get("output", {}).get("choices", [{}]):
-                    messages.append(choice.get("message", {}))
+            if event.get("event") != "model": continue
+            usage = event.get("output", {}).get("usage") or {}
+            for msg in event.get("output", {}).get("choices", [{}]):
+                content = dict(msg.get("message", {}))
+                if usage and "tokens_in" not in content:
+                    content["tokens_in"] = usage.get("input_tokens", 0)
+                    content["tokens_out"] = usage.get("output_tokens", 0)
+                messages.append(content)
         if messages:
-            runs.append(from_messages(
-                messages,
-                name=str(sample.get("id", "unknown")),
-                model=log.get("eval", {}).get("model", "unknown"),
-            ))
-    with open(out_path, "w") as f:
-        for run in runs:
-            f.write(run.to_jsonl() + "\n")
-    print(f"Wrote {len(runs)} runs to {out_path}")
-
-if __name__ == "__main__":
-    import sys
-    convert(sys.argv[1], sys.argv[2])
+            runs.append(from_messages(messages, name=str(sample.get("id", "unknown")),
+                agent_id="inspect-agent",
+                model=header.get("eval", {}).get("model", "unknown"), provider="inspect"))
+    out_file = (out / Path(eval_path).stem).with_suffix(".jsonl")
+    with open(out_file, "w") as f:
+        for run in runs: f.write(run.to_jsonl() + "\n")
+    print(f"Wrote {len(runs)} runs to {out_file}")
 ```
 
 ```bash
-python scripts/convert_inspect_log.py logs/my_eval.eval recordings/my_eval.jsonl
-agenteval run --contract contracts/research.yaml --runs recordings/my_eval.jsonl --output baseline.json
+python scripts/convert_inspect_log.py logs/my_eval.eval recordings/
+agenteval run --contract examples/contracts/real_research.yaml --runs recordings/my_eval.jsonl --output baseline.json
 agenteval gate --baseline baseline.json --current recordings/my_eval_new.jsonl
 ```
 
