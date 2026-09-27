@@ -13,13 +13,25 @@ without paying for a live LLM on every run.
 
 ```bash
 pip install git+https://github.com/AnnasMazhar/replayproof
-agenteval run --contract contracts/research.yaml --runs recordings/sample_run.jsonl --output result.json
-agenteval gate --baseline baseline.json --current result.json   # exit 1 on regression
+
+# 1. Record a run once — this becomes your baseline
+agenteval run --contract contracts/research.yaml --runs examples/recordings/sample_run.jsonl --output baseline.json
+
+# 2. Later, record again (here: a run whose tool-call contract regressed)
+agenteval run --contract contracts/research.yaml --runs examples/recordings/regressed_run.jsonl --output result.json
+
+# 3. Gate it — exits 1 when behaviour or token cost regressed
+agenteval gate --baseline baseline.json --current result.json
 ```
 
+Every command above runs as written from a fresh clone after
+`uv venv && uv pip install -e '.[dev]'` (the three steps are asserted by
+`tests/test_readme_commands.py`).
+
 Note: `pip install agent-eval-harness` installs a **different, unrelated package** on PyPI
-(Franck Ndzomga, 2026-02-09). Install from the git URL above or from source — the PyPI name
-`replayproof` is reserved for the v0.2 release.
+(Franck Ndzomga, 2026-02-09). Install from the git URL above or from source — the name
+`replayproof` is **not yet registered** on PyPI (so do not expect `pip install replayproof`
+to work today; a short, honest distinction from "reserved").
 
 ## What problem this solves
 
