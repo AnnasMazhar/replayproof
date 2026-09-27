@@ -446,3 +446,25 @@ $ ruff format --check .
 `CONTRIBUTING.md` rewritten to include: setup, test commands, step-by-step guide for
 adding assertion checks and statistical routines, commit style, bug report format,
 good-first-issue guidance, and explicit "what not to contribute" section.
+
+## Positioning conflict record (MARKET-VERDICTS vs product spec)
+
+Per MARKET-VERDICTS.md §2 (binding): replayproof must NOT present itself as an eval
+runner/framework; it is the contract and statistics gate over runs other tools recorded,
+complementary to Inspect and EvalCore. The product spec's MISSION ("a Python library +
+CLI for ... regression testing of LLM agents", with `record`/`run` commands) reads as a
+harness. Verdicts win where they differ. Verified this pass (c3-p03):
+
+```
+$ grep -rn -i "eval framework\|eval runner\|complementary\|layer on top\|not an eval" README.md COMPARISONS.md docs/WHY.md
+README.md:7:Your eval framework tells you the score moved.
+COMPARISONS.md:10:questions an eval runner does not — which tool-call contract broke, what the pass rate
+COMPARISONS.md:89:- **inspect_ai + inspect-replay** — choose them when you need the eval runner itself
+docs/WHY.md:9:So this is not an eval framework. It does not run models, keep a database of runs, or
+docs/WHY.md:19:write to disk. Use the eval framework for the score. Use this for the contract, the
+```
+
+Positioning per verdicts: confirmed present in all three launch surfaces. The spec's
+command surface (`record`, `run`) is retained because it is how the gate reads recorded
+runs — reading runs is the verdicts-mandated scope; the repo does not position itself as
+a replacement for the runners.

@@ -56,9 +56,12 @@ JSONL format and OpenAI/Anthropic-style message lists directly. The bridge is on
 # scripts/convert_inspect_log.py
 """Convert an Inspect AI .eval log to replayproof JSONL.
 
-Inspect .eval files are zip archives. Each sample's model_output is a list of
-ModelOutput objects. This script unpacks and normalises them to replayproof's
-OpenAI-style message format, then writes one Run per sample.
+Inspect .eval files are zip archives with two layouts in the wild:
+  - current (verified against inspect_ai main, 2026-09-27): header.json plus
+    one samples/<id>.json member per sample;
+  - legacy: a single log.json with an inline "samples" array.
+Both are handled. Each sample's model events are normalised to replayproof's
+OpenAI-style message format, then one Run per sample is written.
 """
 import json
 import zipfile
@@ -66,32 +69,46 @@ from pathlib import Path
 from agenteval.record import from_messages
 from agenteval.transcript import Run
 
+def _load(eval_path: str) -> tuple[dict, list[dict]]:
+    """Return (header, samples) for either archive layout."""
+    with zipfile.ZipFile(eval_path) as z:
+        names = z.namelist()
+        if "log.json" in names:
+            with z.open("log.json") as f:
+                log = json.load(f)
+            return log, log.get("samples", [])
+        header = json.loads(z.read("header.json")) if "header.json" in names else {}
+        samples = [
+            json.loads(z.read(n)) for n in sorted(names) if n.startswith("samples/")
+        ]
+        return header, samples
+
 def convert(eval_path: str, out_dir: str) -> None:
     out = Path(out_dir)
     out.mkdir(exist_ok=True)
-    with zipfile.ZipFile(eval_path) as z:
-        with z.open("log.json") as f:
-            log = json.load(f)
-    samples = log.get("samples", [])
+    header, samples = _load(eval_path)
     runs: list[Run] = []
     for sample in samples:
         messages = []
         for event in sample.get("events", []):
             if event.get("event") == "model":
+                usage = event.get("output", {}).get("usage") or {}
                 for msg in event.get("output", {}).get("choices", [{}]):
-                    content = msg.get("message", {})
+                    content = dict(msg.get("message", {}))
+                    if usage and "tokens_in" not in content:
+                        content["tokens_in"] = usage.get("input_tokens", 0)
+                        content["tokens_out"] = usage.get("output_tokens", 0)
                     messages.append(content)
         if messages:
             run = from_messages(
                 messages,
                 name=str(sample.get("id", "unknown")),
                 agent_id="inspect-agent",
-                model=log.get("eval", {}).get("model", "unknown"),
+                model=header.get("eval", {}).get("model", "unknown"),
                 provider="inspect",
             )
             runs.append(run)
-    out_file = out / Path(eval_path).stem
-    out_file = out_file.with_suffix(".jsonl")
+    out_file = (out / Path(eval_path).stem).with_suffix(".jsonl")
     with open(out_file, "w") as f:
         for run in runs:
             f.write(run.to_jsonl() + "\n")
@@ -102,11 +119,12 @@ if __name__ == "__main__":
     convert(sys.argv[1], sys.argv[2])
 ```
 
-Run it:
+Run it (raw output from this pass, against **real** inspect_ai log fixtures — see
+the c3-p03 section at the end of this file for the full evidence):
 
 ```bash
-python scripts/convert_inspect_log.py logs/customer_service_gpt4o.eval /tmp/recordings/
-# Wrote 50 runs to /tmp/recordings/customer_service_gpt4o.jsonl
+$ python scripts/convert_inspect_log.py tests/scorer/logs/2025-02-11T15-17-00-05-00_popularity_dPiJifoWeEQBrfWsAopzWr.eval /tmp/recordings/
+Wrote 10 runs to /tmp/recordings/2025-02-11T15-17-00-05-00_popularity_dPiJifoWeEQBrfWsAopzWr.jsonl
 ```
 
 **Option B: Record a fresh run directly**
@@ -666,3 +684,195 @@ Does your team have eval recordings?
     ├── Using Inspect AI? → run one eval, then Steps 1-4.
     └── Python-callable agent? → use Recorder, then Steps 2-4.
 ```
+
+---
+
+## Cycle 3 deepening — c3-p03-research-3 (2026-09-27)
+
+This pass executes the whole Tuesday recipe for real (50-case suite, gate exit codes,
+drift) and runs the Step 1 bridge against **real inspect_ai `.eval` fixtures fetched
+from upstream** (`UKGovernmentBEIS/inspect_ai` `main`). Two genuine adoption blockers
+were found by running the doc's own commands, and both are fixed or documented below
+with raw output.
+
+### A. The full recipe, executed (raw)
+
+```
+=== C3-P03 ADOPTION RECIPE RAW RUN 2026-09-27T14:38 UTC ===
+--- [1] build 50-case suite: agenteval record x50 (PYTHONPATH set) ---
+records succeeded: 50 / 50
+50 /tmp/opencode/adopt/suite50.jsonl
+--- [2] evaluate 50-case suite vs contract (timed) ---
+.venv/bin/agenteval run --contract examples/contracts/research.yaml --runs
+  /tmp/opencode/adopt/suite50.jsonl --output /tmp/opencode/adopt/baseline50.json
+  0.14s user 0.02s system 99% cpu 0.162 total
+baseline50: cases=50 pass_rate=1.0 wilson_lower=0.9287 tokens_in=0
+--- [3] identical current -> gate exit ---
+Gate: PASS — no regressions detected.
+GATE_EXIT_IDENTICAL=0
+--- [4] 49 good + 1 seeded regression -> gate exit ---
+53 /tmp/opencode/adopt/suite_mixed.jsonl
+| Cases | 53 |
+| Passed | 51 |
+| Pass Rate | 96.2% |
+| Wilson Lower Bound (95%) | 87.2% |
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.9623       0.0000
+GATE_EXIT_REGRESSED=1
+--- [5] drift baseline vs mixed ---
+Regressions : 1
+Fixes       : 2
+Churn       : 2
+Stable pass : 49
+Stable fail : 0
+Token delta : +0
+
+Regressions:
+  question variant 50: how do solar panels work?
+```
+
+Confirmed by execution: baseline capture works at n=50, the gate exits 0 on an identical
+current and 1 on a current with a pass-rate drop (1.0000 → 0.9623 vs threshold 0.0000),
+and drift ranks the dropped/regressed cases. The Wilson lower bound at 50/50 is 0.9287.
+
+### B. FM-6 (new): `agenteval record` fails unless the agent module is importable
+
+The doc's own record command, run from the project root, failed on first attempt:
+
+```
+$ .venv/bin/agenteval record --agent examples.research_agent:research_agent \
+    --task "test task" --output /tmp/opencode/adopt/one.jsonl
+error: cannot import module 'examples.research_agent': No module named 'examples'
+Make sure the module is on PYTHONPATH or installed in the active venv.
+exit=1
+```
+
+Cause: a console-script entry point does not put the current directory on `sys.path`,
+so a project-local agent package is not importable. Fix for Step 1 (Option B):
+
+```bash
+PYTHONPATH=$(pwd) agenteval record --agent examples.research_agent:research_agent ...
+```
+
+With `PYTHONPATH` set: `records succeeded: 50 / 50` (raw output above). This is a
+two-second fix but it is the first wall a Tuesday adopter hits, and the failure is
+invisible if the CI script does not check exit codes — the failed records left an
+**empty** suite file (see FM-7).
+
+### C. FM-7 (new): empty/zero baselines fail OPEN on cost metrics
+
+First attempt above produced an empty `suite50.jsonl` (all 50 records had failed).
+`agenteval run` on the empty file silently produced a zero-case baseline
+(`cases=0 pass_rate=0.0 wilson_lower=0.0`) with exit 0, and the gate then reported:
+
+```
+Gate: PASS — no regressions detected.
+Warning: the following gates were not enforced because the baseline value is zero
+(first-run or corrupted baseline): total_tokens, p95_latency_ms, total_cost_usd
+GATE_EXIT_IDENTICAL=0
+```
+
+So: pass-rate gating engages (a zero baseline still trips any drop), but token/cost
+gates are **skipped with a warning**, not failed. A team whose fixture agent reports no
+token counts (like the committed example agent: `tokens_in=0` everywhere) will never
+engage the cost gate — the warning tells them, but only if someone reads CI logs.
+
+**Operational rule:** treat that warning as a build failure in your CI wrapper:
+
+```yaml
+- run: agenteval gate --baseline baselines/b.json --current /tmp/c.json | tee gate.log
+- run: '! grep -q "not enforced" gate.log'
+```
+
+Also assert the case count (`case_count == 50`) before committing a baseline. The gate
+is metric-comparison only; it cannot know you meant to record 50 cases.
+
+### D. FM-2 confirmed and fixed: the Step 1 bridge was wrong for real `.eval` logs
+
+The previous cycle "closed" F-P3-1 against a *synthetic* dict. This pass ran the
+documented script verbatim against two real log fixtures downloaded from the
+inspect_ai repository:
+
+```
+$ curl -sL -o log_read_sample.eval https://raw.githubusercontent.com/UKGovernmentBEIS/inspect_ai/main/tests/log/test_eval_log/log_read_sample.eval
+$ curl -sL -o popularity.eval https://raw.githubusercontent.com/UKGovernmentBEIS/inspect_ai/main/tests/scorer/logs/2025-02-11T15-17-00-05-00_popularity_dPiJifoWeEQBrfWsAopzWr.eval
+$ file /tmp/opencode/eval_logs/*.eval
+...log_read_sample.eval: Zip archive data, made by v2.0 UNIX ... uncompressed size 1949
+...popularity.eval:      Zip archive data, made by v2.0 UNIX ... uncompressed size 1608
+
+$ python /tmp/opencode/convert_inspect_log.py /tmp/opencode/eval_logs/popularity.eval /tmp/opencode/recordings/
+KeyError: "There is no item named 'log.json' in the archive"
+exit=1
+```
+
+The script as previously documented assumed a single `log.json` member. Real archives
+have the current layout:
+
+```
+zipfile.namelist() -> ['_journal/start.json', 'samples/1_epoch_1.json',
+  '_journal/summaries/1.json', 'summaries.json', 'reductions.json', 'header.json']
+zipfile.namelist() -> ['_journal/start.json', 'samples/5_epoch_1.json', ... (10 samples),
+  '_journal/summaries/1.json', 'summaries.json', 'header.json']
+```
+
+i.e. `header.json` + one `samples/<id>.json` per sample. The Step 1 script above now
+handles both layouts, and maps Inspect's own token accounting
+(`output.usage.input_tokens/output_tokens`, present in each model event and in
+`sample.model_usage`) onto the run so the **cost gate works on converted logs**.
+Re-run after the fix (script re-extracted from this file, not retyped):
+
+```
+$ awk 'f&&/^```$/{exit} f{print} /^# scripts\/convert_inspect_log.py$/{f=1; print}' docs/ADOPTION.md > /tmp/convert_inspect_log.py
+$ python /tmp/convert_inspect_log.py /tmp/opencode/eval_logs/log_read_sample.eval /tmp/opencode/recordings/
+Wrote 1 runs to /tmp/opencode/recordings/log_read_sample.jsonl
+exit=0
+$ python /tmp/convert_inspect_log.py /tmp/opencode/eval_logs/popularity.eval /tmp/opencode/recordings/
+Wrote 10 runs to /tmp/opencode/recordings/popularity.jsonl
+exit=0
+$ python -c "...print tokens..."  # first converted run
+runs: 10 first run tokens_in/out: 63 2
+
+$ agenteval run --contract /tmp/opencode/inspect_contract.yaml --runs /tmp/opencode/recordings/popularity.jsonl --output ...
+| Cases | 10 |
+| Passed | 10 |
+| Pass Rate | 100.0% |
+| Wilson Lower Bound (95%) | 72.2% |
+| Total Tokens In | 620 |
+| Total Tokens Out | 20 |
+
+$ agenteval gate --baseline inspect_popularity.json --current inspect_popularity.json
+Gate: PASS — no regressions detected.
+Warning: ... not enforced ...: p95_latency_ms, total_cost_usd
+GATE_EXIT=0
+```
+
+End-to-end Tuesday path against the named tool is now executed, not asserted:
+**real `.eval` file → documented script → JSONL → contract → 10/10 with Wilson 0.722 →
+gate exit 0**, with real token counts (620/20) carried from Inspect's usage records.
+Remaining bridge limitation (honest): the samples in these fixtures carry no per-turn
+`latency_ms`, so `p95_latency_ms` stays zero and its gate is skipped (warning above);
+and model-side token counts are only as good as the `usage` field the model provider
+emits.
+
+### E. Operational cost — measured, not estimated
+
+- `agenteval run` over 50 cases with the research contract: **0.162 s wall**
+  (0.14 s user), including interpreter startup; the evaluation itself is the tail.
+  Network: none. This replaces the earlier estimate ("0–5 ms per case ... under 50 ms")
+  with a measured number: a 50-case suite is ~0.16 s end-to-end on this host.
+- Storage: `baseline50.json` is 263 bytes for 50 zero-token synthetic cases;
+  the committed 4-case fixtures are ~1–3 KB. Baselines stay repo-sized.
+- Human cost, confirmed earlier (c2): 25–40 min with this guide open; the bridge bug
+  above shows why "15 minutes for Step 1" needs the fixed script (this doc) — the old
+  estimate silently included a script that did not run on current Inspect logs.
+
+### F. The one reason a team would not adopt this — unchanged
+
+Nothing found this pass displaces the c1/c2 verdict: **the contract must be written by
+someone who knows what the agent is supposed to do.** The two new failure modes (FM-6,
+FM-7) are setup friction measured in minutes, not adoption blockers. The confirmed FM-2
+was a documentation defect, now fixed in this file with real-log evidence. The
+decision tree at the end of the c2 section still holds; the Inspect branch of it is now
+backed by executed commands rather than an assumed script.
