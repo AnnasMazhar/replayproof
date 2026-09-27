@@ -79,11 +79,32 @@ class Tolerances:
     max_cost_increase_pct: float = 0.10
 
 
+def _finite_number(value: Any, name: str) -> float:
+    """Coerce *value* to float, rejecting NaN/inf/non-numbers.
+
+    A NaN metric silently passes every relational comparison (``nan > x`` is
+    False), so a corrupted baseline or current file would otherwise report
+    ``ok=True``. The gate must fail loudly instead.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"gate metric {name} is not a number: {value!r}") from exc
+    if not math.isfinite(number):
+        raise ValueError(f"gate metric {name} is not a finite number: {number!r}")
+    return number
+
+
 class Baseline:
     """A stored SuiteResult used as the reference point for gate comparison.
 
     Args:
         data: Dict produced by ``SuiteResult.to_dict()``.
+
+    Raises:
+        ValueError: From any metric property, when the stored value is
+            NaN/inf (or not a number). Corrupted baselines must fail loudly
+            instead of silently disabling gates.
     """
 
     def __init__(self, data: dict[str, Any]) -> None:
@@ -103,24 +124,26 @@ class Baseline:
     @property
     def pass_rate(self) -> float:
         """Baseline pass rate."""
-        return float(self._data.get("pass_rate", 0.0))
+        return _finite_number(self._data.get("pass_rate", 0.0), "baseline.pass_rate")
 
     @property
     def total_tokens(self) -> int:
         """Baseline total tokens (in + out)."""
-        return int(self._data.get("total_tokens_in", 0)) + int(
-            self._data.get("total_tokens_out", 0)
+        tokens_in = _finite_number(self._data.get("total_tokens_in", 0), "baseline.total_tokens_in")
+        tokens_out = _finite_number(
+            self._data.get("total_tokens_out", 0), "baseline.total_tokens_out"
         )
+        return int(tokens_in) + int(tokens_out)
 
     @property
     def p95_latency_ms(self) -> float:
         """Baseline p95 latency in ms."""
-        return float(self._data.get("p95_latency_ms", 0.0))
+        return _finite_number(self._data.get("p95_latency_ms", 0.0), "baseline.p95_latency_ms")
 
     @property
     def total_cost_usd(self) -> float:
         """Baseline total cost in USD."""
-        return float(self._data.get("total_cost_usd", 0.0))
+        return _finite_number(self._data.get("total_cost_usd", 0.0), "baseline.total_cost_usd")
 
 
 def compare(
@@ -142,18 +165,18 @@ def compare(
 
     Returns:
         GateReport with ok=True if all enforced gates pass.
+
+    Raises:
+        ValueError: If any current or baseline metric is NaN/inf or not a
+            number. Such input means a corrupted file, not a regression, and
+            must never be scored as a pass.
     """
     tol = tolerances if tolerances is not None else Tolerances()
     trips: list[GateTripDetail] = []
     skipped: list[str] = []
 
     # Pass-rate gate: trip if pass rate drops more than allowed.
-    cur_pass = float(current.get("pass_rate", 0.0))
-    if not math.isfinite(cur_pass):
-        raise ValueError(
-            f"pass_rate must be a finite number, got {cur_pass!r}; "
-            "a NaN or inf pass_rate indicates a corrupt or malformed result file"
-        )
+    cur_pass = _finite_number(current.get("pass_rate", 0.0), "current.pass_rate")
     drop = baseline.pass_rate - cur_pass
     if drop > tol.max_pass_rate_drop:
         trips.append(
@@ -167,7 +190,9 @@ def compare(
         )
 
     # Token gate: trip if total tokens increased beyond allowed pct.
-    cur_tokens = int(current.get("total_tokens_in", 0)) + int(current.get("total_tokens_out", 0))
+    cur_tokens = int(
+        _finite_number(current.get("total_tokens_in", 0), "current.total_tokens_in")
+    ) + int(_finite_number(current.get("total_tokens_out", 0), "current.total_tokens_out"))
     if baseline.total_tokens > 0:
         token_increase = (cur_tokens - baseline.total_tokens) / baseline.total_tokens
         if token_increase > tol.max_token_increase_pct:
@@ -184,7 +209,7 @@ def compare(
         skipped.append("total_tokens")
 
     # Latency gate.
-    cur_lat = float(current.get("p95_latency_ms", 0.0))
+    cur_lat = _finite_number(current.get("p95_latency_ms", 0.0), "current.p95_latency_ms")
     if baseline.p95_latency_ms > 0:
         lat_increase = (cur_lat - baseline.p95_latency_ms) / baseline.p95_latency_ms
         if lat_increase > tol.max_latency_increase_pct:
@@ -201,7 +226,7 @@ def compare(
         skipped.append("p95_latency_ms")
 
     # Cost gate.
-    cur_cost = float(current.get("total_cost_usd", 0.0))
+    cur_cost = _finite_number(current.get("total_cost_usd", 0.0), "current.total_cost_usd")
     if baseline.total_cost_usd > 0:
         cost_increase = (cur_cost - baseline.total_cost_usd) / baseline.total_cost_usd
         if cost_increase > tol.max_cost_increase_pct:

@@ -214,6 +214,25 @@ class TestWilsonLower:
         )
 
 
+class TestWilsonConfidenceValidation:
+    """C2P11-MAJ-1: wilson_lower accepted negative/invalid confidence values.
+
+    Fault detected: wilson_lower(3, 5, confidence=-0.5) returned 0.733332
+    instead of raising. A confidence level outside (0, 1) is meaningless; a
+    silent number here is a fabricated confidence bound.
+    """
+
+    @pytest.mark.parametrize("bad", [-0.5, -1.0, 0.0, 1.0, 1.5, float("nan")])
+    def test_wilson_lower_rejects_invalid_confidence(self, bad: float) -> None:
+        """Fault detected: confidence outside (0, 1) accepted without raising."""
+        with pytest.raises(ValueError, match="confidence"):
+            wilson_lower(successes=3, n=5, confidence=bad)
+
+    def test_wilson_lower_valid_confidence_still_works(self) -> None:
+        """Regression guard: the validation must not reject valid input."""
+        assert wilson_lower(successes=90, n=100, confidence=0.95) > 0.8
+
+
 class TestPassRate:
     """KAT for the pass_rate function."""
 

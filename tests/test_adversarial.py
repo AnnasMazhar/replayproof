@@ -989,13 +989,13 @@ def test_wilson_lower_rejects_negative_confidence() -> None:
             lower = 0.800 / 1.0908 ≈ 0.733 — not an error, just silently wrong.
         A gate receiving 0.733 as a lower bound trusts it without question.
     """
-    with pytest.raises(ValueError, match="confidence must be in"):
+    with pytest.raises(ValueError, match="confidence must be strictly between 0 and 1"):
         wilson_lower(3, 5, -0.5)
-    with pytest.raises(ValueError, match="confidence must be in"):
+    with pytest.raises(ValueError, match="confidence must be strictly between 0 and 1"):
         wilson_lower(3, 5, 0.0)
-    with pytest.raises(ValueError, match="confidence must be in"):
+    with pytest.raises(ValueError, match="confidence must be strictly between 0 and 1"):
         wilson_lower(3, 5, 1.0)
-    with pytest.raises(ValueError, match="confidence must be in"):
+    with pytest.raises(ValueError, match="confidence must be strictly between 0 and 1"):
         wilson_lower(3, 5, 1.5)
     # Boundary: values just inside the valid range must not raise.
     result = wilson_lower(3, 5, 0.0001)
@@ -1031,7 +1031,7 @@ def test_gate_rejects_nan_inf_pass_rate() -> None:
     )
 
     # NaN pass_rate must raise, not silently pass.
-    with pytest.raises(ValueError, match="pass_rate must be a finite number"):
+    with pytest.raises(ValueError, match="is not a finite number"):
         compare(
             {
                 "pass_rate": float("nan"),
@@ -1044,7 +1044,7 @@ def test_gate_rejects_nan_inf_pass_rate() -> None:
         )
 
     # Infinity pass_rate must raise, not silently pass.
-    with pytest.raises(ValueError, match="pass_rate must be a finite number"):
+    with pytest.raises(ValueError, match="is not a finite number"):
         compare(
             {
                 "pass_rate": float("inf"),
@@ -1057,7 +1057,7 @@ def test_gate_rejects_nan_inf_pass_rate() -> None:
         )
 
     # Negative infinity must also raise.
-    with pytest.raises(ValueError, match="pass_rate must be a finite number"):
+    with pytest.raises(ValueError, match="is not a finite number"):
         compare(
             {
                 "pass_rate": float("-inf"),
