@@ -13,7 +13,11 @@ without paying for a live LLM on every run.
 
 ```bash
 pip install git+https://github.com/AnnasMazhar/replayproof
-agenteval run --contract contracts/research.yaml --runs recordings/sample_run.jsonl --output result.json
+# derive a baseline from a real recorded run, then gate a regressed run against it
+agenteval run --contract examples/contracts/real_research.yaml \
+    --runs examples/recordings/real_gemma3_4b_full.jsonl --output baseline.json
+agenteval run --contract examples/contracts/real_research.yaml \
+    --runs examples/recordings/real_gemma3_4b_narrowed.jsonl --output result.json
 agenteval gate --baseline baseline.json --current result.json   # exit 1 on regression
 ```
 
@@ -159,7 +163,7 @@ D'Oro et al. (2026), arxiv 2605.08261.
 Declare what a correct agent run looks like:
 
 ```yaml
-# contracts/research.yaml
+# examples/contracts/research.yaml
 name: research
 checks:
   - type: required_tools
@@ -236,7 +240,7 @@ def convert(eval_path, out_dir):
 
 ```bash
 python scripts/convert_inspect_log.py logs/my_eval.eval recordings/
-agenteval run --contract contracts/research.yaml --runs recordings/my_eval.jsonl --output baseline.json
+agenteval run --contract examples/contracts/real_research.yaml --runs recordings/my_eval.jsonl --output baseline.json
 agenteval gate --baseline baseline.json --current recordings/my_eval_new.jsonl
 ```
 
@@ -258,6 +262,30 @@ Then use `agenteval run` to evaluate it against a contract, as shown above.
 
 Each check has a stable `id`, `severity` (`error` or `warn`), and a named fault it
 catches. See [docs/DESIGN.md](docs/DESIGN.md) for the full check reference.
+
+## Real recordings
+
+The repo ships three recordings produced by **real models on this machine**, not
+fixtures (commands and raw output in [docs/EVIDENCE.md](docs/EVIDENCE.md)):
+
+| File | Model | Provider | Contract result |
+| ---- | ----- | -------- | --------------- |
+| `examples/recordings/real_gemma3_4b_full.jsonl` | `gemma3:4b` | local ollama | 6/6 pass |
+| `examples/recordings/real_gpt_oss_120b_full.jsonl` | `openai/gpt-oss-120b` | Groq (free tier) | 5/6 — case-06 calls a tool the scaffold never advertised |
+| `examples/recordings/real_gemma3_4b_narrowed.jsonl` | `gemma3:4b` | local ollama | 0/6 — narrowed prompt, no tool calls (the regression the gate must catch) |
+
+```bash
+# replay any of them offline, no keys needed
+env -u GROQ_API_KEY -u OPENROUTER_API_KEY \
+    agenteval replay --run examples/recordings/real_gemma3_4b_full.jsonl --format json
+
+# gate the regression against a baseline derived from the real local run
+agenteval run --contract examples/contracts/real_research.yaml \
+    --runs examples/recordings/real_gemma3_4b_full.jsonl --output baseline.json
+agenteval run --contract examples/contracts/real_research.yaml \
+    --runs examples/recordings/real_gemma3_4b_narrowed.jsonl --output regressed.json
+agenteval gate --baseline baseline.json --current regressed.json   # exit 1: pass_rate 1.0 -> 0.0
+```
 
 ## Where this fits relative to other tools
 

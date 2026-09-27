@@ -53,6 +53,7 @@ def convert(eval_path: str, out_dir: str) -> None:
         Created if it does not exist.
     """
     out = Path(out_dir)
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.mkdir(exist_ok=True)
 
     header, samples = _load(eval_path)
@@ -70,15 +71,21 @@ def convert(eval_path: str, out_dir: str) -> None:
                     content["tokens_in"] = usage.get("input_tokens", 0)
                     content["tokens_out"] = usage.get("output_tokens", 0)
                 messages.append(content)
-        if messages:
-            run = from_messages(
-                messages,
-                name=str(sample.get("id", "unknown")),
-                agent_id="inspect-agent",
-                model=header.get("eval", {}).get("model", "unknown"),
-                provider="inspect",
+        if not messages:
+            sample_id = sample.get("id", "?")
+            print(
+                f"  warning: sample {sample_id!r} produced no messages — skipped",
+                file=sys.stderr,
             )
-            runs.append(run)
+            continue
+        run = from_messages(
+            messages,
+            name=str(sample.get("id", "unknown")),
+            agent_id="inspect-agent",
+            model=header.get("eval", {}).get("model", "unknown"),
+            provider="inspect",
+        )
+        runs.append(run)
 
     out_file = (out / Path(eval_path).stem).with_suffix(".jsonl")
     with open(out_file, "w") as f:
@@ -89,6 +96,9 @@ def convert(eval_path: str, out_dir: str) -> None:
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print("Usage: python scripts/convert_inspect_log.py <eval_path> <out_dir>")
+        print(
+            "Usage: python scripts/convert_inspect_log.py <eval_path> <out_dir>",
+            file=sys.stderr,
+        )
         sys.exit(1)
     convert(sys.argv[1], sys.argv[2])

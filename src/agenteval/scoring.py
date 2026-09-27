@@ -114,7 +114,15 @@ def wilson_lower(successes: int, n: int, confidence: float = 0.95) -> float:
     Returns:
         Lower bound of the Wilson score interval in [0.0, 1.0].
         Returns 0.0 for n=0.
+
+    Raises:
+        ValueError: If confidence is not strictly between 0 and 1, if
+            successes is negative, or if successes exceeds n.
     """
+    if not math.isfinite(confidence) or not 0.0 < confidence < 1.0:
+        raise ValueError(
+            f"confidence must be strictly between 0 and 1 (exclusive), got {confidence!r}"
+        )
     if n == 0:
         return 0.0
     if successes < 0:
@@ -123,6 +131,11 @@ def wilson_lower(successes: int, n: int, confidence: float = 0.95) -> float:
         raise ValueError(
             f"successes ({successes}) must be <= n ({n}); "
             "received more successes than total trials"
+        )
+    if not (0.0 < confidence < 1.0):
+        raise ValueError(
+            f"confidence must be in (0, 1), got {confidence}; "
+            "a negative or out-of-range confidence produces a meaningless z-score"
         )
 
     # z is the two-sided normal quantile for the given confidence level.

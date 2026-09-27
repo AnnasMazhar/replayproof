@@ -6,7 +6,7 @@ name: Release to PyPI
 #   git tag v0.1.0 && git push origin v0.1.0
 # PyPI trusted-publishing setup (one-time):
 #   1. Create the project on PyPI: https://pypi.org/manage/account/publishing/
-#   2. Add a "pending" publisher: owner=AnnasMazhar, repo=agent-eval-harness,
+#   2. Add a "pending" publisher: owner=AnnasMazhar, repo=replayproof,
 #      workflow=release.yml, environment=pypi.
 
 on:
@@ -52,8 +52,11 @@ jobs:
 
       - name: Build wheel and sdist
         run: |
+          # `uv pip` needs a target environment; without one it exits 2 with
+          # "No virtual environment found". Create it, then build with that interpreter.
+          uv venv
           uv pip install build==1.2.2
-          python -m build
+          .venv/bin/python -m build
 
       - name: Upload distribution artifacts
         uses: actions/upload-artifact@v4

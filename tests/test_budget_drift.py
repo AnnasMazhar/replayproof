@@ -366,3 +366,89 @@ class TestGateZeroBaselineSurfaces:
             "skipped_zero_baseline" in d
         ), "to_dict() must include skipped_zero_baseline for CLI/JSON output"
         assert isinstance(d["skipped_zero_baseline"], list)
+
+
+class TestGateNonFiniteMetrics:
+    """C2P11-MAJ-2: gate accepted NaN/infinity pass_rate and returned ok=True.
+
+    Fault detected: compare({"pass_rate": float("nan"), ...}, baseline).ok
+    returned True, because NaN comparisons are all False so no trip fires.
+    A corrupted current or baseline file must raise, never score as a pass.
+    """
+
+    def test_gate_rejects_nan_current_pass_rate(self) -> None:
+        """Fault detected: NaN current pass_rate silently passes the gate."""
+        current = _suite_dict()
+        current["pass_rate"] = float("nan")
+        baseline = Baseline(_suite_dict())
+        with pytest.raises(ValueError, match="current.pass_rate"):
+            compare(current, baseline)
+
+    @pytest.mark.parametrize("bad", [float("inf"), float("-inf")])
+    def test_gate_rejects_infinite_current_pass_rate(self, bad: float) -> None:
+        """Fault detected: inf current pass_rate accepted."""
+        current = _suite_dict()
+        current["pass_rate"] = bad
+        baseline = Baseline(_suite_dict())
+        with pytest.raises(ValueError, match="current.pass_rate"):
+            compare(current, baseline)
+
+    def test_gate_rejects_nan_baseline_pass_rate(self) -> None:
+        """Fault detected: NaN baseline pass_rate accepted (drop = NaN, no trip)."""
+        current = _suite_dict()
+        baseline_data = _suite_dict()
+        baseline_data["pass_rate"] = float("nan")
+        baseline = Baseline(baseline_data)
+        with pytest.raises(ValueError, match="baseline.pass_rate"):
+            compare(current, baseline)
+
+    def test_gate_rejects_nan_latency(self) -> None:
+        """Fault detected: NaN p95 latency accepted."""
+        current = _suite_dict()
+        current["p95_latency_ms"] = float("nan")
+        baseline = Baseline(_suite_dict())
+        with pytest.raises(ValueError, match="p95_latency_ms"):
+            compare(current, baseline)
+
+    def test_gate_rejects_nan_cost(self) -> None:
+        """Fault detected: NaN total_cost_usd accepted."""
+        current = _suite_dict()
+        current["total_cost_usd"] = float("nan")
+        baseline = Baseline(_suite_dict(cost=1.0))
+        with pytest.raises(ValueError, match="total_cost_usd"):
+            compare(current, baseline)
+
+    def test_gate_valid_metrics_still_compared(self) -> None:
+        """Regression guard: finite metrics keep working after validation."""
+        current = _suite_dict(pass_rate=0.5)
+        baseline = Baseline(_suite_dict(pass_rate=1.0))
+        report = compare(current, baseline)
+        assert report.ok is False
+        assert report.trips[0].metric == "pass_rate"
+
+    def test_cli_gate_exits_2_on_nan_input(self, tmp_path) -> None:
+        """Fault detected: CLI scored a NaN current file as a regression/pass.
+
+        Exit 2 (input error) distinguishes a corrupted file from exit 1
+        (measured regression).
+        """
+        import json
+
+        from agenteval import cli
+        from agenteval.cli import build_parser
+
+        baseline_file = tmp_path / "baseline.json"
+        current_file = tmp_path / "current.json"
+        baseline_file.write_text(json.dumps(_suite_dict()))
+        # Python's json accepts the NaN literal on load, so a corrupted file
+        # really does reach the gate as float('nan').
+        current_file.write_text(
+            json.dumps(_suite_dict()).replace('"pass_rate": 1.0', '"pass_rate": NaN')
+        )
+
+        parser = build_parser()
+        args = parser.parse_args(
+            ["gate", "--baseline", str(baseline_file), "--current", str(current_file)]
+        )
+        code = cli._cmd_gate(args)
+        assert code == 2, f"expected exit 2 for NaN input, got {code}"
