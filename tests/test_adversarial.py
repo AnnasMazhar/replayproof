@@ -184,6 +184,21 @@ test_contract_max_latency_check_sums_turns:
     fail a 150ms total limit, but pass a 250ms total limit.
     Fault injection: check max(turn.latency_ms) instead of sum => different failure
     boundary.
+
+test_wilson_lower_rejects_negative_confidence (C2P11-MAJ-1):
+    wilson_lower must raise ValueError for confidence <= 0 or confidence >= 1.
+    A negative confidence produces a nonsensical z-score (via the inverse normal CDF
+    lookup), returning a meaningless bound that gates accept silently.
+    Fault injection: remove the confidence range check => wilson_lower(3, 5, -0.5)
+    returns 0.733 instead of raising, so gates trust a garbage bound.
+
+test_gate_rejects_nan_inf_pass_rate (C2P11-MAJ-2):
+    compare() must raise ValueError when the current pass_rate is NaN or infinity.
+    With NaN: `drop = baseline - NaN` = NaN; `NaN > threshold` = False in Python;
+    gate returns ok=True — a corrupted file silently passes.
+    With infinity: `drop = 0.9 - inf` = -inf; `-inf > 0.0` = False => ok=True.
+    Fault injection: remove the math.isfinite guard => NaN/inf pass_rate lets any
+    run pass the gate regardless of baseline quality.
 """
 
 from __future__ import annotations
@@ -954,3 +969,116 @@ def test_wilson_lower_zero_successes() -> None:
     assert lb == 0.0, f"wilson_lower(0, 10) should be 0.0, got {lb}"
     lb_n1 = wilson_lower(0, 1)
     assert lb_n1 == 0.0, f"wilson_lower(0, 1) should be 0.0, got {lb_n1}"
+
+
+def test_wilson_lower_rejects_negative_confidence() -> None:
+    """C2P11-MAJ-1: wilson_lower must raise ValueError for confidence outside (0, 1).
+
+    A negative confidence passes (1 + confidence)/2 < 0.5 to _normal_quantile,
+    which produces an invalid z-score (negative or from the wrong tail), returning
+    a meaningless lower bound. Gates then accept the garbage value as legitimate.
+
+    Hand-check of the fault:
+        wilson_lower(3, 5, -0.5) with no guard:
+            (1 + (-0.5))/2 = 0.25 -> z from _normal_quantile(0.25) ≈ -0.674
+            z2 = 0.454; p_hat = 0.6
+            num = 0.6 + 0.454/10 - (-0.674)*sqrt(0.6*0.4/5 + 0.454/100)
+            = 0.6 + 0.0454 + 0.674*sqrt(0.0484 + 0.00454)
+            ≈ 0.6 + 0.0454 + 0.674*0.230 = 0.645 + 0.155 = 0.800
+            denom = 1 + 0.454/5 = 1.0908
+            lower = 0.800 / 1.0908 ≈ 0.733 — not an error, just silently wrong.
+        A gate receiving 0.733 as a lower bound trusts it without question.
+    """
+    with pytest.raises(ValueError, match="confidence must be in"):
+        wilson_lower(3, 5, -0.5)
+    with pytest.raises(ValueError, match="confidence must be in"):
+        wilson_lower(3, 5, 0.0)
+    with pytest.raises(ValueError, match="confidence must be in"):
+        wilson_lower(3, 5, 1.0)
+    with pytest.raises(ValueError, match="confidence must be in"):
+        wilson_lower(3, 5, 1.5)
+    # Boundary: values just inside the valid range must not raise.
+    result = wilson_lower(3, 5, 0.0001)
+    assert 0.0 <= result <= 1.0, f"wilson_lower(3,5,0.0001) should be in [0,1], got {result}"
+    result_high = wilson_lower(3, 5, 0.9999)
+    assert 0.0 <= result_high <= 1.0
+
+
+def test_gate_rejects_nan_inf_pass_rate() -> None:
+    """C2P11-MAJ-2: compare() must raise ValueError when pass_rate is NaN or infinity.
+
+    Root cause of the vulnerability (Python float comparison semantics):
+        NaN: `drop = 0.9 - float('nan')` = NaN; `NaN > 0.0` evaluates to False
+             in Python (IEEE 754: all comparisons with NaN return False except !=).
+             Therefore the gate loop never appends a trip, ok=True.
+        Infinity: `drop = 0.9 - float('inf')` = -inf; `-inf > 0.0` = False => ok=True.
+
+    Both paths allow a corrupted or hand-crafted result file to silently pass the gate,
+    defeating the regression safety property the harness exists to provide.
+
+    The fix: validate math.isfinite(cur_pass) before the comparison.
+    """
+    from agenteval.budget import Baseline, Tolerances, compare
+
+    baseline = Baseline(
+        {
+            "pass_rate": 0.9,
+            "total_tokens_in": 100,
+            "total_tokens_out": 100,
+            "p95_latency_ms": 50.0,
+            "total_cost_usd": 0.01,
+        }
+    )
+
+    # NaN pass_rate must raise, not silently pass.
+    with pytest.raises(ValueError, match="pass_rate must be a finite number"):
+        compare(
+            {
+                "pass_rate": float("nan"),
+                "total_tokens_in": 100,
+                "total_tokens_out": 100,
+                "p95_latency_ms": 50.0,
+                "total_cost_usd": 0.01,
+            },
+            baseline,
+        )
+
+    # Infinity pass_rate must raise, not silently pass.
+    with pytest.raises(ValueError, match="pass_rate must be a finite number"):
+        compare(
+            {
+                "pass_rate": float("inf"),
+                "total_tokens_in": 100,
+                "total_tokens_out": 100,
+                "p95_latency_ms": 50.0,
+                "total_cost_usd": 0.01,
+            },
+            baseline,
+        )
+
+    # Negative infinity must also raise.
+    with pytest.raises(ValueError, match="pass_rate must be a finite number"):
+        compare(
+            {
+                "pass_rate": float("-inf"),
+                "total_tokens_in": 100,
+                "total_tokens_out": 100,
+                "p95_latency_ms": 50.0,
+                "total_cost_usd": 0.01,
+            },
+            baseline,
+        )
+
+    # Sanity: a valid pass_rate of 0.0 must not raise (even though it trips the gate).
+    report = compare(
+        {
+            "pass_rate": 0.0,
+            "total_tokens_in": 100,
+            "total_tokens_out": 100,
+            "p95_latency_ms": 50.0,
+            "total_cost_usd": 0.01,
+        },
+        baseline,
+        Tolerances(),
+    )
+    assert not report.ok, "A drop from 0.9 to 0.0 must trip the gate"
