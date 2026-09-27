@@ -1793,3 +1793,275 @@ All checks passed!
 **Reviewer sign-off (c2-p11):** blockers=0, majors=5 total (2 new + 3 prior), minors=3
 (all accepted). Core properties (determinism, contract eval, schema validation) held.
 The wilson confidence validation and gate NaN handling are the significant new findings.
+
+---
+
+# Pass c3-p10-adversarial-1 — Attack the Claims, Cycle 3 (independent reviewer)
+
+Reviewer lane: kiro:claude-opus-4.5 (independent; did not author builder code in this cycle).
+Date: 2026-09-27. HEAD at start: `c38f62d` (c3-p09). Baseline before any attack: `150 passed`.
+
+## 1. Claims audit — the 3 most load-bearing README claims, attacked
+
+### Claim 1 — headline: "fails the build ... gate exit 1 on regressed run, 0 on good run" + Real results table
+
+```
+$ .venv/bin/agenteval run --contract examples/contracts/research.yaml --runs examples/recordings/sample_run.jsonl --output /tmp/good.json
+| Total Tokens In | 0 |
+| p95 Latency | 0.1 ms |
+| How do solar panels work | PASS | 0 | 0 | 0.1 |
+| How long does installation take | PASS | 0 | 0 | 0.0 |
+| What is net metering | PASS | 0 | 0 | 0.0 |
+| What types of batteries are used for storage | PASS | 0 | 0 | 0.0 |
+
+$ .venv/bin/agenteval run --contract examples/contracts/research.yaml --runs examples/recordings/regressed_run.jsonl --output /tmp/bad.json
+| How do solar panels work | FAIL | 0 | 0 | 0.0 |
+| How long does installation take | PASS | 0 | 0 | 0.1 |
+| What is net metering | PASS | 0 | 0 | 0.0 |
+| What types of batteries are used for storage | FAIL | 0 | 0 | 0.0 |
+
+$ .venv/bin/agenteval gate --baseline /tmp/good.json --current /tmp/bad.json; echo exit=$?
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+Warning: the following gates were not enforced because the baseline value is zero (first-run or corrupted baseline): total_tokens, total_cost_usd
+gate(regressed) exit=1
+gate(good vs good) exit=0
+```
+
+Wilson bound claimed in the README "Real results" table (51.0% / 15.0%) recomputed with
+**stdlib only** (no repo import), `statistics.NormalDist().inv_cdf(0.975)`:
+
+```
+z=1.9599639845400536
+wilson(4,4) = 51.0109%   README claims 51.0%
+wilson(2,4) = 15.0039%   README claims 15.0%
+repo output: good wilson_lower=0.5101091634281154  bad wilson_lower=0.15003898911025654
+```
+
+**Verdict: survives.** Exit codes, drift numbers (2 regressions / 0 fixes / 2 stable pass, from the
+demo run in Claim 3) and both Wilson figures match the README exactly.
+
+### Claim 2 — "fails the build when token cost regressed against your stored baseline"
+
+Pass rate held identical (1.0); only tokens changed. Baseline given nonzero tokens, because a zero
+baseline is skipped by design and that skip is surfaced in the warning line above.
+
+```
+$ agenteval gate --baseline /tmp/base_tok.json --current /tmp/cur20.json   # +20% tokens, same pass rate
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+total_tokens                12000.0000   14400.0000       0.1000
+Warning: ... gates not enforced ... baseline value is zero ...: total_cost_usd
+gate(+20% tokens) exit=1
+
+$ agenteval gate --baseline /tmp/base_tok.json --current /tmp/cur05.json   # +5% tokens (within 10% tolerance)
+Gate: PASS — no regressions detected.
+gate(+5% tokens) exit=0
+```
+
+**Verdict: survives.** Threshold is exactly the documented 10%, the metric is named in the failure
+output, and the in-tolerance control passes.
+
+### Claim 3 — "runs entirely offline ... no models, no providers, no keys"
+
+Method: `sitecustomize` on `PYTHONPATH` replaces `socket.socket.connect / connect_ex / sendto`,
+`getaddrinfo`, `create_connection` with a raise; the full demo runs under that environment.
+
+```
+$ PYTHONPATH=/tmp/opencode/netblock bash examples/run_demo.sh
+demo exit=0
+| Pass Rate | 100.0% |     | Wilson Lower Bound (95%) | 51.0% |
+| Pass Rate | 50.0%  |     | Wilson Lower Bound (95%) | 15.0% |
+Gate: PASS — no regressions detected.   Exit code: 0
+Gate: FAIL — regressions detected:      Exit code: 1
+Regressions : 2
+Fixes       : 0
+Stable pass : 2
+--- deliberate network attempt under identical env ---
+blocked as intended: NETWORK ACCESS BLOCKED BY ADVERSARIAL REVIEWER
+--- static ---
+$ grep -rnE "import (requests|httpx|urllib|socket)|from (requests|httpx|urllib)" src/
+NO network client imports in src/
+```
+
+**Verdict: survives.** Demo completes with sockets dead; README "Real results" numbers reproduce
+under the block.
+
+Honesty note: the first attempt used a class-replacing shim (`socket.socket = fn`) which broke
+`ssl.py`'s `class SSLSocket(socket)` with `TypeError: function() argument 'code' must be code, not
+str` (demo exit 1). That was a reviewer harness bug, not a repo fault; the method-level shim above
+is the corrected harness. Recorded because it was an observed failing command.
+
+Cross-cutting README claim also checked: "promptfoo ... 25k stars"
+
+```
+$ curl -sS https://api.github.com/repos/promptfoo/promptfoo | python3 -c '...'
+stars: 25499 | pushed_at: 2026-09-27T19:05:46Z
+```
+
+Accurate.
+
+## 2. Citation audit — every link in docs/RESEARCH.md
+
+Method: extract every `https?://` URL from `docs/RESEARCH.md` (81 raw, 76 unique after dropping
+`$repo`/`$pkg` template strings), `curl -L --max-time 25` each with a browser UA, then re-check
+every non-200 with trailing backticks stripped (markdown-code artifacts).
+
+Raw result summary (`/tmp/opencode/link_results.txt`, full 76 lines):
+
+```
+59  200   (arxiv abs+doi, github repos, pypi, jstor, jmlr, statisticshowto, springer,
+           projecteuclid, raw.githubusercontent, evalcore, promptfoo.dev, taylorfrancis, ...)
+8   403   publisher bot walls: academic.oup.com, dl.acm.org, doi.org→tandfonline,
+           doi.org→biometrika, doi.org→jstor, doi.org→wiley, doi.org→jamanetwork
+7   404   -> after stripping trailing ` : 3 were markdown artifacts, now 200
+           https://github.com/promptfoo/promptfoo/blob/main/CHANGELOG.md   200
+           https://github.com/repowazdogz-droid/inspect-replay             200
+           https://huang.isis.vanderbilt.edu/.../mutation-testing.pdf      200
+           remainder are code-block templates (api.github.com/repos/, pypi.org/pypi/$pkg/json)
+1   202   https://doi.org/10.1109/TSE.2010.62   (IEEE, resolves)
+1   ERR   http://jaman.jamanetwork.com/article.aspx?doi=10.1001/jama.1983.03330370053031
+```
+
+Dead/odd host re-tested directly:
+
+```
+$ curl -sS -o /dev/null -w '%{http_code}' "http://jaman.jamanetwork.com/article.aspx?doi=..."
+curl: (6) Could not resolve host: jaman.jamanetwork.com
+$ curl ... "https://jaman.jamanetwork.com/article.aspx?doi=..."
+curl: (6) Could not resolve host: jaman.jamanetwork.com
+```
+
+DOI itself: `https://doi.org/10.1001/jama.1983.03330370053031` resolves (302 → publisher bot wall);
+Crossref confirms the record.
+
+Support spot-checks. `docs/CITATION-AUDIT.md` (2026-09-26) audited S1–S19; cycle-3 added
+S20–S31 (942 lines added to RESEARCH.md since `9e05fac`), which that audit does not cover. This
+pass verified those against Crossref/arXiv directly:
+
+```
+== CROSSREF new-source titles ==
+10.1007/BF02295996 | Note on the Sampling Error of the Difference Between Correlated Proportions or Percentages | [[1947, 6]] | Psychometrika
+10.1001/jama.1983.03330370053031 | If Nothing Goes Wrong, Is Everything All Right? | [[1983, 4, 1]] | JAMA
+10.1111/j.2517-6161.1995.tb02031.x | Controlling the False Discovery Rate: A Practical and Powerful Approach to Multiple Testin | [[1995, 1, 1]] | Journal of the Royal Statistical Society
+10.1145/2523813 | A survey on concept drift adaptation | [[2014, 3]] | ACM Computing Surveys
+10.1214/aos/1013699998 | The control of the false discovery rate in multiple testing under dependency | [[2001, 8, 1]] | The Annals of Statistics
+== arXiv S24 ==
+<title>Deep Reinforcement Learning at the Edge of the Statistical Precipice
+<summary>... Most published results on deep RL benchmarks compare point estimates of aggregate
+performance such as mean and median scores across tasks, ignoring the statistical uncertainty ...
+== Crossref S21 book ==
+The Paired 2 × 2 Table | Statistical Analysis of Contingency Tables
+```
+
+- S20 McNemar, S22 Hanley/Lippman-Hand, S23 Clopper-Pearson, S25 BH, S26 BY, S27 Gama,
+  S28 Efron-Tibshirani, S29 Pineau: titles/venues/years match the claims in the source table.
+- S24's quoted sentence appears verbatim in the arXiv abstract (checked above).
+- Prior-cycle audit finding S8b (vanderbilt PDF misattributed as Offutt & Untch) is now **corrected
+  in RESEARCH.md itself**: line 838–840 records the T9 correction and line 905–908 re-cites it as
+  Jia & Harman (2011), DOI 10.1109/TSE.2010.62. Link resolves (200).
+- S1/S3/S6/S7 claim wording: RESEARCH.md line 1191 records "K(s) corrected to
+  SHA256(method‖url‖body)" etc. — the c2-p01 corrections are present as a disposition table.
+
+Not verified by this pass (restated from CITATION-AUDIT, not re-opened): full-text claim checks for
+S1–S19 beyond the disposition table. Verdict: all 76 links resolve or are behind publisher bot
+walls confirmed via Crossref metadata; **no broken citation link found except the dead
+`jaman.jamanetwork.com` host** (finding C3P10-CIT-1).
+
+## 3. Test-quality audit — 5 sampled tests, named fault injected, suite re-run
+
+Each injection: modify ONLY the production file named below, run the full suite, restore.
+
+| # | test | named fault injected | suite | named test failed? |
+|---|------|----------------------|-------|--------------------|
+| 1 | `tests/test_replay.py::TestDryReplay::test_dry_replay_byte_identical` | `started_at=run.started_at` → `started_at=""` in `replay.py` | 2 failed, 148 passed (exit 1) | YES |
+| 2 | `tests/test_report.py::TestMarkdownReport::test_markdown_no_timestamps` | insert `datetime.now().isoformat()` line into `to_markdown` | 2 failed, 148 passed (exit 1) | YES |
+| 3 | `tests/test_scoring.py::TestWilsonLower::test_wilson_lower_n100_s90` | denominator `1.0 + z2 / n` → `1.0 + z2` in `scoring.py` | 7 failed, 143 passed (exit 1) | YES |
+| 4 | `tests/test_budget_drift.py::TestBudgetGate::test_gate_trips_on_token_increase` | `if token_increase > tol...` → `if False:` in `budget.py` | 2 failed, 148 passed (exit 1) | YES |
+| 5 | `tests/test_assertions.py::TestToolSequenceCheck::test_fails_on_wrong_order` | `if self.ordered:` → `if False:` in `assertions.py` | 1 failed, 149 passed (exit 1) | YES |
+
+Raw output (per injection, last lines of `pytest -q`):
+
+```
+### INJECTION: replay mutates started_at (field drift in dry replay)
+    pytest exit code: 1    named test among failures: YES
+    FAILED tests/test_properties.py::test_dry_replay_idempotent - AssertionError:...
+    FAILED tests/test_replay.py::TestDryReplay::test_dry_replay_byte_identical - ...
+    2 failed, 148 passed in 10.00s
+
+### INJECTION: markdown report embeds a wall-clock timestamp
+    pytest exit code: 1    named test among failures: YES
+    - Generated: 2026-09-27T20:09:27.667329
+    + Generated: 2026-09-27T20:09:27.667314
+    FAILED tests/test_report.py::TestMarkdownReport::test_markdown_no_timestamps
+    FAILED tests/test_report.py::TestMarkdownReport::test_markdown_stable_re_run
+    2 failed, 148 passed in 2.90s
+
+### INJECTION: wilson denominator wrong: (1+z^2) instead of (1+z^2/n)
+    pytest exit code: 1    named test among failures: YES
+    assert abs(result - 0.82566) < 0.005
+    E   assert 0.6485747922053813 < 0.005
+    FAILED tests/test_scoring.py::TestWilsonLower::test_wilson_lower_n100_s90
+    7 failed, 143 passed in 2.93s
+
+### INJECTION: token gate ignores token increases
+    pytest exit code: 1    named test among failures: YES
+    AssertionError: Gate must trip on 50% token increase (threshold 10%)
+    assert not True + where True = GateReport(ok=True, trips=(), ...)
+    FAILED tests/test_adversarial.py::test_gate_crafted_baseline_cannot_inflate_thresholds
+    FAILED tests/test_budget_drift.py::TestBudgetGate::test_gate_trips_on_token_increase
+    2 failed, 148 passed in 2.79s
+
+### INJECTION: tool_sequence check ignores ordering
+    pytest exit code: 1    named test among failures: YES
+    AssertionError: Must fail when required order is reversed
+    FAILED tests/test_assertions.py::TestToolSequenceCheck::test_fails_on_wrong_order
+    1 failed, 149 passed in 3.00s
+```
+
+Post-revert state (all five injections reverted):
+
+```
+=== after all injections reverted ===
+pytest exit=0: 150 passed in 3.00s
+```
+
+**Verdict: 5/5 sampled tests fail on their own named fault.** No vacuous test found in the sample.
+Collateral kills were consistent with the shared fault (e.g. injection 3 also killed the KAT in
+`test_adversarial.py` and the suite-level Wilson test).
+
+## 4. Findings table
+
+| id | severity | finding | evidence | status |
+|----|----------|---------|----------|--------|
+| C3P10-CLM-1 | — | Claim 1 (gate exit 1/0 + Real results table + Wilson 51.0/15.0) attacked, not falsified | §1 Claim 1 raw output; independent `NormalDist` recompute | refuted |
+| C3P10-CLM-2 | — | Claim 2 (token-cost regression trips the gate) attacked, not falsified | §1 Claim 2 raw output, +20% trips / +5% passes | refuted |
+| C3P10-CLM-3 | — | Claim 3 (fully offline, no keys) attacked under a live socket block, not falsified | §1 Claim 3 raw output, demo exit 0, deliberate connect blocked | refuted |
+| C3P10-TST-1 | — | 5 sampled tests each failed on their injected named fault | §3 raw pytest outputs, 5/5 named tests failed | refuted |
+| C3P10-CIT-1 | minor | RESEARCH.md link-sweep line 2354 records `http://jaman.jamanetwork.com/...` as S22's DOI redirect target; host no longer resolves (DNS failure on http and https). The citation link itself (`https://doi.org/10.1001/jama.1983...`) resolves and Crossref confirms the record | §2 curl output `Could not resolve host` | open |
+| C3P10-CIT-2 | minor | 8 of 76 links return 403 to scripted fetchers (OUP, ACM, T&F, Wiley, JSTOR, JAMA publisher bot walls). Resolution confirmed indirectly via Crossref/arXiv metadata where applicable; full-text support for those pages cannot be machine-verified from this host | §2 result table + Crossref checks | limitation (publisher-side bot walls; crossref fallback used) |
+| C3P10-CIT-3 | minor | `docs/CITATION-AUDIT.md` predates the cycle-3 RESEARCH additions (S20–S31); its scope statement no longer matches the document it audits | §2 git log + diff stat (`942 insertions` since `9e05fac`), spot-check of S20–S29 done here | fixed (coverage supplied by this pass; builder may refresh CITATION-AUDIT header) |
+
+Blockers: 0. Majors: 0. The three README claims, the five sampled tests, and the citation link set
+all withstood attack; the three minors are documentation-hygiene findings with no bearing on the
+runtime property.
+
+**Repo state at end of this pass (raw):**
+
+```
+$ .venv/bin/pytest -q
+150 passed in 3.37s
+$ .venv/bin/ruff check .
+All checks passed!
+$ .venv/bin/ruff format --check .
+20 files already formatted
+$ git status --short
+?? reports/eval-c3-p6.json
+?? reports/eval-c3-p7.json
+```
+
+**Reviewer sign-off (c3-p10):** blockers=0, majors=0, minors=3 (2 open/limitation, 1 dispositioned
+by this pass). No source file was modified by the reviewer; all injections were reverted.
