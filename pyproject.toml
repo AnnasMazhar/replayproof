@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "replayproof"
-version = "0.1.0"
+version = "0.1.1"
 description = "Deterministic, offline-replayable regression testing for LLM agents"
 readme = "README.md"
 license = { file = "LICENSE" }
