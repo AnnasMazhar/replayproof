@@ -23,6 +23,12 @@ TestGateNonFiniteRejection:
 - test_compare_rejects_inf_pass_rate: catches a gate that accepts infinity pass_rate.
 - test_compare_rejects_nan_latency: catches a gate that accepts NaN latency.
 - test_compare_rejects_inf_cost: catches a gate that accepts infinity cost.
+
+TestGateCLIRejectsJSONL:
+- test_gate_cli_rejects_jsonl_as_current: catches the README bug where --current was
+  documented as a JSONL file; the CLI must return a non-zero exit code and print an
+  actionable error message when given a JSONL file (multiple JSON objects) instead of
+  the expected single-object JSON produced by agenteval run.
 """
 
 import os
@@ -449,3 +455,58 @@ class TestGateZeroBaselineSurfaces:
             "skipped_zero_baseline" in d
         ), "to_dict() must include skipped_zero_baseline for CLI/JSON output"
         assert isinstance(d["skipped_zero_baseline"], list)
+
+
+class TestGateCLIRejectsJSONL:
+    """Tests that the CLI gate subcommand rejects JSONL files passed as --current.
+
+    Context: README previously documented `agenteval gate --current recordings/my_eval_new.jsonl`
+    which is wrong — --current must be a JSON file produced by `agenteval run`, not a raw JSONL.
+    The CLI calls `json.load()` on the file and returns exit code 1 on a JSONDecodeError;
+    this test confirms that path is exercised so the documentation fix is backed by a test.
+    """
+
+    def test_gate_cli_rejects_jsonl_as_current(self, tmp_path: "pytest.TempDir") -> None:
+        """Fault: gate CLI silently accepts a multi-line JSONL file as --current,
+        which would either raise an exception without a clear error message or
+        silently return ok=True on malformed input.
+        A JSONL file (newline-delimited JSON objects) is not valid as a single JSON
+        object; json.load() must raise JSONDecodeError, and the CLI must return exit 1.
+        """
+        import json as _json
+
+        from agenteval.cli import _cmd_gate, build_parser
+
+        # Build a minimal valid baseline file
+        baseline_file = tmp_path / "baseline.json"
+        baseline_file.write_text(
+            _json.dumps(
+                {
+                    "pass_rate": 1.0,
+                    "wilson_lower": 0.51,
+                    "total_tokens_in": 0,
+                    "total_tokens_out": 0,
+                    "p95_latency_ms": 0.1,
+                    "total_cost_usd": 0.0,
+                    "case_count": 1,
+                    "pass_count": 1,
+                }
+            )
+        )
+
+        # Build a JSONL file (two lines of JSON objects — not valid as a single JSON value)
+        jsonl_file = tmp_path / "current.jsonl"
+        jsonl_file.write_text(
+            '{"schema_version": 1, "name": "run1", "turns": []}\n'
+            '{"schema_version": 1, "name": "run2", "turns": []}\n'
+        )
+
+        parser = build_parser()
+        args = parser.parse_args(
+            ["gate", "--baseline", str(baseline_file), "--current", str(jsonl_file)]
+        )
+        rc = _cmd_gate(args)
+        assert rc == 1, (
+            "gate CLI must return exit code 1 when --current is a JSONL file "
+            "(multi-line, not a single JSON object); got rc=" + str(rc)
+        )

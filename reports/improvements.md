@@ -1,5 +1,128 @@
 # Improvement Log — agent-eval-harness
 
+## c3-p09: Fix four README credibility and usability gaps (2026-09-27)
+
+### Finding source
+
+Systematic audit of README.md against the actual CLI implementation and against
+ADOPTION.md (which was corrected in c3-p03 with real Inspect log evidence). Four gaps
+identified by reading what a stranger following the docs would encounter:
+
+1. **BLOCKER — wrong CLI command in Inspect integration section:** README line 244
+   `agenteval gate --baseline baseline.json --current recordings/my_eval_new.jsonl`
+   passes a JSONL file as `--current`. The gate CLI calls `json.load()` on `--current`;
+   it requires a JSON file produced by `agenteval run`. A JSONL file (newline-delimited
+   JSON objects) raises `JSONDecodeError` and exits 1 with an error. A stranger following
+   the docs hits a confusing error on the last command.
+
+2. **CREDIBILITY — self-contradiction in Limitations:** The Limitations section said
+   "v0.1 does not read Inspect `.eval` logs" with no mention of the bridge script. The
+   `## Integration with Inspect AI` section above it shows a working bridge script that
+   *does* convert `.eval` logs. A skeptical reviewer reading Limitations concludes the
+   Inspect integration is broken, then scrolls up and sees the script — the contradiction
+   undermines credibility.
+
+3. **USABILITY — `agenteval record` has no PYTHONPATH note:** The recording section
+   shows `agenteval record --agent examples.research_agent:research_agent` without any
+   mention that a project-local agent module requires `PYTHONPATH=$(pwd)`. This hits as
+   `ModuleNotFoundError: No module named 'examples'` for any non-installed agent
+   package. ADOPTION.md documents this as FM-6 but the README did not.
+
+4. **ROADMAP — "Inspect `.eval` log reader" listed as future work but bridge script
+   already ships:** The Roadmap listed "Inspect `.eval` log reader" as a pending item,
+   and `scripts/convert_inspect_log.py` is in the repo. The Roadmap item is accurate
+   for a *native* reader (no conversion step), but listing the bare phrase left a
+   reviewer unable to tell if the current state was "nothing exists" or "a bridge exists".
+
+### Root causes
+
+**Gap 1:** The Inspect integration CLI snippet was written before the CLI contract was
+clarified. The `gate` command was documented as receiving a JSONL directly, bypassing
+the `run` step. No test existed that would fail if a JSONL were passed as `--current`.
+
+**Gap 2:** The Limitations section was written early and never updated when the Inspect
+bridge was added. The two sections were maintained independently.
+
+**Gap 3:** The recording section was adapted from the `agenteval record` implementation
+pass without reference to the ADOPTION.md onboarding recipe, which documented the
+PYTHONPATH issue after FM-6 was observed in the c3-p03 real execution.
+
+**Gap 4:** The Roadmap was copied from the spec and never updated when `scripts/` gained
+the bridge script.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 149 passed |
+| README Inspect integration — gate command | `--current recordings/my_eval_new.jsonl` (wrong: JSONL not JSON) |
+| `agenteval gate --current <jsonl>` test exists | NO |
+| README Limitations — Inspect bridge mentioned | NO ("v0.1 does not read Inspect `.eval` logs") |
+| README record section — PYTHONPATH note | NO |
+| README Roadmap — Inspect entry | "Inspect `.eval` log reader" (ambiguous: no mention of existing bridge) |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 150 passed (+1) |
+| README Inspect integration — gate command | corrected: `run` step produces `current.json`, gate takes that |
+| `agenteval gate --current <jsonl>` test exists | YES — `TestGateCLIRejectsJSONL` |
+| README Limitations — Inspect bridge mentioned | YES: "native reader not built-in; conversion script at `scripts/convert_inspect_log.py`" |
+| README record section — PYTHONPATH note | YES — comment `PYTHONPATH=$(pwd) agenteval record ...` |
+| README Roadmap — Inspect entry | Clarified: "Inspect `.eval` log reader (native, no conversion script required)" |
+
+### Evidence
+
+Full test run:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest -q
+........................................................................ [ 48%]
+........................................................................ [ 96%]
+......                                                                   [100%]
+150 passed in 2.75s
+```
+
+Ruff clean:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+20 files already formatted
+RUFF CLEAN
+```
+
+New test (`TestGateCLIRejectsJSONL`):
+
+```
+$ .venv/bin/python -m pytest tests/test_budget_drift.py::TestGateCLIRejectsJSONL -v
+tests/test_budget_drift.py::TestGateCLIRejectsJSONL::test_gate_cli_rejects_jsonl_as_current PASSED
+1 passed in 0.21s
+```
+
+Demo still passes:
+
+```
+$ bash examples/run_demo.sh | grep -E "=== Demo complete|PASS: gate exits"
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+### Files changed
+
+- `README.md` — (1) Inspect integration bash snippet: replaced `agenteval gate --current
+  recordings/my_eval_new.jsonl` with a correct two-step sequence (`agenteval run` produces
+  `current.json`, then `agenteval gate --current current.json`); (2) Limitations: updated
+  Inspect entry to "v0.1 does not natively read Inspect `.eval` logs … conversion script
+  included at `scripts/convert_inspect_log.py`"; (3) Recording section: added PYTHONPATH
+  comment; (4) Roadmap: updated Inspect entry to "native, no conversion script required"
+- `tests/test_budget_drift.py` — updated top docstring; added `TestGateCLIRejectsJSONL`
+  class (1 test): `test_gate_cli_rejects_jsonl_as_current`
+- `reports/improvements.md` — this entry
+
+---
+
 ## c3-p08: Fix C2P11-MAJ-2 (gate accepts NaN/infinity) and C2P11-MAJ-1 (wilson_lower accepts negative confidence) (2026-09-27)
 
 ### Finding source

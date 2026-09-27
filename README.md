@@ -241,7 +241,10 @@ def convert(eval_path, out_dir):
 ```bash
 python scripts/convert_inspect_log.py logs/my_eval.eval recordings/
 agenteval run --contract contracts/research.yaml --runs recordings/my_eval.jsonl --output baseline.json
-agenteval gate --baseline baseline.json --current recordings/my_eval_new.jsonl
+# When a newer recording is available, convert it the same way and evaluate it:
+python scripts/convert_inspect_log.py logs/my_eval_new.eval recordings/
+agenteval run --contract contracts/research.yaml --runs recordings/my_eval_new.jsonl --output current.json
+agenteval gate --baseline baseline.json --current current.json
 ```
 
 See [docs/ADOPTION.md](docs/ADOPTION.md) for a full step-by-step integration guide, including
@@ -252,6 +255,8 @@ CI YAML and a concrete failure mode walkthrough.
 ```bash
 # Agent module must expose a build_tools() factory if it needs tools.
 # The --agent flag takes a dotted module path and callable name.
+# If the agent lives in a local directory (not installed), set PYTHONPATH first:
+#   PYTHONPATH=$(pwd) agenteval record ...
 agenteval record \
     --agent examples.research_agent:research_agent \
     --task "How do solar panels work" \
@@ -297,12 +302,14 @@ See [COMPARISONS.md](COMPARISONS.md) for a full factual table. The short version
   It detects structured PII (email, SSN, phone, credit card) but not free-form PII
   (names, addresses, unformatted numbers).
 
-- **v0.1 does not read Inspect `.eval` logs.** It reads its own JSONL and normalises
-  OpenAI/Anthropic-style message lists. Inspect log import is planned.
+- **v0.1 does not natively read Inspect `.eval` logs.** It reads its own JSONL and normalises
+  OpenAI/Anthropic-style message lists. A conversion script is included at
+  `scripts/convert_inspect_log.py` and is demonstrated in the Integration with Inspect AI
+  section above; a native reader (no conversion step) is planned.
 
 ## Roadmap
 
-- Inspect `.eval` log reader
+- Inspect `.eval` log reader (native, no conversion script required)
 - Hierarchical bootstrap for nested evaluation structures
 - Judge-based scoring plugin API
 - HTML report with per-case expandable details
