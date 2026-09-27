@@ -1,5 +1,153 @@
 # Improvement Log — agent-eval-harness
 
+## c2-p09: Fix ADOPTION.md broken contract examples, README Contract YAML sync, COMPARISONS star count (2026-09-27)
+
+### Finding source
+
+Audit of ADOPTION.md against `src/agenteval/assertions.py` — the biggest credibility gap
+a skeptical reviewer would find: the adoption guide is broken for anyone who follows it.
+
+Two contract examples in ADOPTION.md raise `TypeError` when passed to `_build_check()`:
+
+1. **cs-002 `tool_sequence`**: uses `tools:` but `ToolSequenceCheck.__init__()` requires
+   `expected:`. Error: `ToolSequenceCheck.__init__() got an unexpected keyword argument 'tools'`
+2. **cs-005 `no_pattern`**: uses `field: content` but `NoPatternCheck.__init__()` requires
+   `field_name:`. Error: `NoPatternCheck.__init__() got an unexpected keyword argument 'field'`
+   Also present in the FM-3 "fix" example block (ADOPTION.md line 373).
+
+Secondary credibility issues fixed in the same pass:
+- README "Real results" date: `2026-09-26` → `2026-09-27` (demo was regenerated on Sep 27)
+- README Contract YAML section: example lacked `id` and `severity` fields, inconsistent
+  with the actual `examples/contracts/research.yaml`. Updated to match the real file.
+- COMPARISONS.md star count for promptfoo: `25,477` → `25,482` (RESEARCH.md had 25,482
+  from the same GitHub API fetch; COMPARISONS.md had a stale earlier number).
+
+### Root causes
+
+**Broken ADOPTION.md contracts:** The ADOPTION.md customer_service.yaml was written during
+the c1-p09 improve pass as a documentation example. At the time, the parameter names
+were not cross-checked against the `@dataclass` field names in `assertions.py`.
+`ToolSequenceCheck` uses `expected` (per the spec), not `tools`. `NoPatternCheck` uses
+`field_name` (per the code), not `field`.
+
+**README Contract YAML:** The README example was a simplified illustration and was not
+regenerated from the actual `examples/contracts/research.yaml` file after that file was
+updated in c1-p09 to add explicit `id` and `severity` fields.
+
+**COMPARISONS.md star count drift:** The two files are maintained independently and the
+promptfoo count was updated in RESEARCH.md (via GitHub API re-fetch in c2-p02) but the
+COMPARISONS.md table was not updated in the same pass.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 133 passed |
+| ADOPTION.md cs-002 tool_sequence parameter | `tools:` (raises TypeError) |
+| ADOPTION.md cs-005 no_pattern parameter | `field: content` (raises TypeError) |
+| ADOPTION.md FM-3 fix no_pattern parameter | `field: content` (raises TypeError) |
+| README Contract YAML has `id` / `severity` | NO (missing, inconsistent with real file) |
+| README "Real results" date | 2026-09-26 (stale) |
+| COMPARISONS.md promptfoo stars | 25,477 (stale) |
+| Tests catching ADOPTION.md parameter bugs | NONE |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 136 passed (+3) |
+| ADOPTION.md cs-002 tool_sequence parameter | `expected:` (correct, no error) |
+| ADOPTION.md cs-005 no_pattern parameter | `field_name: final_content` (correct) |
+| ADOPTION.md FM-3 fix no_pattern parameter | `field_name: final_content` (correct) |
+| README Contract YAML has `id` / `severity` | YES — matches actual `research.yaml` |
+| README "Real results" date | 2026-09-27 |
+| COMPARISONS.md promptfoo stars | 25,482 (consistent with RESEARCH.md) |
+| Tests catching ADOPTION.md parameter bugs | YES — 3 new tests in `TestAdoptionGuideContracts` |
+
+### Evidence
+
+All ADOPTION.md contract checks pass after fix:
+
+```
+$ python3 -c "
+from agenteval.assertions import _build_check
+checks = [
+    {'type': 'required_tools', 'id': 'cs-001', 'severity': 'error', 'description': 'required', 'names': ['search_knowledge_base']},
+    {'type': 'tool_sequence', 'id': 'cs-002', 'severity': 'error', 'description': 'sequence', 'expected': ['search_knowledge_base'], 'ordered': True},
+    {'type': 'forbidden_tools', 'id': 'cs-003', 'severity': 'warn', 'description': 'forbidden', 'names': ['get_internal_debug_info']},
+    {'type': 'arg_schema', 'id': 'cs-004', 'severity': 'error', 'description': 'schema', 'tool': 'search_knowledge_base', 'schema': {'type': 'object', 'required': ['query'], 'properties': {'query': {'type': 'string', 'minLength': 1}}}},
+    {'type': 'no_pattern', 'id': 'cs-005', 'severity': 'error', 'description': 'email', 'field_name': 'final_content', 'regex': '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'},
+    {'type': 'max_tool_calls', 'id': 'cs-006', 'severity': 'warn', 'description': 'max calls', 'n': 8},
+    {'type': 'max_tokens', 'id': 'cs-007', 'severity': 'warn', 'description': 'max tokens', 'n': 4000},
+]
+for c in checks:
+    try:
+        obj = _build_check(c)
+        print(f'OK: {c[\"id\"]}')
+    except Exception as e:
+        print(f'FAIL: {c[\"id\"]}: {e}')
+"
+OK: cs-001
+OK: cs-002
+OK: cs-003
+OK: cs-004
+OK: cs-005
+OK: cs-006
+OK: cs-007
+```
+
+Full test run:
+
+```
+$ pytest -q
+........................................................................[52%]
+................................................................        [100%]
+136 passed in 2.65s
+```
+
+Ruff clean:
+
+```
+$ ruff check . && ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+19 files already formatted
+RUFF CLEAN
+```
+
+New tests added (`TestAdoptionGuideContracts`):
+
+```
+$ pytest -q tests/test_assertions.py::TestAdoptionGuideContracts -v
+tests/test_assertions.py::TestAdoptionGuideContracts::test_adoption_customer_service_yaml_parses PASSED
+tests/test_assertions.py::TestAdoptionGuideContracts::test_adoption_tool_sequence_expected_field PASSED
+tests/test_assertions.py::TestAdoptionGuideContracts::test_adoption_no_pattern_field_name PASSED
+3 passed in 0.22s
+```
+
+Demo still passes:
+
+```
+$ bash examples/run_demo.sh | grep -E "=== Demo complete|PASS: gate exits"
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+### Files changed
+
+- `docs/ADOPTION.md` — cs-002: `tools:` → `expected:`; cs-005: `field: content` →
+  `field_name: final_content`; FM-3 fix block: same `field: content` → `field_name: final_content`
+- `README.md` — Contract YAML section: added explicit `id` and `severity` fields to match
+  real `examples/contracts/research.yaml`; "Real results" date: `2026-09-26` → `2026-09-27`
+- `COMPARISONS.md` — promptfoo star count: `25,477` → `25,482` (consistent with RESEARCH.md)
+- `tests/test_assertions.py` — added `TestAdoptionGuideContracts` class (3 tests):
+  `test_adoption_customer_service_yaml_parses`, `test_adoption_tool_sequence_expected_field`,
+  `test_adoption_no_pattern_field_name`; updated top docstring to include the new class
+- `reports/improvements.md` — this entry
+
+---
+
+
+
 ## c2-p08: Fix AR-MAJ-1 (PyPI name collision), AR-MAJ-3 (timestamp test), AR2-MAJ-4 (gate zero-baseline bypass), AR2-MIN-2 (wilson_lower invalid input) (2026-09-27)
 
 ### Finding source

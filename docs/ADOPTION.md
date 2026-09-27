@@ -156,7 +156,7 @@ checks:
     type: tool_sequence
     severity: error
     description: "search_knowledge_base must precede final answer (ordered)"
-    tools:
+    expected:
       - search_knowledge_base
     ordered: true
 
@@ -184,7 +184,7 @@ checks:
     type: no_pattern
     severity: error
     description: "Final answer must not contain email addresses (PII leak)"
-    field: content
+    field_name: final_content
     regex: "[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}"
 
   - id: cs-006
@@ -370,7 +370,7 @@ a UUID formatted as `prefix@suffix` in an event bus.
 - id: cs-005
   type: no_pattern
   severity: error
-  field: content
+  field_name: final_content
   # exclude internal ticketing refs (A.B.@internal patterns) from the PII check
   regex: "(?<!@internal)[a-zA-Z0-9._%+\\-]+@(?!internal)[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}"
 ```

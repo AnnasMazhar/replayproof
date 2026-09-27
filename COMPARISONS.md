@@ -19,7 +19,7 @@ latency regressed against a stored baseline.
 | inspect-replay (`repowazdogz-droid/inspect-replay`) | MIT | 0 | not published to PyPI (404), install from source |
 | inspect-mlflow (`debu-sinha/inspect-mlflow`) | MIT | 3 | PyPI 0.8.1 published 2026-09-15 |
 | DeepEval (`confident-ai/deepeval`) | Apache-2.0 | 18,453 | python-v4.2.4 published 2026-09-22 |
-| promptfoo (`promptfoo/promptfoo`) | MIT | 25,477 | 0.123.1 published 2026-09-18 |
+| promptfoo (`promptfoo/promptfoo`) | MIT | 25,482 | 0.123.1 published 2026-09-18 |
 | replayproof (this repo, `agenteval`) | MIT | 0 (not launched) | 0.1.0, 2026-09-26 |
 
 ## The table

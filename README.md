@@ -99,7 +99,7 @@ agenteval gate \
 
 ## Real results
 
-Generated from `bash examples/run_demo.sh` on 2026-09-26:
+Generated from `bash examples/run_demo.sh` on 2026-09-27:
 
 **Good run (sample_run.jsonl):**
 
@@ -163,14 +163,24 @@ Declare what a correct agent run looks like:
 name: research
 checks:
   - type: required_tools
+    id: required_tools
+    severity: error
     names: [search_docs]
   - type: forbidden_tools
+    id: forbidden_tools
+    severity: error
     names: [send_email]
   - type: max_tool_calls
+    id: max_tool_calls
+    severity: error
     n: 6
   - type: max_tokens
+    id: max_tokens
+    severity: warn
     n: 4000
   - type: no_pattern
+    id: no_pii_email
+    severity: error
     field_name: final_content
     regex: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
 ```

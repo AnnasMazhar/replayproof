@@ -55,6 +55,14 @@ TestHostileInputs:
   metacharacters in agent content; this test catches that.
 - test_huge_tool_call_count: catches off-by-one or OOM on very large call counts.
 - test_unicode_in_content: catches a no_pattern check that crashes on non-ASCII.
+
+TestAdoptionGuideContracts:
+- test_adoption_customer_service_yaml_parses: catches wrong parameter names in ADOPTION.md
+  YAML (e.g. 'tools:' instead of 'expected:', 'field:' instead of 'field_name:') that
+  would cause TypeError when any reader copies the adoption guide example.
+- test_adoption_tool_sequence_expected_field: confirms ToolSequenceCheck exposes 'expected',
+  not 'tools', as the constructor parameter.
+- test_adoption_no_pattern_field_name: confirms NoPatternCheck uses 'field_name', not 'field'.
 """
 
 import os
@@ -430,3 +438,90 @@ class TestHostileInputs:
         check = MaxTokensCheck(n=0)
         r = check.evaluate(_run(tokens_in=1, tokens_out=0))
         assert not r.passed, "Any token usage should exceed a 0-token limit"
+
+
+class TestAdoptionGuideContracts:
+    """Regression tests ensuring the ADOPTION.md customer_service.yaml example is valid.
+
+    Faults detected:
+    - test_adoption_customer_service_yaml_parses: catches wrong parameter names in
+      ADOPTION.md YAML examples (e.g. using 'tools:' instead of 'expected:' for
+      tool_sequence, or 'field:' instead of 'field_name:' for no_pattern). These
+      would raise TypeError when _build_check() is called, breaking the adoption guide
+      for any reader who copies the example.
+    - test_adoption_tool_sequence_expected_field: confirms ToolSequenceCheck uses
+      'expected', not 'tools', matching the documented parameter name.
+    - test_adoption_no_pattern_field_name: confirms NoPatternCheck uses 'field_name',
+      not 'field', matching the documented parameter name.
+    """
+
+    def test_adoption_customer_service_yaml_parses(self) -> None:
+        """Fault: ADOPTION.md contract YAML has wrong field names that raise TypeError."""
+        # This is the corrected cs-002 and cs-005 from ADOPTION.md.
+        # If tool_sequence uses 'tools' instead of 'expected', or no_pattern uses
+        # 'field' instead of 'field_name', _build_check raises TypeError.
+        yaml_text = """
+name: customer_service
+checks:
+  - id: cs-001
+    type: required_tools
+    severity: error
+    names:
+      - search_knowledge_base
+  - id: cs-002
+    type: tool_sequence
+    severity: error
+    expected:
+      - search_knowledge_base
+    ordered: true
+  - id: cs-003
+    type: forbidden_tools
+    severity: warn
+    names:
+      - get_internal_debug_info
+  - id: cs-005
+    type: no_pattern
+    severity: error
+    field_name: final_content
+    regex: "[a-zA-Z0-9._%+\\\\-]+@[a-zA-Z0-9.\\\\-]+\\\\.[a-zA-Z]{2,}"
+  - id: cs-006
+    type: max_tool_calls
+    severity: warn
+    n: 8
+"""
+        from agenteval.assertions import Contract
+
+        contract = Contract.from_yaml(yaml_text)
+        assert contract.name == "customer_service"
+        assert len(contract.checks) == 5
+        # Verify tool_sequence check has 'expected' list (not 'tools')
+        ts_check = contract.checks[1]
+        assert hasattr(ts_check, "expected"), "ToolSequenceCheck must have 'expected' attr"
+        assert ts_check.expected == ["search_knowledge_base"]
+        # Verify no_pattern check has 'field_name' (not 'field')
+        np_check = contract.checks[3]
+        assert hasattr(np_check, "field_name"), "NoPatternCheck must have 'field_name' attr"
+        assert np_check.field_name == "final_content"
+
+    def test_adoption_tool_sequence_expected_field(self) -> None:
+        """Fault: ToolSequenceCheck silently drops 'expected' field, always passes."""
+        check = ToolSequenceCheck(expected=["search_knowledge_base"], ordered=True)
+        assert check.expected == ["search_knowledge_base"]
+        # Must fail when required tool is absent
+        r = check.evaluate(_run(tool_names=[]))
+        assert not r.passed, "Must fail when expected tool sequence is missing"
+
+    def test_adoption_no_pattern_field_name(self) -> None:
+        """Fault: NoPatternCheck uses 'field' instead of 'field_name' as constructor arg."""
+        import pytest
+
+        # Wrong parameter name 'field' must raise TypeError
+        with pytest.raises(TypeError, match="field"):
+            NoPatternCheck(field="final_content", regex="test")  # type: ignore[call-arg]
+        # Correct parameter name 'field_name' must work
+        email_regex = r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"
+        check = NoPatternCheck(field_name="final_content", regex=email_regex)
+        assert check.field_name == "final_content"
+        # Must detect a PII email in final_content
+        r = check.evaluate(_run(final_content="Contact us at user@example.com for help."))
+        assert not r.passed, "Must detect email PII in final_content"
