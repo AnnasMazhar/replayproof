@@ -82,10 +82,16 @@ agenteval run \
     --runs examples/recordings/sample_run.jsonl \
     --output /tmp/sample_result.json
 
+# Evaluate the regressed run
+agenteval run \
+    --contract examples/contracts/research.yaml \
+    --runs examples/recordings/regressed_run.jsonl \
+    --output /tmp/regressed_result.json
+
 # Gate: verify regressed run fails
 agenteval gate \
     --baseline /tmp/sample_result.json \
-    --current examples/recordings/regressed_result.json
+    --current /tmp/regressed_result.json
 # Exit code 1 — regression detected
 ```
 
@@ -121,6 +127,10 @@ Generated from `bash examples/run_demo.sh` on 2026-09-26:
 | Stable pass | 2 |
 
 Gate exit code: 1 on regressed run, 0 on good run.
+
+Token counts show as 0 because the demo agent (`research_agent.py`) is a deterministic
+Python function — it has no LLM and therefore no token accounting. Token regression
+gating is active for runs that do include token counts (real LLM recordings).
 
 ## How the gates work
 
@@ -162,6 +172,66 @@ checks:
     field_name: final_content
     regex: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
 ```
+
+## Integration with Inspect AI
+
+If your team already runs `inspect_ai` evals, convert their JSONL output directly:
+
+```python
+# scripts/convert_inspect_log.py — convert an Inspect AI .eval log to replayproof JSONL
+import json, zipfile
+from pathlib import Path
+from agenteval.record import from_messages
+from agenteval.transcript import Run
+
+def convert(eval_path: str, out_path: str) -> None:
+    runs: list[Run] = []
+    with zipfile.ZipFile(eval_path) as z:
+        with z.open("log.json") as f:
+            log = json.load(f)
+    for sample in log.get("samples", []):
+        messages = []
+        for event in sample.get("events", []):
+            if event.get("event") == "model":
+                for choice in event.get("output", {}).get("choices", [{}]):
+                    messages.append(choice.get("message", {}))
+        if messages:
+            runs.append(from_messages(
+                messages,
+                name=str(sample.get("id", "unknown")),
+                model=log.get("eval", {}).get("model", "unknown"),
+            ))
+    with open(out_path, "w") as f:
+        for run in runs:
+            f.write(run.to_jsonl() + "\n")
+    print(f"Wrote {len(runs)} runs to {out_path}")
+
+if __name__ == "__main__":
+    import sys
+    convert(sys.argv[1], sys.argv[2])
+```
+
+```bash
+python scripts/convert_inspect_log.py logs/my_eval.eval recordings/my_eval.jsonl
+agenteval run --contract contracts/research.yaml --runs recordings/my_eval.jsonl --output baseline.json
+agenteval gate --baseline baseline.json --current recordings/my_eval_new.jsonl
+```
+
+See [docs/ADOPTION.md](docs/ADOPTION.md) for a full step-by-step integration guide, including
+CI YAML and a concrete failure mode walkthrough.
+
+## Recording your own agent
+
+```bash
+# Agent module must expose a build_tools() factory if it needs tools.
+# The --agent flag takes a dotted module path and callable name.
+agenteval record \
+    --agent examples.research_agent:research_agent \
+    --task "How do solar panels work" \
+    --output recordings/new_run.jsonl
+```
+
+Then use `agenteval run` to evaluate it against a contract, as shown above.
 
 Each check has a stable `id`, `severity` (`error` or `warn`), and a named fault it
 catches. See [docs/DESIGN.md](docs/DESIGN.md) for the full check reference.

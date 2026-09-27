@@ -19,9 +19,71 @@ import sys
 
 
 def _cmd_record(args: argparse.Namespace) -> int:
-    """Record an agent run from a Python module entry point."""
-    print("record: load agent module and record a run", file=sys.stderr)
-    print("Not yet wired to a live agent in this demo build.", file=sys.stderr)
+    """Record an agent run from a Python module entry point.
+
+    The --agent argument must be a dotted module path followed by a colon and
+    the callable name: ``mypackage.agent:run_agent``.  The callable must have
+    the signature ``(task: str, tools: dict) -> str``.  The ``tools`` dict
+    passed to it will be empty; the callable is expected to construct its own
+    tools internally.
+
+    Example::
+
+        agenteval record \\
+            --agent examples.research_agent:research_agent \\
+            --task "How do solar panels work" \\
+            --output recordings/run.jsonl
+    """
+    import importlib
+
+    from agenteval.record import Recorder
+
+    module_path, _, fn_name = args.agent.partition(":")
+    if not fn_name:
+        print(
+            f"error: --agent must be 'module.path:function_name', got {args.agent!r}\n"
+            "Example: examples.research_agent:research_agent",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        module = importlib.import_module(module_path)
+    except ModuleNotFoundError as exc:
+        print(
+            f"error: cannot import module {module_path!r}: {exc}\n"
+            "Make sure the module is on PYTHONPATH or installed in the active venv.",
+            file=sys.stderr,
+        )
+        return 1
+
+    agent_fn = getattr(module, fn_name, None)
+    if agent_fn is None:
+        print(
+            f"error: module {module_path!r} has no attribute {fn_name!r}.",
+            file=sys.stderr,
+        )
+        return 1
+
+    recorder = Recorder(agent=agent_fn, agent_id=args.agent)
+
+    # Look for an optional ``build_tools()`` factory in the same module so the
+    # agent can declare its own tool set without extra CLI flags.
+    build_tools_fn = getattr(module, "build_tools", None)
+    tools: dict = build_tools_fn() if callable(build_tools_fn) else {}
+
+    run = recorder.record(task=args.task, tools=tools)
+
+    with open(args.output, "w", encoding="utf-8") as fh:
+        fh.write(run.to_jsonl() + "\n")
+
+    if args.format == "json":
+        print(json.dumps(run.to_dict(), indent=2))
+    else:
+        print(f"Recorded run: {run.name!r}")
+        print(f"  turns       : {len(run.turns)}")
+        print(f"  tool calls  : {len(run.all_tool_calls())}")
+        print(f"  output      : {args.output}")
     return 0
 
 
@@ -48,22 +110,65 @@ def _cmd_run(args: argparse.Namespace) -> int:
     """Evaluate a contract against one or more JSONL runs."""
     import os
 
+    import yaml
+
     from agenteval.assertions import Contract
     from agenteval.scoring import CaseResult, compute_suite
     from agenteval.transcript import Run
 
-    contract = Contract.from_yaml_file(args.contract)
+    try:
+        contract = Contract.from_yaml_file(args.contract)
+    except FileNotFoundError:
+        print(
+            f"error: contract file not found: {args.contract!r}\n"
+            "Check the path, or see examples/contracts/research.yaml for a template.",
+            file=sys.stderr,
+        )
+        return 1
+    except yaml.YAMLError as exc:
+        print(
+            f"error: could not parse YAML contract {args.contract!r}: {exc}\n"
+            "Ensure each check is on its own line under 'checks:' and indented correctly.",
+            file=sys.stderr,
+        )
+        return 1
+    except (KeyError, TypeError) as exc:
+        print(
+            f"error: invalid contract structure in {args.contract!r}: {exc}\n"
+            "Each check must have a 'type' field. See examples/contracts/research.yaml.",
+            file=sys.stderr,
+        )
+        return 1
 
     case_results: list[CaseResult] = []
     run_files = args.runs if isinstance(args.runs, list) else [args.runs]
 
     for run_path in run_files:
-        with open(run_path, encoding="utf-8") as fh:
-            for line in fh:
+        try:
+            fh = open(run_path, encoding="utf-8")
+        except FileNotFoundError:
+            print(
+                f"error: runs file not found: {run_path!r}\n"
+                "Check the path, or see examples/recordings/sample_run.jsonl for an example.",
+                file=sys.stderr,
+            )
+            return 1
+
+        with fh:
+            for lineno, line in enumerate(fh, start=1):
                 line = line.strip()
                 if not line:
                     continue
-                run = Run.from_jsonl(line)
+                try:
+                    run = Run.from_jsonl(line)
+                except (KeyError, ValueError) as exc:
+                    print(
+                        f"error: cannot parse run on line {lineno} of {run_path!r}: {exc}\n"
+                        "Each line must be a JSON object with at least 'name', 'turns', and "
+                        "'schema_version' fields. See examples/recordings/sample_run.jsonl.",
+                        file=sys.stderr,
+                    )
+                    return 1
                 check_results = contract.evaluate(run)
                 case_results.append(
                     CaseResult(
@@ -97,9 +202,39 @@ def _cmd_gate(args: argparse.Namespace) -> int:
     """Compare current suite result to a baseline; exit 1 on trip."""
     from agenteval.budget import Baseline, Tolerances, compare
 
-    with open(args.current, encoding="utf-8") as fh:
-        current = json.load(fh)
-    baseline = Baseline.from_file(args.baseline)
+    try:
+        with open(args.current, encoding="utf-8") as fh:
+            current = json.load(fh)
+    except FileNotFoundError:
+        print(
+            f"error: current result file not found: {args.current!r}\n"
+            "Run 'agenteval run --output <file>' first to generate it.",
+            file=sys.stderr,
+        )
+        return 1
+    except json.JSONDecodeError as exc:
+        print(
+            f"error: {args.current!r} is not valid JSON: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        baseline = Baseline.from_file(args.baseline)
+    except FileNotFoundError:
+        print(
+            f"error: baseline file not found: {args.baseline!r}\n"
+            "Run 'agenteval run --output <baseline_file>' on a known-good run and commit it.",
+            file=sys.stderr,
+        )
+        return 1
+    except (json.JSONDecodeError, KeyError) as exc:
+        print(
+            f"error: cannot read baseline {args.baseline!r}: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+
     gate = compare(current, baseline, Tolerances())
 
     if args.format == "json":
