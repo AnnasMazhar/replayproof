@@ -13,6 +13,7 @@ them in CI output and avoid silent pass-throughs on corrupted baselines.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -148,6 +149,11 @@ def compare(
 
     # Pass-rate gate: trip if pass rate drops more than allowed.
     cur_pass = float(current.get("pass_rate", 0.0))
+    if not math.isfinite(cur_pass):
+        raise ValueError(
+            f"pass_rate must be a finite number, got {cur_pass!r}; "
+            "a NaN or inf pass_rate indicates a corrupt or malformed result file"
+        )
     drop = baseline.pass_rate - cur_pass
     if drop > tol.max_pass_rate_drop:
         trips.append(

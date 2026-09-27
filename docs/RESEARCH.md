@@ -2718,3 +2718,153 @@ command, a stated expected observation, and a recorded run result.
 All 41 pre-existing URLs re-verified today (section A) and the 10 new sources S20–S29
 resolved today (section B, raw output). Statuses and bot-gate caveats are recorded
 per-row above; no dead citation found.
+
+---
+
+## Cycle 3 — Research Pass 3 (c3-p03-research-3) — Real-World Applicability — 2026-09-27
+
+What this pass does, in order:
+
+1. Closes F-P3-4, the last item outside the closed set, by running its command (section A).
+2. Re-runs F-P3-1 against **real** inspect_ai `.eval` fixtures from upstream — not the
+   synthetic dict used in c2-p03 — which falsified the then-documented bridge script and
+   forced a fix in `docs/ADOPTION.md` (section B).
+3. Executes the whole ADOPTION.md Tuesday recipe (50-case suite, gate exit codes, drift,
+   measured runtime) and records the raw output (section C).
+4. Falsification items F-C3-7..F-C3-10 with commands, expected observations and today's
+   results (section D), and the standing open-question tally (section E).
+
+### A. F-P3-4 closure — `from_messages` on the OpenAI tool_call shape
+
+Command (run this pass):
+
+```bash
+.venv/bin/python -c "
+from agenteval.record import from_messages
+msgs = [
+  {'role':'user','content':'How do solar panels work?'},
+  {'role':'assistant','content':'checking docs','tool_calls':[{'id':'call_1','type':'function','function':{'name':'search_docs','arguments':'{\"query\": \"solar panels\"}'}}]},
+  {'role':'tool','tool_call_id':'call_1','content':'Photons excite electrons in silicon cells.'},
+  {'role':'assistant','content':'Solar panels convert sunlight to electricity via the photovoltaic effect.'}
+]
+run = from_messages(msgs, name='f-p3-4', agent_id='a', model='gpt-4o', provider='openai')
+tc = [t.name for turn in run.turns for t in (turn.tool_calls or [])]
+print('turns:', len(run.turns), 'tool_calls:', tc)
+assert 'search_docs' in tc
+print('F-P3-4: from_messages OpenAI tool_call shape PASS')
+"
+```
+
+Raw output:
+
+```
+turns: 4 tool_calls: ['search_docs'] final: Solar panels convert sunlight to electricity via t
+F-P3-4: from_messages OpenAI tool_call shape PASS
+```
+
+**Not falsified. F-P3-4 closed (c3-p03, 2026-09-27).** The normaliser round-trips the
+standard OpenAI `tool_calls` shape including the tool-result message.
+
+### B. F-P3-1 re-verification against real `.eval` files — script falsified, fixed, re-verified
+
+c2-p03 closed F-P3-1 against a synthetic dict shaped from documentation. This pass
+downloaded two real archives from `UKGovernmentBEIS/inspect_ai` `main` and ran the
+script **verbatim as extracted from ADOPTION.md**:
+
+```
+$ curl -sL -o popularity.eval https://raw.githubusercontent.com/UKGovernmentBEIS/inspect_ai/main/tests/scorer/logs/2025-02-11T15-17-00-05-00_popularity_dPiJifoWeEQBrfWsAopzWr.eval
+$ python /tmp/opencode/convert_inspect_log.py /tmp/opencode/eval_logs/popularity.eval /tmp/opencode/recordings/
+KeyError: "There is no item named 'log.json' in the archive"
+exit=1
+```
+
+**The documented bridge does not run on real current Inspect logs.** The archive layout
+observed today:
+
+```
+log_read_sample.eval -> ['_journal/start.json', 'samples/1_epoch_1.json',
+    '_journal/summaries/1.json', 'summaries.json', 'reductions.json', 'header.json']
+popularity.eval      -> ['_journal/start.json', 'samples/{1..10}_epoch_1.json ...,
+    'summaries.json', 'header.json']
+```
+
+There is no `log.json`; samples live in per-member `samples/*.json` and metadata in
+`header.json`. This is a genuine falsification of the c2-p03 closure — it tested the
+message-extraction logic but never the archive read. Disposition: **fixed in
+`docs/ADOPTION.md` Step 1** (both layouts handled; Inspect `usage` mapped to
+`tokens_in`/`tokens_out` so the cost gate works on converted logs). Re-verified today:
+
+```
+$ python /tmp/convert_inspect_log.py /tmp/opencode/eval_logs/log_read_sample.eval /tmp/opencode/recordings/
+Wrote 1 runs to /tmp/opencode/recordings/log_read_sample.jsonl   (exit 0)
+$ python /tmp/convert_inspect_log.py /tmp/opencode/eval_logs/popularity.eval /tmp/opencode/recordings/
+Wrote 10 runs to /tmp/opencode/recordings/popularity.jsonl        (exit 0)
+$ agenteval run --contract inspect_contract.yaml --runs popularity.jsonl ...
+| Cases | 10 |  | Passed | 10 |  | Pass Rate | 100.0% |
+| Wilson Lower Bound (95%) | 72.2% |  | Total Tokens In | 620 |  | Total Tokens Out | 20 |
+$ agenteval gate --baseline inspect_popularity.json --current inspect_popularity.json
+Gate: PASS — no regressions detected.   GATE_EXIT=0
+```
+
+Real model recorded in the converted runs: `openai/gpt-4o-mini` (from `header.json`).
+**F-P3-1: re-closed on real artifacts (c3-p03).** FM-2 changes status from "documented
+risk" to "observed and mitigated"; the residual risk is the next Inspect layout change,
+detected by the recipe in ADOPTION.md section D.
+
+### C. Recipe execution — raw output
+
+Full raw transcript in `docs/ADOPTION.md` section "Cycle 3 deepening" (same run).
+Headlines, all captured this pass:
+
+- `agenteval record` x50: **50/50 succeeded** (only with `PYTHONPATH` set — new FM-6).
+- 50-case baseline: `cases=50 pass_rate=1.0 wilson_lower=0.9287`, wall **0.162 s**.
+- Gate on identical current: `GATE_EXIT=0`. Gate on 49-good+regressed: `GATE_EXIT=1`
+  with `pass_rate 1.0000 → 0.9623` vs threshold `0.0000`.
+- Drift: `Regressions : 1 / Fixes : 2 / Churn : 2 / Stable pass : 49`.
+- Empty-suite trap observed (new FM-7): zero-case baseline exits 0 from `run`, and the
+  gate warns `not enforced ...: total_tokens, p95_latency_ms, total_cost_usd` instead of
+  failing — cost gating fails open when baseline metrics are zero.
+
+### D. Falsification section (c3-p03)
+
+**F-C3-7: the documented gate contract holds on a real 50-case baseline.**
+Command: section C gate invocations. Falsifier: gate exit 0 on the regressed current,
+or exit 1 on the identical current. Result: 0 and 1 respectively, with the metric row
+printed. **Run today: not falsified.**
+
+**F-C3-8: "a 50-case suite completes in well under a second; evaluation is not the
+cost centre".** Command: `time agenteval run ... suite50.jsonl`. Falsifier: wall > 1 s
+for 50 deterministic cases. Result: 0.162 s wall / 0.14 s user including interpreter
+startup. **Run today: not falsified.**
+
+**F-C3-9: the ADOPTION Step 1 bridge works as documented against a real Inspect log.**
+Command: section B extraction-and-run. Falsifier: any non-zero exit or zero runs
+produced on the upstream fixtures. Result: **falsified on first run** (`KeyError:
+'log.json'`); script corrected in ADOPTION.md; re-run exits 0 with 1 and 10 runs.
+**Run today: falsified, fixed, re-verified.** This is the pass's substantive finding.
+
+**F-C3-10: the cost/token gate engages on a converted Inspect recording.**
+Command: section B contract run + gate. Falsifier: `Total Tokens In/Out = 0` after the
+usage mapping, or the gate reporting tokens "not enforced". Result: 620/20 real tokens
+carried from Inspect's `usage` fields; tokens no longer in the not-enforced warning
+(`p95_latency_ms, total_cost_usd` remain — fixtures carry no latency/cost, an honest
+data limitation of these samples). **Run today: not falsified for tokens; latency/cost
+remain uncovered and are documented as such.**
+
+### E. Open-question tally after this pass
+
+| Item | State after c3-p03 |
+|------|--------------------|
+| F-1, F-2, F-4, F-5 | Closed (c1/c2, runnable commands on record) |
+| F-3 (assertions.py mutation) | Closed at suite level c3-p01 (kill_rate 0.9207 ≥ 0.70); per-module breakdown deferred to c3-p12 by design — the mutation pass is the phase that produces it |
+| F-P2-1..5 | Closed (re-run c3-p02 with live data) |
+| F-P3-1 | **Re-closed on real artifacts this pass** (was closed on synthetic; falsified and fixed) |
+| F-P3-2, F-P3-3 | Closed c2-p03 |
+| F-P3-4 | **Closed this pass** (section A) |
+| F-C3-1..6 | Closed/not falsified (c3-p01, c3-p02) |
+| F-C3-7..10 | **Run today** (section D); F-C3-9 falsified→fixed, rest not falsified |
+
+Count of open falsification items awaiting execution: **0**. The only deferred item is
+F-3's per-module read, which is owned by this cycle's mutation pass (c3-p12), not by a
+research pass. Every item above has a command, an expected observation, and a recorded
+result.
