@@ -38,6 +38,14 @@ Faults detected by this module:
   wilson_lower(5, 5). The correct value is ~0.566. RESEARCH.md and
   ADVERSARIAL_REVIEW.md both stated 0.478 (wrong by ~9pp). The correct formula
   gives 1/(1 + z^2/n) for p_hat=1.0, which equals ~0.566 at z=1.96, n=5.
+
+- test_percentile_n2: catches a mutant that changes the 'n == 1' early-return guard
+  to 'n == 2', which would return sorted_values[0] (the minimum) for a 2-element
+  list at any percentile. For p50 of [1.0, 3.0], the correct answer is 2.0 (midpoint
+  via interpolation); the n==2 mutant returns 1.0 (minimum).
+
+- test_compute_suite_name_preserved: catches mutations to the suite_name default or
+  string concatenation in metadata. The suite name must round-trip through to_dict().
 """
 
 import os
@@ -300,3 +308,30 @@ class TestComputeSuite:
         assert (
             0.82 < suite.wilson_lower_bound < 0.84
         ), f"wilson_lower for 90/100 expected ~0.826, got {suite.wilson_lower_bound}"
+
+    def test_percentile_n2(self) -> None:
+        """Fault detected: mutant changes 'n == 1' early-return guard to 'n == 2'.
+
+        If n == 2 triggered the early return, _percentile([1.0, 3.0], 50) would
+        return sorted_values[0] = 1.0 instead of the interpolated midpoint 2.0.
+
+        Hand computation:
+            sorted = [1.0, 3.0], n = 2
+            idx = (50/100) * (2-1) = 0.5
+            lower = int(0.5) = 0,  upper = 1,  frac = 0.5
+            result = 1.0 * 0.5 + 3.0 * 0.5 = 2.0
+        """
+        result = _percentile([1.0, 3.0], 50)
+        assert result == 2.0, f"p50 of [1.0, 3.0] should be 2.0 (midpoint), got {result}"
+
+    def test_compute_suite_name_preserved(self) -> None:
+        """Fault detected: mutations to suite_name default or string handling.
+
+        The suite name must round-trip intact through to_dict() with no truncation,
+        concatenation, or substitution.
+        """
+        cases = [_make_case("x", True)]
+        suite = compute_suite(cases, suite_name="cycle2-test-suite")
+        assert (
+            suite.to_dict()["suite_name"] == "cycle2-test-suite"
+        ), f"suite_name not preserved: {suite.to_dict()['suite_name']}"
