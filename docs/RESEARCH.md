@@ -1,4 +1,4 @@
-# docs/RESEARCH.md — Research Backing for agent-eval-harness v0.1
+# docs/RESEARCH.md — Research Backing for replayproof v0.1
 
 **Cycle 3 Pass 2 (c3-p02-research-2) — Ecosystem Deepening Pass (second cycle) — 2026-09-27**
 

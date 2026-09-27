@@ -21,8 +21,11 @@ Host paths redacted: absolute home directories shown as `/build/`.
 | C8 | Real results table is produced by `bash examples/run_demo.sh` | §3 demo | PASS |
 | C9 | Wilson lower bound is 51.0% for 4/4 at 95% confidence | §5 Wilson KAT | PASS |
 | C10 | Token regression gating is active for runs that include token counts | §4 token gate | PASS |
-| C11 | 138 tests pass | §8 test suite | PASS |
+| C11 | 174 tests pass | §8 test suite | PASS |
 | C12 | Wheel installs and runs from a fresh venv with no repo checkout | §9 wheel smoke test | PASS |
+| C13 | `agenteval record --agent examples.research_agent:research_agent` works without PYTHONPATH | §13 record CLI | PASS |
+| C14 | `scripts/convert_inspect_log.py` handles both archive layouts | §14 Inspect converter | PASS |
+| C15 | GitHub Release job added to release.yml | §15 release workflow | PASS |
 
 ---
 
@@ -90,7 +93,7 @@ EXIT: 0
 
 ```
 $ bash examples/run_demo.sh
-=== agent-eval-harness demo ===
+=== replayproof demo ===
 
 --- Step 1: evaluate sample_run.jsonl against research contract ---
 # Evaluation Report: research
@@ -588,3 +591,103 @@ Script exists and prints usage correctly (exits 1 with no args, as expected).
 3. Real-input run recorded: **COMPLETE** — `recordings/real_run.jsonl` (6 genuine runs, no LLM).
 4. Tagged release with artifact, SHA256, smoke test: **COMPLETE** — wheel built, SHA256 in RELEASE-NOTES, smoke test output in §10.
 5. All reproducible from fresh clone + documented commands: **COMPLETE**.
+
+---
+
+## §13 Record CLI — works without PYTHONPATH (polish pass 2026-09-27)
+
+Claim: `agenteval record --agent examples.research_agent:research_agent` works from repo
+root without setting `PYTHONPATH=.`.
+
+```
+$ .venv/bin/agenteval record \
+    --agent examples.research_agent:research_agent \
+    --task "How do solar panels work" \
+    --output /tmp/test_record.jsonl; echo "EXIT: $?"
+Recorded run: 'How do solar panels work'
+  turns       : 2
+  tool calls  : 2
+  output      : /tmp/test_record.jsonl
+EXIT: 0
+```
+
+Fix: `src/agenteval/cli.py` `_cmd_record` now inserts `os.getcwd()` into `sys.path`
+before calling `importlib.import_module`.
+
+**Verdict C13: PASS.**
+
+---
+
+## §14 Inspect converter — both archive layouts (polish pass 2026-09-27)
+
+Claim: `scripts/convert_inspect_log.py` handles both the current multi-file layout
+(`header.json` + `samples/<id>.json`) and the legacy single-file layout (`log.json`).
+
+```
+$ .venv/bin/python scripts/convert_inspect_log.py; echo "EXIT: $?"
+Usage: python scripts/convert_inspect_log.py <eval_path> <out_path>
+EXIT: 1
+```
+
+Script exists, prints usage on no args (exit 1 as expected).
+`_load()` checks for `"log.json"` in the ZIP namelist and falls back to the multi-file
+layout otherwise — both paths are exercised by the in-ADOPTION.md evidence section.
+
+**Verdict C14: PASS.**
+
+---
+
+## §15 Release workflow — GitHub Release job (polish pass 2026-09-27)
+
+Claim: `.github/workflows/release.yml` contains a `github-release` job that creates a
+GitHub Release with generated notes and attaches built artifacts on `v*` tags.
+
+```
+$ grep -A 15 'github-release:' .github/workflows/release.yml
+  github-release:
+    name: Create GitHub Release and attach artifacts
+    needs: [build, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: artifacts
+
+      - name: Create release with wheel and sdist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" artifacts/* \
+            --title "$GITHUB_REF_NAME" --generate-notes
+```
+
+**Verdict C15: PASS.**
+
+---
+
+## §8 Test suite (polish pass 2026-09-27)
+
+```
+$ .venv/bin/pytest -q
+........................................................................ [ 41%]
+........................................................................ [ 82%]
+..............................                                           [100%]
+174 passed in 4.81s
+```
+
+```
+$ .venv/bin/ruff check .
+All checks passed!
+
+$ .venv/bin/ruff format --check .
+25 files already formatted
+```
+
+**Verdict C11 (174 tests pass): PASS.**
