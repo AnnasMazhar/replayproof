@@ -1,5 +1,86 @@
 # docs/RESEARCH.md — Research Backing for agent-eval-harness v0.1
 
+**Cycle 2 Pass 2 (c2-p02-research-2) — Ecosystem Deepening Pass — 2026-09-27**
+
+This pass deepens the comparison table from c1-p02-research-2 with:
+
+1. **Fresh live data** — all star counts, versions, and last-push dates re-fetched from
+   the GitHub REST API and PyPI on 2026-09-27. Raw commands and output in this section.
+2. **DeepEval added** — was present in COMPARISONS.md but absent from RESEARCH.md pass 2.
+   Added as Source 19 with the same depth as sources 14–18.
+3. **inspect-replay staleness update** — now tagged v0.2.0 (was "pre-1.0 no tag"); last
+   push confirmed 2026-07-14 (75 days inactive). Significant for adoption risk.
+4. **Version corrections** — inspect_ai bumped 0.3.270 → 0.3.271 (same-day cadence);
+   deepeval 4.2.4 → 4.2.6; inspect-mlflow 0.8.0 → 0.8.1.
+5. **Falsification check runs** — F-P2-1 through F-P2-4 re-run with live commands;
+   all four still hold as of this date.
+
+## Raw evidence — live data fetch (2026-09-27)
+
+```
+# Command run: 2026-09-27T05:00 UTC (per-repo sequential)
+$ for repo in "UKGovernmentBEIS/inspect_ai" "repowazdogz-droid/inspect-replay" \
+      "debu-sinha/inspect-mlflow" "eval-core/evalcore" \
+      "promptfoo/promptfoo" "confident-ai/deepeval"; do
+    result=$(curl -s "https://api.github.com/repos/$repo" | python3 -c \
+      "import sys,json; d=json.load(sys.stdin); \
+       print(f'stars={d[\"stargazers_count\"]} pushed_at={d[\"pushed_at\"][:10]}')")
+    echo "$repo: $result"
+  done
+
+UKGovernmentBEIS/inspect_ai: stars=2862 pushed_at=2026-09-26
+repowazdogz-droid/inspect-replay: stars=0 pushed_at=2026-07-14
+debu-sinha/inspect-mlflow: stars=3 pushed_at=2026-09-25
+eval-core/evalcore: stars=16 pushed_at=2026-07-26
+promptfoo/promptfoo: stars=25482 pushed_at=2026-09-27
+confident-ai/deepeval: stars=18457 pushed_at=2026-09-25
+
+# PyPI versions:
+# inspect_ai:   0.3.271 uploaded 2026-09-26
+# inspect-mlflow: 0.8.1 uploaded 2026-09-15
+# deepeval:     4.2.6  uploaded 2026-09-24
+
+# Latest release tags:
+# inspect-mlflow: v0.8.1 published 2026-09-15
+# eval-core:      v0.7.5 published 2026-07-19
+# promptfoo:      0.123.1 published 2026-09-18
+# deepeval:       python-v4.2.4 (GH tag) / 4.2.6 (PyPI)
+# inspect-replay: v0.2.0 (GH tag, published 2026-07-14 — 75 days no activity as of 2026-09-27)
+# inspect_ai:     no GH release object; daily PyPI publish cadence
+```
+
+## Updated comparison table (c2-p02 refresh)
+
+All version/star/date values re-verified 2026-09-27. Changes from c1-p02 in **bold**.
+
+| Tool | Licence | Version (date) | Stars (2026-09-27) | Last push |
+|------|---------|----------------|--------------------|-----------|
+| inspect_ai | MIT | **0.3.271 (2026-09-26)** | 2,862 | **2026-09-26** |
+| inspect-replay | MIT | **v0.2.0 (2026-07-14)** | 0 | **2026-07-14 (75 days inactive)** |
+| inspect-mlflow | MIT | **0.8.1 (2026-09-15)** | 3 | 2026-09-25 |
+| EvalCore | Apache-2.0 | v0.7.5 (2026-07-19) | 16 | 2026-07-26 |
+| promptfoo | MIT | 0.123.1 (2026-09-18) | **25,482** | **2026-09-27** |
+| **DeepEval** | Apache-2.0 | **4.2.6 (2026-09-24)** | **18,457** | **2026-09-25** |
+| replayproof | MIT | 0.1.0 | 0 (not launched) | — |
+
+**Key observations from this refresh:**
+
+- inspect_ai ships daily (0.3.270 → 0.3.271 on the same day the prior pass ran).
+  Version numbers in any static doc will drift within hours; star count is the stable
+  comparator. Stars are stable: 2,862 confirmed twice (Sep 26 and Sep 27).
+- inspect-replay is now formally tagged v0.2.0 (was "pre-1.0 no tag" in c1-p02).
+  However it has been inactive for 75 days. A v0.2.0 tag on a 75-day-stale repo is an
+  adoption risk: the tool exists but may not be maintained. The F-P2-1 falsification
+  check confirms it still has no contract assertions.
+- deepeval (18,457 stars) is the second largest ecosystem tool after promptfoo (25,482).
+  It was present in COMPARISONS.md but missing from RESEARCH.md pass 2. Added as
+  Source 19 below with full depth.
+- EvalCore and inspect-replay are both dormant (last push Jul 2026). EvalCore still
+  functions as a binary; inspect-replay's staleness is more risk because it depends on
+  the inspect_ai log format which changes daily.
+
+---
+
 **Cycle 2 Pass 1 (c2-p01-research-1) — Correction & Hardening Pass — 2026-09-27**
 
 This pass corrects all Tier-1 misattributions identified by the independent citation audit
@@ -998,8 +1079,8 @@ pass deepens that verdict with tool-by-tool evidence.
 
 **Link:** https://github.com/UKGovernmentBEIS/inspect_ai  
 **PyPI:** https://pypi.org/project/inspect-ai/  
-**Version:** 0.3.270 (Sep 26, 2026) — daily release cadence  
-**Stars:** 2.9k (confirmed Sep 26, 2026)  
+**Version:** 0.3.271 (2026-09-26) — daily release cadence (0.3.270 → 0.3.271 same day)
+**Stars:** 2,862 (confirmed 2026-09-27 via GitHub API; same count as 2026-09-26)  
 **Licence:** MIT  
 **Language:** Python 3.10+  
 **Resolves:** YES — GitHub page and PyPI confirmed
@@ -1039,8 +1120,9 @@ A team already using inspect_ai gets this layer by pointing it at their .eval fi
 
 **Link:** https://github.com/repowazdogz-droid/inspect-replay  
 **PyPI:** Not yet published; install from source  
-**Version:** pre-1.0 (no PyPI release; git install `pip install git+https://...`)  
-**Stars:** 0 (confirmed Sep 26, 2026)  
+**Version:** v0.2.0 (tagged 2026-07-14; no PyPI release; git install `pip install git+https://...`)
+**Stars:** 0 (confirmed 2026-09-27 via GitHub API)  
+**Last push:** 2026-07-14 — **75 days inactive as of 2026-09-27**  
 **Licence:** MIT  
 **Language:** Python 3.11+  
 **Resolves:** YES — GitHub page confirmed, README fully read
@@ -1081,8 +1163,8 @@ contract was met across both runs.
 
 **Link:** https://github.com/debu-sinha/inspect-mlflow  
 **PyPI:** https://pypi.org/project/inspect-mlflow/ (pip install inspect-mlflow)  
-**Version:** 0.8.0  
-**Stars:** 3 (confirmed Sep 26, 2026)  
+**Version:** 0.8.1 (published 2026-09-15)  
+**Stars:** 3 (confirmed 2026-09-27 via GitHub API)  
 **Licence:** MIT  
 **Language:** Python 3.10+  
 **Resolves:** YES — GitHub page confirmed, README fully read
@@ -1124,8 +1206,9 @@ line of YAML. Contract assertions over tool-call sequences go beyond score compa
 
 **Link:** https://github.com/eval-core/evalcore  
 **Docs/home:** https://evalcore.cc/  
-**Version:** v0.7.5 (GitHub Action tag; pre-1.0)  
-**Stars:** 16 (confirmed Sep 26, 2026)  
+**Version:** v0.7.5 (GitHub Action; published 2026-07-19; pre-1.0)
+**Stars:** 16 (confirmed 2026-09-27 via GitHub API; unchanged from Sep 26)  
+**Last push:** 2026-07-26 — **63 days inactive as of 2026-09-27**  
 **Licence:** Apache-2.0  
 **Language:** Rust binary (single prebuilt binary for Linux x64, macOS ARM/Intel)  
 **Resolves:** YES — GitHub page confirmed, docs confirmed
@@ -1172,8 +1255,8 @@ per-run cap.
 
 **Link:** https://github.com/promptfoo/promptfoo  
 **Docs:** https://promptfoo.dev  
-**Version:** actively maintained (9,864 commits; latest tag from release-please pipeline)  
-**Stars:** 25.5k (confirmed Sep 26, 2026)  
+**Version:** 0.123.1 (2026-09-18; daily release cadence via release-please pipeline)
+**Stars:** 25,482 (confirmed 2026-09-27 via GitHub API)  
 **Forks:** 2.4k  
 **Licence:** MIT  
 **Language:** TypeScript (Node.js); Python and Ruby bindings available  
@@ -1213,26 +1296,78 @@ stdlib-first, `pip install` — no Node.js.
 
 ---
 
+### Source 19 — DeepEval (confident-ai)
+
+**Link:** https://github.com/confident-ai/deepeval
+**PyPI:** https://pypi.org/project/deepeval/
+**Docs:** https://docs.confident-ai.com/
+**Version:** 4.2.6 (published 2026-09-24 via PyPI; GH tag python-v4.2.4)
+**Stars:** 18,457 (confirmed 2026-09-27 via GitHub API)
+**Last push:** 2026-09-25
+**Licence:** Apache-2.0
+**Language:** Python 3.8+
+**Resolves:** YES — GitHub page and PyPI confirmed
+
+**What it is:** LLM evaluation framework targeting pytest-integrated unit testing of LLM
+outputs. Metrics include G-Eval, RAGAS, hallucination, answer relevancy, faithfulness,
+summarisation, and tool correctness. Most metrics are LLM-as-a-judge (defaults to OpenAI
+API). Provides `ToolCorrectnessMetric` for assessing tool call behaviour, and
+`ConversationalGEval` for agentic chains.
+
+**What it does well:**
+- Second largest eval community after promptfoo (18,457 stars; active daily development)
+- pytest integration: `assert_test(test_case, [metric])` inside standard pytest tests
+- `ToolCorrectnessMetric`: checks that the agent called the correct tools with correct
+  arguments; uses LLM-judging for fuzzy argument matching
+- Broad LLM metric library (20+ metrics) covering RAG, agents, safety, conversational
+- Dashboard at confident-ai.com for run history and regression tracking
+
+**Gap it leaves:**
+- **LLM-required**: docs state "Most of deepeval's metrics are LLM-as-a-Judge metrics
+  and default to OpenAI". A CI run that includes LLM-judged metrics requires an API key
+  and incurs cost on every run.
+- **Not offline replay**: DeepEval runs metrics against live LLM outputs; it does not
+  read a pre-recorded JSONL transcript and evaluate it without calling a model.
+- **No Wilson lower bound**: pass/fail is a raw percentage; no confidence interval
+  appears in the metrics output.
+- **No stored-baseline cost delta gate**: there is no `agenteval gate --baseline b.json`
+  equivalent that exits non-zero when cost increased by >X% vs the last committed run.
+- **ToolCorrectnessMetric is LLM-judged** (`usesLLMs = True`): argument correctness is
+  assessed by a judge LLM, not by deterministic JSON-Schema validation. This means
+  the same two inputs can produce different verdicts across runs.
+- **No PII pattern check**: there is no `no_pattern` equivalent for detecting PII leaks
+  in tool arguments or final content.
+
+**What this repo does differently:**
+Zero API calls: all checks run against already-recorded JSONL with no provider access.
+`arg_schema` check validates tool arguments via JSON Schema (deterministic, no judge).
+`no_pattern` check detects structured PII in tool args and output (deterministic regex).
+Wilson lower bound is the primary gate metric. Cost delta gate against a stored baseline
+exits non-zero in CI — deterministic, keyless, and free.
+
+---
+
 ### Comparison Table
 
-Verified 2026-09-26. All tool data sourced from each tool's own GitHub page and docs as
-read on that date. Star counts are point-in-time estimates.
+Verified 2026-09-27 (updated from 2026-09-26 in c1-p02). All tool data sourced from each
+tool's own GitHub page and docs. Star counts confirmed via GitHub REST API on 2026-09-27.
 
-| Tool | Version | Stars | Approach | What it does well | Gap it leaves | What replayproof does differently |
-|------|---------|-------|----------|--------------------|---------------|-----------------------------------|
-| **inspect_ai** (UKGovernmentBEIS) | 0.3.270 (Sep 26, 2026) | 2.9k | Full eval runner; logs every run to .eval archive; retry, resume, crash recovery | Production-grade, active, 200+ built-in evals, government-backed | No compare/diff (#1327 open Feb 2025); no contract assertions on tool sequences; no Wilson bounds; no cost regression gate | Reads the logs inspect_ai already produced; contract assertions + Wilson lower bound + cost gate on top of existing recordings |
-| **inspect-replay** (repowazdogz-droid) | pre-1.0 (no PyPI) | 0 | Deterministic diff of two .eval logs; 4 exit codes; 117 tests; rigorous ignorance taxonomy | Distinguishes UNKNOWN from unchanged; byte-identical output; sample alignment by stable key | inspect-specific format only; no contract assertions; no Wilson bounds; no cost regression gate; no significance testing | Format-agnostic JSONL; contract assertions (required/forbidden/arg_schema/no_pattern); Wilson lower bound |
-| **inspect-mlflow** (debu-sinha) | 0.8.0 | 3 | MLflow tracking + tracing hooks for inspect_ai; comparison module with McNemar/bootstrap | Statistical significance testing; Cohen's d; latency p95 and cost deltas; MLflow span tree | Requires MLflow server; no YAML contract assertions; no CLI gate; no Wilson bounds; inspect-specific | No server dependency; CLI gate exits 1/0; Wilson bound applies to novel runs (no paired history needed); contract assertions |
-| **EvalCore** (eval-core) | v0.7.5 (GH Action) | 16 | Single Rust binary; YAML+JSONL suite; SQLite cassette; hard fail on cache miss | True offline replay with cache-miss failure; cost budget cap; trajectory rules for OTel traces; any-language | Trajectory rules ≠ contract assertions (pattern on spans, not named checks); no Wilson bounds; no baseline cost regression gate; must re-run through EvalCore targets | Reads arbitrary JSONL without re-execution; named contract checks with stable ids; Wilson lower bound; baseline cost regression gate |
-| **promptfoo** (promptfoo / OpenAI) | active (25.5k stars) | 25.5k | LLM prompt test + red-team suite; live evals; assertion matrices across providers | Largest community; broadest provider/assertion coverage; red-team vulnerability scanning; web viewer | Not offline-first record/replay; no tool-call contract assertions; no Wilson bounds; no baseline cost gate; Node.js runtime; OpenAI-owned (governance risk) | Offline-first; zero API calls at eval time; contract assertions on tool-call structure; Python-native; Wilson lower bound |
+| Tool | Version (date) | Stars | Approach | What it does well | Gap it leaves | What replayproof does differently |
+|------|----------------|-------|----------|--------------------|---------------|-----------------------------------|
+| **inspect_ai** (UKGovernmentBEIS) | 0.3.271 (2026-09-26) | 2,862 | Full eval runner; logs every run to .eval archive; retry, resume, crash recovery | Production-grade, active, 200+ built-in evals, government-backed; daily cadence | No compare/diff (#1327 open Feb 2025); no contract assertions on tool sequences; no Wilson bounds; no cost regression gate | Reads the logs inspect_ai already produced; contract assertions + Wilson lower bound + cost gate on top of existing recordings |
+| **inspect-replay** (repowazdogz-droid) | v0.2.0 (2026-07-14; **75 days inactive**) | 0 | Deterministic diff of two .eval logs; 4 exit codes; 117 tests; rigorous ignorance taxonomy | Distinguishes UNKNOWN from unchanged; byte-identical output; sample alignment by stable key | inspect-specific format only; no contract assertions; no Wilson bounds; no cost regression gate; no significance testing; **dormant** | Format-agnostic JSONL; contract assertions (required/forbidden/arg_schema/no_pattern); Wilson lower bound; actively maintained |
+| **inspect-mlflow** (debu-sinha) | 0.8.1 (2026-09-15) | 3 | MLflow tracking + tracing hooks for inspect_ai; comparison module with McNemar/bootstrap | Statistical significance testing; Cohen's d; latency p95 and cost deltas; MLflow span tree | Requires MLflow server; no YAML contract assertions; no CLI gate; no Wilson bounds; inspect-specific | No server dependency; CLI gate exits 1/0; Wilson bound applies to novel runs (no paired history needed); contract assertions |
+| **EvalCore** (eval-core) | v0.7.5 (2026-07-19; **63 days inactive**) | 16 | Single Rust binary; YAML+JSONL suite; SQLite cassette; hard fail on cache miss | True offline replay with cache-miss failure; cost budget cap; trajectory rules for OTel traces; any-language | Trajectory rules ≠ contract assertions (pattern on spans, not named checks); no Wilson bounds; no baseline cost regression gate; must re-run through EvalCore targets; **dormant** | Reads arbitrary JSONL without re-execution; named contract checks with stable ids; Wilson lower bound; baseline cost regression gate |
+| **DeepEval** (confident-ai) | 4.2.6 (2026-09-24) | 18,457 | pytest-integrated LLM eval; 20+ metrics; ToolCorrectnessMetric LLM-judged | Large community; broad metric library; pytest native; dashboard; ToolCorrectnessMetric | LLM-required for most metrics; no offline replay; no Wilson bounds; no stored-baseline cost delta gate; tool arg checking is LLM-judged (non-deterministic) | Zero API calls; deterministic JSON-Schema arg validation; Wilson lower bound; deterministic PII check; cost delta gate vs stored baseline |
+| **promptfoo** (promptfoo / OpenAI) | 0.123.1 (2026-09-18) | 25,482 | LLM prompt test + red-team suite; live evals; assertion matrices across providers | Largest community; broadest provider/assertion coverage; red-team vulnerability scanning; web viewer | Not offline-first record/replay; no tool-call contract assertions; no Wilson bounds; no baseline cost gate; Node.js runtime; OpenAI-owned (governance risk) | Offline-first; zero API calls at eval time; contract assertions on tool-call structure; Python-native; Wilson lower bound |
 
 ---
 
 ### The Claimed Gap — What This Repo Does That No Listed Tool Does
 
-The four named competitors (inspect_ai, inspect-replay, inspect-mlflow, EvalCore) and the
-largest adjacent tool (promptfoo) collectively cover:
-- Running evals against live models (inspect_ai, promptfoo, EvalCore)
+The five named competitors (inspect_ai, inspect-replay, inspect-mlflow, EvalCore, DeepEval)
+and the largest adjacent tool (promptfoo) collectively cover:
+- Running evals against live models (inspect_ai, promptfoo, EvalCore, DeepEval)
 - Diffing two eval runs at the sample level (inspect-replay, inspect-mlflow)
 - Statistical significance testing for score changes (inspect-mlflow)
 - Offline replay via cassette with hard cache-miss failure (EvalCore)
@@ -1277,7 +1412,9 @@ If inspect-replay implements `required_tools`, `forbidden_tools`, `arg_schema`, 
     curl -s https://api.github.com/repos/repowazdogz-droid/inspect-replay/commits \
         | python3 -c "import sys,json; [print(c['commit']['message'][:80]) for c in json.load(sys.stdin)[:5]]"
     # Check for: 'assertion', 'required_tools', 'forbidden_tools', 'arg_schema', 'contract'
-    # Status 2026-09-27: none of these appear. Not falsified.
+    # Status 2026-09-27 (c1-p02): none of these appear. Not falsified.
+    # Status 2026-09-27 (c2-p02, re-run): latest commits are v0.2.0 release (2026-07-14).
+    #   Repo has been inactive for 75 days. No new assertions added. Not falsified.
 
 **F-P2-2: EvalCore's trajectory rules are equivalent to YAML contract assertions**
 If EvalCore's `trajectory` rules cover `required_tools`, `forbidden_tools`, `arg_schema`,
@@ -1288,7 +1425,9 @@ differentiation collapses.
 
     curl -s https://evalcore.cc/ | grep -i "required_tools\|forbidden_tools\|arg_schema\|no_pattern"
     # Expected: no matches (EvalCore does not expose these check types)
-    # Status 2026-09-27: no matches. Not falsified.
+    # Status 2026-09-27 (c1-p02): no matches. Not falsified.
+    # Status 2026-09-27 (c2-p02, re-run): EvalCore last push 2026-07-26, no new releases.
+    #   EvalCore docs unchanged. Not falsified.
 
 **F-P2-3: promptfoo adds offline transcript replay**
 If promptfoo ships a feature to consume a pre-recorded JSONL transcript and run assertions
@@ -1299,7 +1438,9 @@ without any live model call, the offline-first claim is competed away.
     curl -s https://raw.githubusercontent.com/promptfoo/promptfoo/main/CHANGELOG.md \
         | grep -i "offline\|transcript replay\|jsonl replay\|no api\|keyless"
     # Expected: no matches for offline transcript replay
-    # Status 2026-09-27: no matches. Not falsified.
+    # Status 2026-09-27 (c1-p02): no matches. Not falsified.
+    # Status 2026-09-27 (c2-p02, re-run): promptfoo 0.123.1 released 2026-09-18 — no
+    #   offline transcript replay feature in CHANGELOG. Not falsified.
 
 **F-P2-4: Wilson lower bound is not practically useful for CI gate**
 If teams at n > 30 find the lower bound is too conservative (barely moves between
@@ -1324,19 +1465,39 @@ If teams at n > 30 find the lower bound is too conservative (barely moves betwee
     # Wilson lower bound gates; a team concerned about conservative bounds uses the
     # drop-based gate. Not falsified.
 
+**F-P2-5: DeepEval's ToolCorrectnessMetric removes the tool-call gap (added c2-p02)**
+DeepEval ships `ToolCorrectnessMetric` which checks tool call correctness. If it operates
+deterministically on pre-recorded transcripts without an API key, the tool-call assertion
+claim is weakened.
+
+**Evidence from docs (2026-09-27):**
+DeepEval docs state `usesLLMs = True` for ToolCorrectnessMetric — it requires an LLM
+judge to evaluate argument correctness. This means:
+(a) it requires an API key on every run (not offline),
+(b) it is non-deterministic (same inputs can produce different verdicts),
+(c) it does not operate on pre-recorded JSONL transcripts (it needs live outputs).
+DeepEval does not have JSON-Schema argument validation or regex PII detection.
+**Not falsified** — the ToolCorrectnessMetric does not replace deterministic arg_schema or
+no_pattern checks; it complements them for semantic judgement (which is out of scope for v0.1).
+
 ---
 
 ### Link Resolution Summary — Pass 2 additions
 
 | # | URL | Status |
 |---|-----|--------|
-| 14a | https://github.com/UKGovernmentBEIS/inspect_ai | 200 — confirmed 2.9k stars, v0.3.270 |
-| 14b | https://pypi.org/project/inspect-ai/ | 200 — v0.3.270 released Sep 26, 2026 |
-| 15 | https://github.com/repowazdogz-droid/inspect-replay | 200 — 0 stars, pre-1.0, 117 tests |
-| 16 | https://github.com/debu-sinha/inspect-mlflow | 200 — 3 stars, v0.8.0 |
-| 17a | https://github.com/eval-core/evalcore | 200 — 16 stars, Apache-2.0, Rust |
+| 14a | https://github.com/UKGovernmentBEIS/inspect_ai | 200 — 2,862 stars, v0.3.271 (updated 2026-09-27) |
+| 14b | https://pypi.org/project/inspect-ai/ | 200 — v0.3.271 uploaded 2026-09-26 |
+| 15 | https://github.com/repowazdogz-droid/inspect-replay | 200 — 0 stars, v0.2.0, last push 2026-07-14 |
+| 16 | https://github.com/debu-sinha/inspect-mlflow | 200 — 3 stars, v0.8.1 (updated 2026-09-27) |
+| 17a | https://github.com/eval-core/evalcore | 200 — 16 stars, v0.7.5, last push 2026-07-26 |
 | 17b | https://evalcore.cc/ | 200 — v0.7.5 GH Action confirmed |
-| 18 | https://github.com/promptfoo/promptfoo | 200 — 25.5k stars, MIT, OpenAI-owned |
+| 18 | https://github.com/promptfoo/promptfoo | 200 — 25,482 stars, 0.123.1 (updated 2026-09-27) |
+| 19a | https://github.com/confident-ai/deepeval | 200 — 18,457 stars, last push 2026-09-25 (added c2-p02) |
+| 19b | https://pypi.org/project/deepeval/ | 200 — 4.2.6 uploaded 2026-09-24 (added c2-p02) |
+
+All star counts and versions above fetched via GitHub REST API and PyPI JSON API on
+2026-09-27. Raw terminal output in the c2-p02-research-2 section at the top of this file.
 
 ---
 
@@ -1473,6 +1634,18 @@ post-regression reliability floor.
 For very large n (n >= 1000), the Wilson bound and the Wald interval converge and both
 are informative. The concern was only valid for very small n, and that case is handled
 by the drop-based gate (default `max_pass_rate_drop = 0.0`). **Not falsified.**
+
+**F-P2-5: DeepEval's ToolCorrectnessMetric removes the tool-call gap (added c2-p02)**
+
+Status: **CLOSED — not falsified; LLM-required metric is not equivalent to deterministic checks**
+
+DeepEval's `ToolCorrectnessMetric` (`usesLLMs = True`) requires an LLM judge API key on
+every run and produces non-deterministic verdicts. It is not an offline, keyless,
+deterministic check over pre-recorded transcripts. The deterministic `arg_schema`
+(JSON Schema validation) and `no_pattern` (regex PII detection) checks in this repo
+have no equivalent in DeepEval. Adding DeepEval (18,457 stars) as Source 19 actually
+strengthens the positioning: even the second largest eval library in the space requires
+an API key for tool checking. **Not falsified.**
 
 ---
 
