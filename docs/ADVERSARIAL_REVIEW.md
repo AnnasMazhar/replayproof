@@ -1335,8 +1335,8 @@ restored: 0 diffs
 
 | id | severity | finding | evidence | status |
 |----|----------|---------|----------|--------|
-| ADV2-1 | major | README install snippet (L14-18) runs `agenteval run --contract contracts/research.yaml`; that path does not exist (`contracts/` is an empty directory) — the first command a new user copies fails | §1 sub-claim (1): `error: contract file not found: 'contracts/research.yaml'` | open |
-| ADV2-2 | major | README "Integration with Inspect AI" instructs `python scripts/convert_inspect_log.py ...` (L193, L227) but `scripts/convert_inspect_log.py` is absent from the repo; same section feeds a `.jsonl` recording to `agenteval gate` (L229) which rejects it (`not valid JSON`) | §1 sub-claims (2)(3): MISSING path + gate JSONL error | open |
+| ADV2-1 | major | README install snippet (L14-18) runs `agenteval run --contract contracts/research.yaml`; that path does not exist (`contracts/` is an empty directory) — the first command a new user copies fails | §1 sub-claim (1): `error: contract file not found: 'contracts/research.yaml'` | **FIXED** — `contracts/research.yaml` created; EVIDENCE.md §12 |
+| ADV2-2 | major | README "Integration with Inspect AI" instructs `python scripts/convert_inspect_log.py ...` (L193, L227) but `scripts/convert_inspect_log.py` is absent from the repo; same section feeds a `.jsonl` recording to `agenteval gate` (L229) which rejects it (`not valid JSON`) | §1 sub-claims (2)(3): MISSING path + gate JSONL error | **FIXED** — `scripts/convert_inspect_log.py` created; EVIDENCE.md §12 |
 | ADV2-3 | major | Install claim `pip install git+https://github.com/AnnasMazhar/agent-eval-harness` (L15, L60) is not reproducible today — `git ls-remote` fails authentication; repo absent or private at that URL as of 2026-09-27 | §1 sub-claim (4): `fatal: Authentication failed` | open |
 | ADV2-4 | minor | Offline claim (C3) could not be tested with network-namespace isolation (`unshare -rn` unavailable: uid_map Operation not permitted); verified instead with dead HTTP(S)/ALL proxies plus a static scan showing zero network imports in `src/` | §1.C3 both attempts | limitation |
 | ADV2-5 | minor | Mechanical link extraction flagged 4 URLs as dead (3x404, 1x403); all four are extraction artifacts or a bot block and resolve when re-checked properly (backtick stripped / Crossref content negotiation) | §2 triage output | refuted |
@@ -1741,8 +1741,8 @@ Integer where string expected: passed=False, message=Tool 'search' arg validatio
 
 | id | severity | finding | evidence | status |
 | -- | -------- | ------- | -------- | ------ |
-| C2P11-MAJ-1 | major | `wilson_lower` accepts negative confidence values without raising | Attack 4: `wilson_lower(3, 5, -0.5) = 0.733332` | **open** — add `if not (0 < confidence < 1): raise ValueError` |
-| C2P11-MAJ-2 | major | Gate accepts NaN/infinity pass_rate and returns `ok=True`; corrupted files silently pass | Attack 5: `compare({'pass_rate': float('nan'), ...}, baseline).ok = True` | **open** — validate metrics are finite before comparison |
+| C2P11-MAJ-1 | major | `wilson_lower` accepts negative confidence values without raising | Attack 4: `wilson_lower(3, 5, -0.5) = 0.733332` | **FIXED** — `ValueError` raised for confidence outside (0,1); test `test_wilson_lower_rejects_negative_confidence` passes; EVIDENCE.md §12 |
+| C2P11-MAJ-2 | major | Gate accepts NaN/infinity pass_rate and returns `ok=True`; corrupted files silently pass | Attack 5: `compare({'pass_rate': float('nan'), ...}, baseline).ok = True` | **FIXED** — `ValueError` raised for non-finite pass_rate; test `test_gate_rejects_nan_inf_pass_rate` passes; EVIDENCE.md §12 |
 | C2P11-MIN-1 | minor | PII email regex bypassed by 7 encoding attacks (HTML entities, URL encoding, Base64, Unicode, null byte) | Attack 3: 7/9 bypasses | accepted limitation (documented in README L280-283) |
 
 **Failed attacks (documented as evidence):**
@@ -1759,8 +1759,8 @@ Integer where string expected: passed=False, message=Tool 'search' arg validatio
 
 | id | finding | c2-p11 status |
 | -- | ------- | ------------- |
-| ADV2-1 | README missing `contracts/research.yaml` path | still open (not in scope for this pass) |
-| ADV2-2 | Missing `scripts/convert_inspect_log.py` | still open (not in scope for this pass) |
+| ADV2-1 | README missing `contracts/research.yaml` path | **FIXED** — contracts/ dir + file created |
+| ADV2-2 | Missing `scripts/convert_inspect_log.py` | **FIXED** — scripts/ dir + file created |
 | ADV2-3 | Install URL not reproducible | still open (repo not yet public) |
 | AR2-MAJ-4 | Gate zero-baseline bypass | now warns in demo output — partially fixed |
 | AR2-MIN-2 | `wilson_lower(s > n)` accepts invalid input | was fixed in prior pass (now raises ValueError) |
