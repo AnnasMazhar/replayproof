@@ -1,0 +1,14 @@
+{
+  "cycle": 2,
+  "pass": 6,
+  "tests_run": 125,
+  "failures": 0,
+  "pytest_rc": 0,
+  "pytest_tail": [
+    "........................................................................ [ 57%]",
+    ".....................................................                    [100%]",
+    "- generated xml file: /home/openclaw/portfolio/agent-eval-harness/.cycle-eval-c2-p6.xml -",
+    "125 passed in 6.06s"
+  ],
+  "generated_at": 1790499621.6662717
+}

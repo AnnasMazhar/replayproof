@@ -15,28 +15,32 @@
       "passed": false,
       "tokens_in": 0,
       "tokens_out": 0,
-      "latency_ms": 0.0015429977793246508
+      "latency_ms": 0.0015429977793246508,
+      "failure_reason": "required_tools: Required tools not called: ['search_docs']"
     },
     {
       "case_id": "How long does installation take",
       "passed": true,
       "tokens_in": 0,
       "tokens_out": 0,
-      "latency_ms": 0.06672800373053178
+      "latency_ms": 0.06672800373053178,
+      "failure_reason": ""
     },
     {
       "case_id": "What is net metering",
       "passed": true,
       "tokens_in": 0,
       "tokens_out": 0,
-      "latency_ms": 0.04693699884228408
+      "latency_ms": 0.04693699884228408,
+      "failure_reason": ""
     },
     {
       "case_id": "What types of batteries are used for storage",
       "passed": false,
       "tokens_in": 0,
       "tokens_out": 0,
-      "latency_ms": 0.0011779993656091392
+      "latency_ms": 0.0011779993656091392,
+      "failure_reason": "no_pii_email: Forbidden pattern '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}' found in field 'final_content'"
     }
   ],
   "metadata": {}

@@ -15,28 +15,32 @@
       "passed": true,
       "tokens_in": 0,
       "tokens_out": 0,
-      "latency_ms": 0.07033799920463935
+      "latency_ms": 0.07033799920463935,
+      "failure_reason": ""
     },
     {
       "case_id": "How long does installation take",
       "passed": true,
       "tokens_in": 0,
       "tokens_out": 0,
-      "latency_ms": 0.042345003748778254
+      "latency_ms": 0.042345003748778254,
+      "failure_reason": ""
     },
     {
       "case_id": "What is net metering",
       "passed": true,
       "tokens_in": 0,
       "tokens_out": 0,
-      "latency_ms": 0.034894997952505946
+      "latency_ms": 0.034894997952505946,
+      "failure_reason": ""
     },
     {
       "case_id": "What types of batteries are used for storage",
       "passed": true,
       "tokens_in": 0,
       "tokens_out": 0,
-      "latency_ms": 0.03896999987773597
+      "latency_ms": 0.03896999987773597,
+      "failure_reason": ""
     }
   ],
   "metadata": {}
