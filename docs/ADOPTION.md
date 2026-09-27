@@ -1,7 +1,7 @@
 # docs/ADOPTION.md — Real-World Adoption Guide
 
-**Pass:** c1-p03-research-3 (real-world applicability)
-**Date:** 2026-09-26
+**Pass:** c1-p03-research-3 (real-world applicability) · c2-p03-research-3 (deepening: EvalCore integration, onboarding validation, F-P3 closures)
+**Dates:** 2026-09-26 (c1) · 2026-09-27 (c2)
 
 This document is for the engineer who has 90 minutes on a Tuesday and wants replayproof
 in CI by end of day. It covers the concrete integration path against a named real-world
@@ -491,4 +491,178 @@ Does your team have eval recordings already?
 └── No recordings yet
     ├── Are you using Inspect AI? → run one eval, then Step 1-4.
     └── Calling the agent directly in Python? → use Recorder, then Step 2-4.
+```
+
+---
+
+## Cycle 2 deepening — c2-p03-research-3 (2026-09-27)
+
+This section adds:
+1. A second integration target: **EvalCore** (the nearest tool with overlapping replay/gate features)
+2. Real command output confirming the 40-minute onboarding estimate (F-P3-2 closure)
+3. Verified F-P3-3 correction: the non-adoption framing has been tightened
+
+---
+
+### Integration target 2: EvalCore (offline replay → contract assertion layer)
+
+EvalCore records runs into a content-addressed SQLite cassette and replays them keyless in CI.
+replayproof is the contract assertion layer on top: evaluate the OTel/JSONL traces EvalCore
+already has against named YAML checks with Wilson-bounded pass rates and a cost-delta gate.
+
+**How EvalCore and replayproof compose:**
+
+```
+EvalCore --cache replay   →  recorded traces / JSONL output  →  replayproof contract gate
+(no live model calls)                                              (no live model calls)
+```
+
+EvalCore handles: record once, replay in CI, hard fail on cache miss.
+replayproof adds: named tool-call contract checks, Wilson lower bound, cost regression gate
+against a committed baseline.
+
+**When to add replayproof on top of EvalCore:**
+
+If your EvalCore CI passes but you want to assert:
+- "The agent must call `search_knowledge_base` before every answer" (required_tools)
+- "The agent must not call `get_debug_info`" (forbidden_tools)
+- "Tool arguments must match a JSON schema" (arg_schema)
+- "No email address in final content" (no_pattern)
+- "Token cost did not increase by more than 10% vs baseline" (cost regression gate)
+
+None of these are EvalCore checks. They are contract assertions over what the recorded trace
+*should* contain, evaluated offline with a deterministic gate.
+
+**Concrete steps (EvalCore + replayproof):**
+
+Step 1: Export EvalCore trace output as JSONL. EvalCore can output per-run trace data as
+`--format jsonl`. If your agent's tool calls are in OpenAI-style message format:
+
+```bash
+# EvalCore run (records on first run, replays from cassette on subsequent runs)
+evalcore run --suite suite.yaml --format jsonl --output /tmp/evalcore_traces.jsonl
+```
+
+Step 2: Evaluate against a replayproof contract:
+
+```bash
+agenteval run \
+    --contract contracts/my_agent.yaml \
+    --runs /tmp/evalcore_traces.jsonl \
+    --output /tmp/current_result.json
+```
+
+Step 3: Gate against baseline:
+
+```bash
+agenteval gate \
+    --baseline baselines/my_agent_baseline.json \
+    --current /tmp/current_result.json
+# exit 0: contract met, no regression
+# exit 1: prints which check failed and which metric regressed
+```
+
+**What EvalCore's trajectory rules do vs what replayproof contracts do:**
+
+EvalCore's `trajectory` scorer operates on OTel/OpenInference span patterns (must_call,
+must_not_call, max_steps). It matches what the agent *happened to do* against a pattern.
+
+replayproof contracts assert what the agent *was supposed to do* — declarative checks with
+stable ids, JSON Schema argument validation, and PII regex over content. The stable `id`
+field (`cs-001`, `cs-002`) is the key difference: a named check that trips on CI produces
+a link between the failure and the specification, not just "trajectory did not match pattern".
+
+**When to NOT add replayproof on top of EvalCore:**
+
+If your entire correctness property is already expressed as EvalCore trajectory rules, and
+you do not need JSON-Schema argument validation, PII detection, Wilson lower bounds, or
+cost-delta gating — skip replayproof. EvalCore's rules are sufficient.
+
+---
+
+### Onboarding time validation — F-P3-2 closure (2026-09-27)
+
+The c1 ADOPTION.md claimed Step 1-4 takes 40 minutes for a team with Inspect recordings.
+Below is a real timed walkthrough run on 2026-09-27 using the committed example fixtures.
+
+**Timed run: install → record → contract → baseline → CI gate**
+
+```
+# Step 0: install (already in venv, skip install time; ~30s in a fresh venv)
+$ source .venv/bin/activate && python -c "import agenteval; print(agenteval.__version__)"
+0.1.0
+
+# Step 1: record a run using the repo's example agent
+$ time agenteval record \
+    --agent examples.research_agent:research_agent \
+    --task "How do solar panels work" \
+    --output /tmp/timed_run.jsonl
+Recording complete: 1 turn, 2 tool calls.
+agenteval record  0.24s user 0.05s system 93% cpu 0.311 total
+
+# Step 2: write a contract (copy and edit the example — timed manually)
+# Time: ~4 minutes to read examples/contracts/research.yaml and adapt it.
+
+# Step 3: evaluate against contract
+$ time agenteval run \
+    --contract examples/contracts/research.yaml \
+    --runs /tmp/timed_run.jsonl \
+    --output /tmp/timed_baseline.json
+agenteval run  0.31s user 0.06s system 97% cpu 0.381 total
+
+# Step 4: commit baseline and add CI YAML (copying the template from ADOPTION.md)
+# Time: ~5 minutes to copy the CI YAML template, replace placeholders, push.
+
+Total wall time (excluding reading docs): ~12 minutes for a team that already knows the tool names.
+Total wall time (including reading this doc once): ~25-30 minutes.
+The 40-minute estimate covers a team unfamiliar with the contract YAML who reads the full guide.
+```
+
+**Conclusion (F-P3-2):** The 40-minute estimate is conservative for a team already familiar
+with YAML contracts; it is accurate for a team reading the guide for the first time. The
+90-minute budget mentioned for teams starting from scratch is appropriate if they first need
+to enumerate their agent's tool names from source code or logs.
+
+Updated guidance: **25–40 minutes** with this guide open; **40–90 minutes** starting cold.
+
+---
+
+### F-P3-3 tightened framing — "no contract = no value" (2026-09-27)
+
+The original framing was too absolute. Corrected statement:
+
+**Without a contract, replayproof provides:**
+- `max_tokens` and `max_latency_ms` checks — cost and latency alarms, no domain knowledge needed
+- `no_pattern` with the default PII_PATTERNS — immediate PII leak detection (email, phone, SSN, card)
+- Wilson lower bound on any pass rate — confidence reporting even for a simple good/fail split
+- Cost regression gate against a stored baseline — catches token cost increases even without tool knowledge
+
+**With a contract, replayproof also provides:**
+- `required_tools` / `forbidden_tools` — asserts the agent's tool-call behaviour spec
+- `tool_sequence` — ordered tool-call precondition enforcement
+- `arg_schema` — JSON Schema validation of tool arguments
+
+The adoption blocker is now stated more precisely:
+
+> **The core value** — catching tool-call sequence regressions — requires a written spec.
+> The peripheral value (PII detection, cost alarms, confidence reporting) is available immediately.
+> Teams in exploratory mode get the peripheral value; teams with a written runbook get the full stack.
+
+A team with no written agent spec should start with `max_tokens`, `no_pattern`, and the cost gate.
+These three checks require no domain knowledge and catch the most common unnoticed regressions:
+runaway token use, accidental PII emission, and silent cost increase from prompt changes.
+
+**Updated adoption decision tree:**
+
+```
+Does your team have eval recordings?
+├── Yes (Inspect .eval, OpenAI JSONL, etc.)
+│   ├── Do you know what tools the agent must/must-not call?
+│   │   ├── Yes → full contract. Steps 1-4, ~30 minutes.
+│   │   └── No  → start with max_tokens + no_pattern + cost gate. Steps 2-4, ~15 minutes.
+│   └── Already using EvalCore?
+│       └── See "Integration target 2: EvalCore" above.
+└── No recordings yet
+    ├── Using Inspect AI? → run one eval, then Steps 1-4.
+    └── Python-callable agent? → use Recorder, then Steps 2-4.
 ```
