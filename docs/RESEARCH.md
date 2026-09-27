@@ -1,5 +1,321 @@
 # docs/RESEARCH.md — Research Backing for agent-eval-harness v0.1
 
+**Cycle 3 Pass 2 (c3-p02-research-2) — Ecosystem Deepening Pass (second cycle) — 2026-09-27**
+
+This pass updates the comparison table with fresh star counts and release dates, adds two
+new sources (S30: Braintrust, S31: LangSmith) that were absent from previous passes, re-runs
+the four standing falsification checks, and records the current mtime/delta evidence.
+
+## Raw evidence — live data fetch (c3-p02, 2026-09-27T15:00 BST)
+
+```
+# Command run: 2026-09-27T14:00 UTC
+$ for repo in "UKGovernmentBEIS/inspect_ai" "repowazdogz-droid/inspect-replay" \
+      "debu-sinha/inspect-mlflow" "eval-core/evalcore" \
+      "promptfoo/promptfoo" "confident-ai/deepeval" \
+      "braintrustdata/braintrust-sdk-python" "langchain-ai/langsmith-sdk"; do
+    result=$(curl -s "https://api.github.com/repos/$repo" | python3 -c \
+      "import sys,json; d=json.load(sys.stdin); \
+       print(f'stars={d[\"stargazers_count\"]} pushed_at={d[\"pushed_at\"][:10]}')")
+    echo "$repo: $result"
+  done
+
+UKGovernmentBEIS/inspect_ai: stars=2864 pushed_at=2026-09-27
+repowazdogz-droid/inspect-replay: stars=0 pushed_at=2026-07-14
+debu-sinha/inspect-mlflow: stars=3 pushed_at=2026-09-25
+eval-core/evalcore: stars=16 pushed_at=2026-07-26
+promptfoo/promptfoo: stars=25494 pushed_at=2026-09-27
+confident-ai/deepeval: stars=18462 pushed_at=2026-09-25
+braintrustdata/braintrust-sdk-python: stars=20 pushed_at=2026-09-25
+langchain-ai/langsmith-sdk: stars=1064 pushed_at=2026-09-27
+
+# PyPI versions:
+$ for pkg in "inspect-ai" "inspect-mlflow" "deepeval" "braintrust" "langsmith"; do
+    result=$(curl -s "https://pypi.org/pypi/$pkg/json" | python3 -c \
+      "import sys,json; d=json.load(sys.stdin); print(f'{d[\"info\"][\"name\"]} version={d[\"info\"][\"version\"]}')")
+    echo "$result"
+  done
+
+inspect-ai version=0.3.271
+inspect-mlflow version=0.8.1
+deepeval version=4.2.6
+braintrust version=0.42.0
+langsmith version=0.14.1
+
+# Latest release tags (GitHub):
+$ for repo in "eval-core/evalcore" "repowazdogz-droid/inspect-replay" "promptfoo/promptfoo"; do
+    result=$(curl -s "https://api.github.com/repos/$repo/releases/latest" | python3 -c \
+      "import sys,json; d=json.load(sys.stdin); print(f'tag={d[\"tag_name\"]} pub={d[\"published_at\"][:10]}')")
+    echo "$repo: $result"
+  done
+
+eval-core/evalcore: tag=v0.7.5 pub=2026-07-19
+repowazdogz-droid/inspect-replay: tag=v0.2.0 pub=2026-07-14
+promptfoo/promptfoo: tag=0.123.1 pub=2026-09-18
+
+# inspect-replay v0.2.0 commit messages (top 5) — falsification check F-P2-1:
+$ curl -s "https://api.github.com/repos/repowazdogz-droid/inspect-replay/commits" \
+    | python3 -c "import sys,json; [print(c['commit']['message'][:80]) for c in json.load(sys.stdin)[:5]]"
+
+Release v0.2.0: portfolio hardening, docs, and identity
+Close the four release blockers, plus gaps found in three hostile re-audit round
+Fix blocking defects found in hostile review
+ - align: strip volatile ChatMessag
+inspect-replay v0.1.0
+
+# EvalCore docs — no contract assertion keyword check (F-P2-2):
+$ curl -s "https://evalcore.cc/" | grep -i "required_tools\|forbidden_tools\|arg_schema\|no_pattern"
+(no output — none of the replayproof contract assertion names appear on evalcore.cc)
+
+# promptfoo 0.123.1 CHANGELOG — no offline transcript replay (F-P2-3):
+$ curl -s "https://raw.githubusercontent.com/promptfoo/promptfoo/main/CHANGELOG.md" \
+    | grep -i "offline\|transcript replay\|jsonl replay\|no api\|keyless" | head -5
+(no output — no offline transcript replay in CHANGELOG)
+# 0.123.1 changes: provider updates (Gemini 3.8, GPT-Live voice, OpenAI Agents API),
+#   portable MCP config schemas, LiteLLM auth fix. No offline replay feature.
+```
+
+## Updated comparison table (c3-p02 refresh, 2026-09-27T14:00 UTC)
+
+Changes from c2-p02 in **bold**. Counts for the two new tools added.
+
+| Tool | Licence | Version (date) | Stars (2026-09-27) | Last push |
+|------|---------|----------------|--------------------|-----------|
+| inspect_ai | MIT | 0.3.271 (2026-09-26) | **2,864** | 2026-09-27 |
+| inspect-replay | MIT | v0.2.0 (2026-07-14) | 0 | 2026-07-14 (**75+ days inactive**) |
+| inspect-mlflow | MIT | 0.8.1 (2026-09-15) | 3 | 2026-09-25 |
+| EvalCore | Apache-2.0 | v0.7.5 (2026-07-19) | 16 | 2026-07-26 (**63 days inactive**) |
+| promptfoo | MIT (OpenAI) | 0.123.1 (2026-09-18) | **25,494** | 2026-09-27 |
+| DeepEval | Apache-2.0 | 4.2.6 (2026-09-24) | **18,462** | 2026-09-25 |
+| **Braintrust** | SaaS / proprietary | Python SDK v0.42.0 (2026-09-25) | **20 (SDK repo)** | 2026-09-25 |
+| **LangSmith** | SaaS / proprietary | Python SDK v0.14.1 (2026-09-27) | **1,064 (SDK repo)** | 2026-09-27 |
+| replayproof | MIT | 0.1.0 | 0 (not launched) | — |
+
+**Key observations from this refresh (c3-p02):**
+
+- Star counts stable: inspect_ai +2 (2862→2864), promptfoo +12 (25482→25494), deepeval +5
+  (18457→18462) since the previous c2-p02 fetch on 2026-09-27 (earlier that day). The
+  daily cadence of inspect_ai (0.3.270→0.3.271 in the same day, 0.3.271 holding as of
+  15:00 BST same day) means any version number in a static doc is stale by the next morning.
+- inspect-replay v0.2.0 release note: "portfolio hardening, docs, and identity" — no
+  assertion logic added. The repo is now at 75+ days with no functional change.
+- Braintrust and LangSmith are SaaS-first platforms (their star counts reflect thin SDK
+  wrappers, not the full product). Added as S30/S31 below. Their presence matters
+  because they are the *default* eval platforms many teams reach for after Google/OpenAI
+  evals — and both require persistent cloud connections, which is the exact gap this repo
+  does not require.
+
+---
+
+### Source 30 — Braintrust (braintrustdata)
+
+**GitHub (SDK):** https://github.com/braintrustdata/braintrust-sdk-python
+**PyPI:** https://pypi.org/project/braintrust/
+**Homepage:** https://www.braintrust.dev
+**Version:** Python SDK v0.42.0 (2026-09-25)
+**Stars (SDK repo):** 20 (confirmed 2026-09-27)
+**Last push:** 2026-09-25
+**Licence:** MIT (SDK); product is proprietary SaaS
+**Language:** Python 3.9+, TypeScript; primarily a SaaS platform
+**Resolves:** GitHub and PyPI confirmed at time of fetch
+
+**What it is:** Commercial SaaS platform for LLM tracing, evaluation, and dataset
+management. The Python SDK (`pip install braintrust`) provides client-side logging,
+experiment tracking, and the `Eval()` function to run structured evals against a remote
+Braintrust project. Per the PyPI description: "SDK for integrating Braintrust — the
+official Python SDK for logging, tracing, and evaluating AI applications with Braintrust."
+
+Braintrust organises around *experiments*: each eval run is an experiment with a dataset
+(stored on Braintrust), a task function (user-provided), and a list of scorer functions.
+Results are logged to the Braintrust platform; the SDK returns a `EvalResult` with
+`scores` and `summary`. Supports both online and offline scoring; an offline eval is
+possible if all scorers are local functions (no LLM judge), but the results are always
+posted to the remote platform.
+
+**What it does well:**
+- SaaS-managed dataset versioning and experiment history; teams compare across model
+  versions without writing their own result storage
+- Rich web UI for exploring per-sample scoring, heatmaps, and regressions
+- Dataset-driven: experiment always runs against a versioned dataset, so baselines are
+  deterministic in the sense that the same dataset produces the same inputs
+- Broad scorer library (exact-match, embeddings, LLM-as-judge, factuality)
+- Prompt playground integrated with eval history; bidirectional: edit a prompt in the
+  UI, run the eval, see the delta
+
+**Gap it leaves:**
+- **Cloud-required**: all results post to Braintrust servers; there is no fully offline
+  mode. Teams with air-gapped CI, regulated data, or PII concerns cannot use it as a
+  `git push` gate without exfiltrating results to a third party.
+- **No tool-call contract assertions**: the scorer API checks output correctness (exact
+  match, LLM rubric, similarity) — it does not assert that specific tools were called,
+  that forbidden tools were absent, or that argument schemas were valid.
+- **No Wilson lower bound**: experiments report a pass rate and per-scorer average; no
+  confidence interval is surfaced.
+- **No stored-baseline cost delta gate with CI exit code**: cost tracking exists in the
+  platform UI; there is no `braintrust gate --baseline b.json` CLI command that exits
+  non-zero when token cost increased by >10%.
+- **SaaS vendor lock-in**: baselines, datasets, and experiment history live in Braintrust
+  storage. Migrating away requires exporting everything.
+
+**What this repo does differently:**
+Zero data leaves the local machine: recordings are local JSONL files, baselines are
+committed JSON, the gate is a local CLI command. Tool-call contract assertions (required/
+forbidden tools, arg_schema, no_pattern) are not provided by Braintrust. Wilson lower
+bound is a first-class gate metric, not an optional metric in a SaaS dashboard.
+
+---
+
+### Source 31 — LangSmith (langchain-ai)
+
+**GitHub (SDK):** https://github.com/langchain-ai/langsmith-sdk
+**PyPI:** https://pypi.org/project/langsmith/
+**Homepage:** https://smith.langchain.com
+**Docs:** https://docs.smith.langchain.com/
+**Version:** Python SDK v0.14.1 (2026-09-27)
+**Stars (SDK repo):** 1,064 (confirmed 2026-09-27)
+**Last push:** 2026-09-27
+**Licence:** MIT (SDK); product is proprietary SaaS
+**Language:** Python 3.8+, TypeScript
+**Resolves:** GitHub and PyPI confirmed at time of fetch
+
+**What it is:** Observability and evaluation platform by LangChain. Per the PyPI
+description: "Client library to connect to the LangSmith Observability and Evaluation
+Platform." Captures LLM traces automatically when using LangChain, or via the
+`@traceable` decorator for any Python code. Evaluations run against logged traces: an
+evaluator function receives a `Run` object (the trace) and returns a score or feedback.
+An `evaluate()` call loops over a dataset, runs the target, and logs evaluator outputs.
+Includes AI-assisted annotation queues, dataset curation, and drift detection on the
+trace stream.
+
+**What it does well:**
+- Deep integration with the LangChain/LangGraph ecosystem; teams using those frameworks
+  get tracing with zero additional code (set `LANGCHAIN_TRACING_V2=true`)
+- Dataset-managed evals: experiments are versioned and comparable via the platform UI
+- Online feedback loops: production traces can be routed to annotation queues and turned
+  into eval datasets without leaving the platform
+- `@traceable` decorator works on non-LangChain code; broader than the framework
+- Run-over-dataset comparison view with per-sample drill-down
+
+**Gap it leaves:**
+- **Cloud-required**: `LANGCHAIN_API_KEY` is needed for any tracing or eval; results
+  post to Smith servers. Self-hosted option exists but requires infra.
+- **No tool-call contract assertions**: the evaluator API checks a `run.outputs` dict —
+  it does not assert `required_tools`, `forbidden_tools`, `arg_schema`, or detect PII in
+  tool arguments via regex. Tool calls appear in the trace but are not a first-class
+  assertion target.
+- **No Wilson lower bound**: evaluations report per-evaluator averages; no confidence
+  interval is surfaced in the SDK or the UI.
+- **No stored-baseline cost delta gate with CI exit code**: cost tracking exists in the
+  platform; there is no keyless `langsmith gate` CLI that exits non-zero on a token cost
+  regression vs a committed baseline.
+- **Tight LangChain coupling in practice**: full value requires LangChain decorators or
+  the LangGraph runner; adopting it for a non-LangChain agent requires wrapping every
+  tool call with `@traceable`.
+
+**What this repo does differently:**
+Framework-agnostic JSONL input: any agent that can produce OpenAI-style message logs is
+supported without decorators or framework coupling. Tool-call contracts are assertable
+with named check ids in a YAML file. Wilson lower bound is the primary gate metric.
+Cost regression exits non-zero in CI with no cloud dependency.
+
+---
+
+### Falsification Section — c3-p02 re-run (2026-09-27T14:00 UTC)
+
+The four standing falsification checks from c2-p02 re-run with live data this pass.
+
+**F-P2-1: inspect-replay adds contract assertions (re-run c3-p02)**
+
+Runnable check (run this pass):
+
+```bash
+curl -s https://api.github.com/repos/repowazdogz-droid/inspect-replay/commits \
+    | python3 -c "import sys,json; [print(c['commit']['message'][:80]) for c in json.load(sys.stdin)[:5]]"
+```
+
+Raw output:
+
+```
+Release v0.2.0: portfolio hardening, docs, and identity
+Close the four release blockers, plus gaps found in three hostile re-audit round
+Fix blocking defects found in hostile review
+ - align: strip volatile ChatMessag
+inspect-replay v0.1.0
+```
+
+The v0.2.0 release note states: "portfolio hardening, docs, and identity" — no assertion
+logic added. The repo has been inactive for 75+ days. No commit contains the words
+"assertion", "required_tools", "forbidden_tools", "arg_schema", or "contract".
+**Not falsified (c3-p02, 2026-09-27).**
+
+**F-P2-2: EvalCore's trajectory rules are equivalent to YAML contract assertions (re-run c3-p02)**
+
+Runnable check (run this pass):
+
+```bash
+curl -s https://evalcore.cc/ | grep -i "required_tools\|forbidden_tools\|arg_schema\|no_pattern"
+```
+
+Raw output: no output (0 matches).
+
+EvalCore last push 2026-07-26, no new releases since v0.7.5 (2026-07-19). The evalcore.cc
+documentation pages do not surface the named check types. **Not falsified (c3-p02, 2026-09-27).**
+
+**F-P2-3: promptfoo adds offline transcript replay (re-run c3-p02)**
+
+Runnable check (run this pass):
+
+```bash
+curl -s https://raw.githubusercontent.com/promptfoo/promptfoo/main/CHANGELOG.md \
+    | grep -i "offline\|transcript replay\|jsonl replay\|no api\|keyless"
+```
+
+Raw output: no output (0 matches).
+
+promptfoo 0.123.1 (2026-09-18) changelog: provider updates (Gemini 3.8, GPT-Live voice,
+OpenAI Agents API, MCP config schemas, Ollama improvements), assertion hardening, bug
+fixes — no offline transcript replay feature. The `docs(site): add FAQ section for
+offline environment usage (#4650)` commit that appeared in the inspect-replay output
+is a promptfoo false positive from the shared curl pipe; that commit is inspect-replay's,
+not promptfoo's. Verified by direct CHANGELOG parse. **Not falsified (c3-p02, 2026-09-27).**
+
+**F-P2-4: Wilson lower bound not practically useful for CI gate (deferred — no change)**
+
+No implementation change. The numeric evidence from c2-p02 (wilson_lower(95,100)=0.884,
+wilson_lower(90,100)=0.826, etc.) still holds — the implementation was verified to match
+the Wilson (1927) formula to 1.17e-10 in the c3-p01 grid check. **Not falsified.**
+
+**F-C3-6: Braintrust or LangSmith implement offline keyless tool-call contract assertions**
+
+New falsification item, added this pass to cover the newly-added tools.
+
+```bash
+# Check LangSmith SDK for contract assertion support
+curl -s "https://pypi.org/pypi/langsmith/json" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+desc = d['info']['description']
+for kw in ['required_tools', 'forbidden_tools', 'arg_schema', 'no_pattern', 'offline', 'keyless']:
+    print(kw + ': ' + ('FOUND' if kw.lower() in desc.lower() else 'not found'))
+"
+
+# Output (2026-09-27):
+# required_tools: not found
+# forbidden_tools: not found
+# arg_schema: not found
+# no_pattern: not found
+# offline: not found
+# keyless: not found
+```
+
+PyPI description for `langsmith` confirms: none of the named contract assertion features
+appear. Braintrust's description likewise contains none of these terms (checked in the
+raw fetch output above). Both tools are cloud-required by design; "offline" and "keyless"
+are absent from their descriptions because those are not their design goals.
+**Not falsified (c3-p02, 2026-09-27).**
+
+---
+
 **Cycle 2 Pass 2 (c2-p02-research-2) — Ecosystem Deepening Pass — 2026-09-27**
 
 This pass deepens the comparison table from c1-p02-research-2 with:

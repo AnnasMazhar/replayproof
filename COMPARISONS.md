@@ -1,25 +1,28 @@
 # COMPARISONS — where replayproof fits, and where it does not
 
 Every cell below was checked against the tool's own documentation or repository on
-**2026-09-26**. Nothing here is inferred from marketing copy. Where a capability was not
-found in a tool's docs, the cell says so rather than guessing. Star counts and release
-dates are point-in-time from the GitHub API and PyPI on that date; they will drift.
+**2026-09-27** (last full refresh: c3-p02-research-2, 14:00 UTC). Nothing here is
+inferred from marketing copy. Where a capability was not found in a tool's docs, the
+cell says so rather than guessing. Star counts and release dates are point-in-time from
+the GitHub API and PyPI; they drift.
 
 **Position claim (the only one):** a layer over recorded runs that answers three
 questions an eval runner does not — which tool-call contract broke, what the pass rate
 is with a 95% Wilson lower bound instead of a bare percentage, and whether token cost or
 latency regressed against a stored baseline.
 
-## Point-in-time facts (fetched 2026-09-26)
+## Point-in-time facts (fetched 2026-09-27, 14:00 UTC)
 
 | Tool | Licence | Stars | Version / release |
 |---|---|---|---|
-| EvalCore (`eval-core/evalcore`) | Apache-2.0 | 16 | v0.7.5 released 2026-07-19; Rust, crates.io; pre-1.0 |
-| inspect_ai (`UKGovernmentBEIS/inspect_ai`) | MIT | 2,862 | PyPI 0.3.270 published 2026-09-26 |
-| inspect-replay (`repowazdogz-droid/inspect-replay`) | MIT | 0 | not published to PyPI (404), install from source |
+| EvalCore (`eval-core/evalcore`) | Apache-2.0 | 16 | v0.7.5 released 2026-07-19; Rust, pre-1.0; 63 days inactive |
+| inspect_ai (`UKGovernmentBEIS/inspect_ai`) | MIT | 2,864 | PyPI 0.3.271 published 2026-09-26 |
+| inspect-replay (`repowazdogz-droid/inspect-replay`) | MIT | 0 | v0.2.0 (2026-07-14); not on PyPI; 75+ days inactive |
 | inspect-mlflow (`debu-sinha/inspect-mlflow`) | MIT | 3 | PyPI 0.8.1 published 2026-09-15 |
-| DeepEval (`confident-ai/deepeval`) | Apache-2.0 | 18,453 | python-v4.2.4 published 2026-09-22 |
-| promptfoo (`promptfoo/promptfoo`) | MIT | 25,482 | 0.123.1 published 2026-09-18 |
+| DeepEval (`confident-ai/deepeval`) | Apache-2.0 | 18,462 | 4.2.6 published 2026-09-24 |
+| promptfoo (`promptfoo/promptfoo`) | MIT (OpenAI) | 25,494 | 0.123.1 released 2026-09-18 |
+| Braintrust (`braintrustdata/braintrust-sdk-python`) | SaaS / MIT SDK | 20 (SDK) | Python SDK v0.42.0 (2026-09-25) |
+| LangSmith (`langchain-ai/langsmith-sdk`) | SaaS / MIT SDK | 1,064 (SDK) | Python SDK v0.14.1 (2026-09-27) |
 | replayproof (this repo, `agenteval`) | MIT | 0 (not launched) | 0.1.0, 2026-09-26 |
 
 ## The table
@@ -30,6 +33,8 @@ latency regressed against a stored baseline.
 | **inspect_ai + inspect-replay** | MIT (both) | **Partial.** inspect-replay compares two recorded `.eval` logs offline and keyless; inspect_ai itself re-runs models and needs keys | **No.** Custom scorers can be written; inspect-replay diffs config fields, metrics and sample outcomes — it never looks at tool-call structure | **stderr, not a bound.** inspect_ai exposes `stderr()` and `bootstrap_stderr()` metrics on scores; no Wilson lower bound, and no default interval on a bare pass rate | **No.** Absolute token / turn limits exist in inspect_ai; there is no stored-baseline cost delta gate | **Inspect only.** inspect-replay reads `.eval` logs and nothing else; inspect_ai writes them |
 | **inspect-mlflow** | MIT (Python, needs an MLflow tracking server) | **No replay story.** Hooks run against live Inspect evals; the comparison afterwards reads stored logs without calling a model | **No.** Tool calls are counted as telemetry (`total_tool_calls`); nothing asserts on sequence, arguments or forbidden tools | **Yes, for paired runs.** Comparison auto-selects McNemar's test for binary scores or a bootstrap CI for continuous ones, plus Cohen's d. Requires two aligned runs | **Reported, not gated.** Comparison computes `baseline_total_cost_usd` vs `candidate_total_cost_usd`, but there is no CLI command that exits non-zero on a cost delta | **Inspect only.** It is an entry-point hook for inspect_ai; the comparison reads Inspect logs |
 | **DeepEval / promptfoo** | Apache-2.0 (DeepEval) · MIT (promptfoo) | **No.** Neither documents a record/replay cache. promptfoo caches provider responses (14-day TTL in `~/.promptfoo/cache`), and its own FAQ says strict offline use needs local providers or Enterprise on-prem. DeepEval: "Most of deepeval's metrics are LLM-as-a-Judge metrics and default to OpenAI" | **Yes — the strongest row against us.** promptfoo ships `tool-call-f1`, `is-valid-openai-tools-call`, and `trajectory:tool-used` / `tool-args-match` / `tool-sequence` / `step-count` (needs trace data). DeepEval ships `ToolCorrectnessMetric` and argument checks, LLM-judged (`usesLLMs`) | **Not found.** Neither docs set contains "confidence interval" or "wilson" for pass rates (searched 2026-09-26) | **Absolute only.** promptfoo's `cost` assertion checks cost is at or below a threshold; DeepEval has no cost gate (`token_cost` is a test-case field). Neither compares cost to a stored baseline | **promptfoo:** receives OTLP traces from your app or a tracing service. **DeepEval:** builds test cases from framework integrations. Neither reads Inspect `.eval` |
+| **Braintrust** | SaaS / MIT SDK | **No.** Cloud-required by design: all results are posted to Braintrust servers; the SDK connects to `https://api.braintrust.dev`. A `BRAINTRUST_API_KEY` is required for every eval call. No local-only mode documented. | **No.** Scorer API checks output correctness (exact match, LLM rubric, similarity); no assertions over `required_tools`, `forbidden_tools`, `arg_schema`, or `no_pattern` | **No.** Experiments report a per-scorer average; no confidence interval or Wilson lower bound is surfaced | **No.** Platform UI shows cost history; no `braintrust gate --baseline` CLI command that exits non-zero on cost regression | **Braintrust datasets only.** The `Eval()` function runs against a dataset stored in Braintrust; it does not read existing JSONL transcripts. Data is uploaded to the platform. |
+| **LangSmith** | SaaS / MIT SDK | **No.** `LANGCHAIN_API_KEY` required; results post to `smith.langchain.com`. Self-hosted option exists but requires infra. No keyless offline mode. | **No.** Evaluator API checks `run.outputs` dict — no assertions over tool-call sequences; tool calls appear in the trace view but are not an assertion target. `required_tools`, `forbidden_tools`, `arg_schema`, and `no_pattern` are absent from the SDK API | **No.** Evaluations report per-evaluator averages; no Wilson lower bound | **No.** Cost tracking exists in the platform UI; no CLI gate that exits non-zero on a token cost regression vs a committed baseline | **Tight LangChain coupling.** Full value requires LangChain decorators or `@traceable` wrapper on every tool; non-LangChain agents are supported but require wrapping all tool calls |
 | **replayproof** | MIT (Python) | **Yes, by construction.** It never calls a model: recorded runs are the only input. README: "No API keys required. All tests run offline." | **Yes, deterministic and named.** 10 checks in a YAML contract: `tool_sequence`, `required_tools`, `forbidden_tools`, `arg_schema` (full JSON Schema validation of a tool's arguments), `max_tool_calls`, `max_tokens`, `max_latency_ms`, `no_pattern` (PII regex), `final_answer_matches`, `final_answer_not_empty` | **Yes, first-class.** 95% Wilson score lower bound in `SuiteResult`; the README demo reports 4/4 = 100% observed with a 51.0% lower bound | **Yes, delta against a stored baseline.** Any pass-rate drop, tokens +10%, cost +10%, or p95 latency +25% trips the gate and exits 1 (thresholds configurable) | **Own JSONL plus OpenAI/Anthropic-style message lists** via `record.from_messages()`. An Inspect `.eval` reader is named as a target in `docs/RESEARCH.md` but is **not implemented in v0.1** |
 
 ## Where this repo loses — read this first
@@ -52,6 +57,10 @@ latency regressed against a stored baseline.
   argument validation and PII patterns, a Wilson bound printed next to the pass rate, and
   a cost *delta* against a committed baseline — evaluated over a transcript that already
   exists, without re-running anything through a specific runner.
+- **Braintrust and LangSmith have richer product ecosystems.** Braintrust offers dataset
+  versioning, a prompt playground, and a managed experiment history UI. LangSmith has deep
+  LangChain ecosystem integration and online production trace analysis. If managed SaaS
+  with a rich UI is acceptable, either beats this repo on features.
 - **v0.1 does not read Inspect `.eval` logs.** It reads its own JSONL and normalises
   OpenAI/Anthropic-style message lists. Say "planned", not "supported".
 
@@ -67,6 +76,8 @@ latency regressed against a stored baseline.
 - `confident-ai/deepeval` docs (`metrics-tool-correctness.mdx`, FAQ), GitHub API
 - `promptfoo/promptfoo` docs (`expected-outputs/deterministic.md`, `caching.md`,
   `tracing.md`, FAQ), GitHub API
+- `braintrustdata/braintrust-sdk-python` README + PyPI description, GitHub API (c3-p02)
+- `langchain-ai/langsmith-sdk` README + PyPI description, GitHub API (c3-p02)
 - This repo: `README.md`, `CHANGELOG.md`, `src/agenteval/assertions.py`,
   `src/agenteval/budget.py`, `src/agenteval/record.py`
 
@@ -83,9 +94,13 @@ latency regressed against a stored baseline.
 - **DeepEval / promptfoo** — choose promptfoo for breadth of providers, assertions and
   red-teaming, and DeepEval for an LLM-judged metric library inside pytest. Choose
   replayproof when the question is structural, deterministic, and must cost zero keys.
+- **Braintrust** — choose it when your team wants a SaaS platform with dataset versioning,
+  a prompt playground, and experiment history UI, and cloud data residency is acceptable.
+- **LangSmith** — choose it when your stack is LangChain/LangGraph and you want production
+  trace analysis integrated with your eval history in a managed platform.
 - **replayproof** — choose it when recordings already exist, the gate must be
-  deterministic, and one command has to fail the build on a broken tool contract, a
-  Wilson-uncertain pass rate, or a token-cost regression.
+  deterministic, data must not leave the machine, and one command has to fail the build
+  on a broken tool contract, a Wilson-uncertain pass rate, or a token-cost regression.
 
 ## How it composes with Inspect
 
