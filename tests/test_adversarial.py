@@ -184,6 +184,23 @@ test_contract_max_latency_check_sums_turns:
     fail a 150ms total limit, but pass a 250ms total limit.
     Fault injection: check max(turn.latency_ms) instead of sum => different failure
     boundary.
+
+--- New in c3-p05 ---
+
+test_contract_yaml_python_tag_rejected_no_execution:
+    Catches a Contract.from_yaml that loads contracts with an unsafe YAML loader
+    (yaml.load with Loader=yaml.UnsafeLoader, the pre-PyYAML-5.1 default). A hostile
+    contract file carrying a !!python/object/apply payload then executes arbitrary
+    code in CI. safe_load must raise yaml.YAMLError and leave no side effect.
+    Fault injection: swap yaml.safe_load for yaml.load(..., Loader=yaml.UnsafeLoader)
+    => the os.system payload runs, the sentinel file appears, and the test fails.
+
+test_run_from_jsonl_blank_line_raises_not_fabricates_run:
+    Catches a from_jsonl loader that skips whitespace-only lines (or catches the
+    decode error and returns a default Run). An empty or corrupt recording would then
+    evaluate as a run that exists and is green — a false pass in CI.
+    Fault injection: on json.JSONDecodeError return Run(name="", ...) => blank line
+    silently becomes a default run instead of raising.
 """
 
 from __future__ import annotations
@@ -954,3 +971,45 @@ def test_wilson_lower_zero_successes() -> None:
     assert lb == 0.0, f"wilson_lower(0, 10) should be 0.0, got {lb}"
     lb_n1 = wilson_lower(0, 1)
     assert lb_n1 == 0.0, f"wilson_lower(0, 1) should be 0.0, got {lb_n1}"
+
+
+# ──────────────────────────────────────────────────────────────
+# Byzantine / hostile-input cases added in c3-p05
+# ──────────────────────────────────────────────────────────────
+
+
+def test_contract_yaml_python_tag_rejected_no_execution(tmp_path) -> None:
+    """Contract YAML must be loaded with yaml.safe_load — a hostile contract must not run code.
+
+    Fault: loading the contract with yaml.load(..., Loader=yaml.UnsafeLoader) (the
+    pre-PyYAML-5.1 default) executes a !!python/object/apply payload embedded in a
+    contract file, giving anyone who can write a YAML contract arbitrary code
+    execution in CI. safe_load must raise yaml.YAMLError and leave no side effect.
+    """
+    import yaml
+
+    from agenteval.assertions import Contract
+
+    sentinel = tmp_path / "pwned"
+    hostile = "name: hostile\n" f'checks: !!python/object/apply:os.system ["touch {sentinel}"]\n'
+    with pytest.raises(yaml.YAMLError):
+        Contract.from_yaml(hostile)
+    assert (
+        not sentinel.exists()
+    ), "hostile YAML payload executed — Contract.from_yaml is using an unsafe YAML loader"
+
+
+def test_run_from_jsonl_blank_line_raises_not_fabricates_run() -> None:
+    """from_jsonl must raise on a blank/whitespace line, not fabricate a default Run.
+
+    Fault: a loader that skips whitespace-only lines (or catches the decode error and
+    returns a default Run) turns an empty or corrupt recording into a run that exists
+    and can evaluate green — a false pass in CI.
+    """
+    import json
+
+    with pytest.raises(json.JSONDecodeError):
+        Run.from_jsonl("")
+
+    with pytest.raises(json.JSONDecodeError):
+        Run.from_jsonl("   \n\t ")

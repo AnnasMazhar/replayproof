@@ -649,3 +649,122 @@ bridge importable: OK
 4. `ruff check .` clean, `ruff format --check .` clean. PASS.
 5. `scripts/convert_inspect_log.py` exists, handles both .eval layouts. PASS.
 6. README "Integration with Inspect AI" section shows the dual-layout bridge. PASS.
+
+---
+
+## Pass c3-p05 verification (2026-09-27) — implement pass 2, launch surfaces
+
+### Changes
+
+- **README first screen**: the copy-paste quickstart referenced `contracts/research.yaml`,
+  `recordings/sample_run.jsonl` and `baseline.json` — none of which exist at those paths
+  (root `contracts/` is an empty untracked directory). Replaced with a 5-line quickstart
+  (clone → venv → install → run → gate) whose every path exists, verified below on a fresh
+  venv. Added the "star the repo" line after the 60-second quickstart (LAUNCH-PLAN Phase A.9).
+- **launch/topics.txt**: was missing 4 of the 10 tags LAUNCH-PLAN.md Phase A requires for this
+  repo (`ai-agents`, `testing`, `pytest`, `ci`) and the `good-first-issue` topic from item 6.
+  Now 19 tags (spec: 8–20).
+- **pyproject.toml**: added `keywords` and `classifiers` — packaging metadata was otherwise
+  complete; installability re-proven below.
+- **CONTRIBUTING.md**: clone URL said `agent-eval-harness`; every other surface says
+  `replayproof` (settled by c3 fix commit f3d0a82). Aligned.
+- **.github/workflows/release.yml**: header comment still named `repo=agent-eval-harness`
+  while the job body names `replayproof`. Aligned.
+- **tests/test_adversarial.py**: 2 new byzantine cases with named faults in the top-of-file
+  docstring (required classes that were not covered: hostile-YAML code execution, blank-line
+  fabrication).
+
+### Full suite (c3-p05 — 138 tests)
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................ [ 52%]
+..................................................................       [100%]
+138 passed in 5.86s
+```
+
+### Lint
+
+```
+$ .venv/bin/ruff check .
+All checks passed!
+
+$ .venv/bin/ruff format --check .
+20 files already formatted
+```
+
+### New adversarial tests (raw)
+
+```
+$ .venv/bin/python -m pytest tests/test_adversarial.py -q
+..............................                                           [100%]
+30 passed in 0.54s
+```
+
+### Clean-machine quickstart proof (fresh python3 venv, no repo venv involved)
+
+```
+$ rm -rf /tmp/cleanvenv /tmp/good.json /tmp/bad.json && python3 -m venv /tmp/cleanvenv && /tmp/cleanvenv/bin/pip install -q /home/openclaw/portfolio/agent-eval-harness
+$ /tmp/cleanvenv/bin/agenteval run --contract examples/contracts/research.yaml --runs examples/recordings/sample_run.jsonl --output /tmp/good.json
+$ /tmp/cleanvenv/bin/agenteval run --contract examples/contracts/research.yaml --runs examples/recordings/regressed_run.jsonl --output /tmp/bad.json
+$ /tmp/cleanvenv/bin/agenteval gate --baseline /tmp/good.json --current /tmp/bad.json; echo "quickstart_gate_exit=$?"
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+Warning: the following gates were not enforced because the baseline value is zero (first-run or corrupted baseline): total_tokens, total_cost_usd
+quickstart_gate_exit=1
+```
+
+(The `git clone` line of the quickstart cannot be exercised offline; every subsequent line of
+the block was run verbatim as shown.)
+
+### End-to-end demo
+
+```
+$ bash examples/run_demo.sh
+...
+| What types of batteries are used for storage | FAIL | 0 | 0 | 0.0 |
+
+
+--- Final checks ---
+PASS: gate exits correctly (0 on good, 1 on regressed)
+
+=== Demo complete ===
+demo_exit=0
+```
+
+### Launch surfaces inventory (LAUNCH-PLAN Phase A)
+
+```
+$ wc -l launch/topics.txt
+19 launch/topics.txt
+
+$ ls .github/workflows/
+ci.yml
+release.yml
+
+$ git status --short
+ M .github/workflows/release.yml
+ M CONTRIBUTING.md
+ M README.md
+ M launch/topics.txt
+ M pyproject.toml
+ M tests/test_adversarial.py
+```
+
+- pyproject complete + pip-installable: PROVEN above (fresh venv install).
+- release.yml: trusted publishing (OIDC, `id-token: write`), tag-vs-version check, publish
+  job gated behind `vars.PYPI_PUBLISH` — workflow present, not yet published (per instructions).
+- COMPARISONS.md, CONTRIBUTING.md, docs/demo.sh, launch/topics.txt: exist; verified against
+  LAUNCH-PLAN and completed where short (topics, repo URLs).
+
+### Acceptance criteria (c3-p05)
+
+1. Fresh venv + install + `pytest -q` = 138 passed, no network in tests. PASS.
+2. `bash examples/run_demo.sh` completes with real results table, exit 0. PASS.
+3. Gate exits 1 on regressed, 0 on good. PASS (shown above).
+4. `ruff check .` clean, `ruff format --check .` clean. PASS.
+5. README quickstart copy-paste paths all exist and run. PASS (fresh-venv proof above).
+6. No file outside this repo modified. No push. Explicit `git add` of 6 files. PASS.
+7. Conventional commit, no AI attribution. PASS.

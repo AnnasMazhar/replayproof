@@ -12,9 +12,11 @@ For AI engineers who already record agent runs and want deterministic CI gates
 without paying for a live LLM on every run.
 
 ```bash
-pip install git+https://github.com/AnnasMazhar/replayproof
-agenteval run --contract contracts/research.yaml --runs recordings/sample_run.jsonl --output result.json
-agenteval gate --baseline baseline.json --current result.json   # exit 1 on regression
+git clone https://github.com/AnnasMazhar/replayproof && cd replayproof
+python3 -m venv .venv && . .venv/bin/activate && pip install .
+agenteval run --contract examples/contracts/research.yaml --runs examples/recordings/sample_run.jsonl --output /tmp/good.json
+agenteval run --contract examples/contracts/research.yaml --runs examples/recordings/regressed_run.jsonl --output /tmp/bad.json
+agenteval gate --baseline /tmp/good.json --current /tmp/bad.json   # exit 1 — the seeded regression trips the gate
 ```
 
 Note: `pip install agent-eval-harness` installs a **different, unrelated package** on PyPI
@@ -96,6 +98,8 @@ agenteval gate \
     --current /tmp/regressed_result.json
 # Exit code 1 — regression detected
 ```
+
+If this is useful, star the repo — it is how others find it.
 
 ## Real results
 
