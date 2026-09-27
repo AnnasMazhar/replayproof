@@ -70,8 +70,15 @@ jobs:
           uv pip install -e '.[dev]'
           .venv/bin/python -m pytest -q
 
+  # Publishing to PyPI is OPT-IN. It stays skipped until a trusted publisher exists for this repo on
+  # PyPI (PyPI → project → Publishing → add publisher: repository=AnnasMazhar/replayproof,
+  # workflow=release.yml, environment=pypi). Until that exists the job fails with
+  # `invalid-publisher`, which turns every tag red for a pure configuration reason.
+  # Enable it by setting the repository variable PYPI_PUBLISH=true (Settings → Secrets and
+  # variables → Actions → Variables).
   publish:
     name: Publish to PyPI
+    if: vars.PYPI_PUBLISH == 'true'
     runs-on: ubuntu-latest
     needs: [build, test]
     environment: pypi
