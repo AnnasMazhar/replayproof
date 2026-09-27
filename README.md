@@ -263,6 +263,30 @@ Then use `agenteval run` to evaluate it against a contract, as shown above.
 Each check has a stable `id`, `severity` (`error` or `warn`), and a named fault it
 catches. See [docs/DESIGN.md](docs/DESIGN.md) for the full check reference.
 
+## Real recordings
+
+The repo ships three recordings produced by **real models on this machine**, not
+fixtures (commands and raw output in [docs/EVIDENCE.md](docs/EVIDENCE.md)):
+
+| File | Model | Provider | Contract result |
+| ---- | ----- | -------- | --------------- |
+| `examples/recordings/real_gemma3_4b_full.jsonl` | `gemma3:4b` | local ollama | 6/6 pass |
+| `examples/recordings/real_gpt_oss_120b_full.jsonl` | `openai/gpt-oss-120b` | Groq (free tier) | 5/6 — case-06 calls a tool the scaffold never advertised |
+| `examples/recordings/real_gemma3_4b_narrowed.jsonl` | `gemma3:4b` | local ollama | 0/6 — narrowed prompt, no tool calls (the regression the gate must catch) |
+
+```bash
+# replay any of them offline, no keys needed
+env -u GROQ_API_KEY -u OPENROUTER_API_KEY \
+    agenteval replay --run examples/recordings/real_gemma3_4b_full.jsonl --format json
+
+# gate the regression against a baseline derived from the real local run
+agenteval run --contract examples/contracts/real_research.yaml \
+    --runs examples/recordings/real_gemma3_4b_full.jsonl --output baseline.json
+agenteval run --contract examples/contracts/real_research.yaml \
+    --runs examples/recordings/real_gemma3_4b_narrowed.jsonl --output regressed.json
+agenteval gate --baseline baseline.json --current regressed.json   # exit 1: pass_rate 1.0 -> 0.0
+```
+
 ## Where this fits relative to other tools
 
 See [COMPARISONS.md](COMPARISONS.md) for a full factual table. The short version:

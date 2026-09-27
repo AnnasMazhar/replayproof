@@ -129,9 +129,7 @@ class Baseline:
     @property
     def total_tokens(self) -> int:
         """Baseline total tokens (in + out)."""
-        tokens_in = _finite_number(
-            self._data.get("total_tokens_in", 0), "baseline.total_tokens_in"
-        )
+        tokens_in = _finite_number(self._data.get("total_tokens_in", 0), "baseline.total_tokens_in")
         tokens_out = _finite_number(
             self._data.get("total_tokens_out", 0), "baseline.total_tokens_out"
         )
@@ -140,16 +138,12 @@ class Baseline:
     @property
     def p95_latency_ms(self) -> float:
         """Baseline p95 latency in ms."""
-        return _finite_number(
-            self._data.get("p95_latency_ms", 0.0), "baseline.p95_latency_ms"
-        )
+        return _finite_number(self._data.get("p95_latency_ms", 0.0), "baseline.p95_latency_ms")
 
     @property
     def total_cost_usd(self) -> float:
         """Baseline total cost in USD."""
-        return _finite_number(
-            self._data.get("total_cost_usd", 0.0), "baseline.total_cost_usd"
-        )
+        return _finite_number(self._data.get("total_cost_usd", 0.0), "baseline.total_cost_usd")
 
 
 def compare(

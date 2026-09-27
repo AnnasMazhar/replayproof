@@ -70,8 +70,8 @@ class TestReadmeCommandPaths:
             for where, path in targets
             if not os.path.isfile(os.path.join(REPO_ROOT, path))
         ]
-        assert not missing, (
-            "README --contract paths do not exist in the repo: " + "; ".join(missing)
+        assert not missing, "README --contract paths do not exist in the repo: " + "; ".join(
+            missing
         )
 
     def test_every_runs_path_exists(self) -> None:
@@ -81,9 +81,7 @@ class TestReadmeCommandPaths:
             for where, path in _runs_targets()
             if not os.path.isfile(os.path.join(REPO_ROOT, path))
         ]
-        assert not missing, (
-            "README --runs paths do not exist in the repo: " + "; ".join(missing)
-        )
+        assert not missing, "README --runs paths do not exist in the repo: " + "; ".join(missing)
 
     @pytest.mark.parametrize("where,path", _contract_targets())
     def test_contract_paths_parametrised(self, where: str, path: str) -> None:

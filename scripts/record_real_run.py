@@ -301,8 +301,7 @@ def build_tools() -> dict[str, Any]:
                 score = sum(
                     1
                     for tok in tokens
-                    if tok in sentence.lower()
-                    or any(w.startswith(tok[:5]) for w in words)
+                    if tok in sentence.lower() or any(w.startswith(tok[:5]) for w in words)
                 )
                 if score:
                     scored.append((score, doc_name, sentence))
@@ -406,9 +405,7 @@ def run_case(
         turns.append(Turn(role="tool", content=result))
         # Delivered as a *user* message: gemma3:4b has no native tool template,
         # and a wire-level role="tool" turn makes it answer with EOS/refusals.
-        messages.append(
-            {"role": "user", "content": f"TOOL RESULT for {tool_name}:\n{result}"}
-        )
+        messages.append({"role": "user", "content": f"TOOL RESULT for {tool_name}:\n{result}"})
     else:
         final_content = "(max steps reached without a final answer)"
         turns.append(Turn(role="assistant", content=final_content))
