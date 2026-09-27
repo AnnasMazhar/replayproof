@@ -54,12 +54,21 @@ class CaseResult:
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable dict."""
+        # Include the first failing check message so drift can detect churn
+        # (two failures with different reasons).
+        failure_reason = ""
+        if not self.passed:
+            for r in self.checks.results:
+                if not r.passed and r.severity == "error":
+                    failure_reason = r.check_id + ": " + r.message
+                    break
         return {
             "case_id": self.case_id,
             "passed": self.passed,
             "tokens_in": self.tokens_in,
             "tokens_out": self.tokens_out,
             "latency_ms": self.latency_ms,
+            "failure_reason": failure_reason,
         }
 
 

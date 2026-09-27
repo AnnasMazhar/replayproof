@@ -3,6 +3,75 @@
 These tests target implementation paths that a naive developer would get wrong, and
 cases a hostile user might construct to subvert the contract evaluation.
 
+--- New in c2-p05 ---
+
+test_run_from_jsonl_truncated_raises_not_silently_corrupts:
+    Catches a from_jsonl implementation that silently swallows a JSONDecodeError and
+    returns a partially-initialised Run instead of raising. A truncated JSONL line
+    must raise json.JSONDecodeError, not produce a corrupted Run.
+    Fault injection: wrap json.loads in try/except and return a default Run => silent
+    corruption that propagates through the pipeline.
+
+test_contract_empty_checks_always_passes:
+    Catches a Contract.evaluate that returns a failed result for an empty check list.
+    A contract with zero checks must always pass (vacuous truth), because the caller
+    is asserting "no constraints" and the harness must not add hidden constraints.
+    Fault injection: return passed=False when checks is empty => unexpected failure.
+
+test_contract_unknown_check_type_raises_valueerror:
+    Catches a Contract loader that silently skips unknown check types instead of
+    raising. Skipping would silently drop a check the user thought they had, producing
+    a false-green suite.
+    Fault injection: return None from _build_check for unknown type, filter out Nones
+    in the Contract constructor => silently missing check.
+
+test_contract_tool_sequence_repeated_tool_names:
+    Catches a tool_sequence check that incorrectly rejects a run where the same tool
+    is called multiple times, as long as the subsequence requirement is satisfied.
+    e.g. required=['search', 'summarise'] should pass if run calls
+    ['search', 'search', 'summarise'] — the subsequence is satisfied at positions 0,2.
+    Fault injection: use a set-intersection check instead of subsequence scan => passes
+    if any required tool was ever called, regardless of order, but also incorrectly
+    handles repeated calls.
+
+test_contract_no_pattern_pii_in_tool_args:
+    Catches a no_pattern check that only scans final_content and silently skips
+    tool args even when field_name='tool_args'. PII can leak through tool args
+    (e.g. an email passed to a send_email tool).
+    Fault injection: only scan run.final_content() => email in args is missed.
+
+test_drift_churn_vs_regression_same_case_id:
+    Catches a drift function that classifies a case as 'regression' when both A and B
+    fail but with different failure reasons (correct classification: 'churn').
+    Fault injection: use 'not a_passed and not b_passed' => 'stable_fail' regardless
+    of reason, missing the churn classification.
+
+test_gate_crafted_baseline_cannot_inflate_thresholds:
+    Catches a gate that allows a manually crafted baseline to inflate effective
+    thresholds by setting baseline values to extreme numbers. If the baseline says
+    tokens = 1_000_000 and current = 1_100_001, that is +10.0001% which should trip
+    the 10% gate. A gate must compare the actual values, not round to integer pct.
+    Fault injection: round percentage to integer before comparison => 10% rounds to
+    10 which passes, even though actual increase is 10.0001%.
+
+test_jsonl_roundtrip_with_unicode_and_null_bytes:
+    Catches a to_jsonl/from_jsonl round-trip that corrupts Unicode content or fails
+    on content containing null-byte-adjacent characters (\\u0000 is valid JSON but
+    tricky for some parsers).
+    Fault injection: use ascii=True in json.dumps => encodes non-ASCII to \\uXXXX
+    which is technically reversible, but special characters in content can be mangled.
+
+test_run_with_multiple_tool_calls_same_name:
+    Catches assertions that count unique tool names instead of total calls. A run
+    calling 'search' three times must register as 3 tool calls for max_tool_calls,
+    not 1.
+    Fault injection: use len(set(names)) instead of len(names) for max_tool_calls.
+
+test_wilson_lower_zero_successes:
+    Catches a wilson_lower implementation that crashes or returns negative values
+    when successes=0. The lower bound must be 0.0 (not negative, not NaN).
+    Fault injection: omit the s==0 early-return path => sqrt of negative number.
+
 Faults detected by each test:
 
 test_replay_strict_byzantine_mismatched_result_type:
@@ -129,6 +198,7 @@ import pytest
 
 from agenteval.assertions import (
     ArgSchemaCheck,
+    CheckResult,
     ForbiddenToolsCheck,
     MaxLatencyCheck,
     NoPatternCheck,
@@ -574,3 +644,313 @@ def test_transcript_unknown_fields_preserved() -> None:
     assert (
         restored.metadata.get("unknown_future_key") == "preserved_value"
     ), "Unknown future field was dropped during from_jsonl — breaks forward compatibility"
+
+
+# ──────────────────────────────────────────────────────────────
+# Byzantine / protocol-level cases added in c2-p05
+# ──────────────────────────────────────────────────────────────
+
+
+def test_run_from_jsonl_truncated_raises_not_silently_corrupts() -> None:
+    """from_jsonl must raise json.JSONDecodeError on truncated input, not silently corrupt.
+
+    Fault: wrapping json.loads in try/except and returning a partial Run produces a Run
+    object that looks valid but contains garbage data.
+    """
+    import json
+
+    truncated = '{"schema_version":"1","name":"partial"'  # missing closing brace
+    with pytest.raises(json.JSONDecodeError):
+        Run.from_jsonl(truncated)
+
+
+def test_contract_empty_checks_always_passes() -> None:
+    """A Contract with zero checks must return passed=True (vacuous truth).
+
+    Fault: returning passed=False for an empty check list adds a hidden implicit
+    constraint that the caller never declared.
+    """
+    from agenteval.assertions import Contract
+
+    contract = Contract(checks=[], name="empty")
+    run = _minimal_run()
+    results = contract.evaluate(run)
+    assert results.passed, "Contract with zero checks must always pass"
+    assert results.results == ()
+
+
+def test_contract_unknown_check_type_raises_valueerror() -> None:
+    """Loading a contract YAML with an unknown check type must raise ValueError.
+
+    Fault: silently skipping unknown types drops a check the user thought they had,
+    producing a false-green suite.
+    """
+    from agenteval.assertions import Contract
+
+    yaml_text = """
+name: bad-contract
+checks:
+  - type: nonexistent_check_type
+    n: 5
+"""
+    with pytest.raises((ValueError, KeyError)):
+        Contract.from_yaml(yaml_text)
+
+
+def test_contract_tool_sequence_repeated_tool_names() -> None:
+    """tool_sequence with repeated tool names must use subsequence matching.
+
+    required=['search', 'summarise'] must pass for calls=['search', 'search', 'summarise']
+    because 'search' at position 0 and 'summarise' at position 2 forms a valid subsequence.
+
+    Fault: any implementation that de-duplicates actual tool names before the check, or uses
+    set membership, incorrectly reduces ['search', 'search', 'summarise'] to something that
+    might match differently.
+    """
+    from agenteval.assertions import ToolSequenceCheck
+
+    # Build a run with two 'search' calls followed by one 'summarise'
+    calls = [
+        ToolCall(name="search", args={"q": "a"}, result="r1", error=None, duration_ms=1.0),
+        ToolCall(name="search", args={"q": "b"}, result="r2", error=None, duration_ms=1.0),
+        ToolCall(name="summarise", args={}, result="s", error=None, duration_ms=1.0),
+    ]
+    turn = Turn(
+        role="assistant",
+        content="done",
+        tool_calls=tuple(calls),
+        tokens_in=10,
+        tokens_out=10,
+        latency_ms=50.0,
+    )
+    run = Run(
+        name="repeated-tool",
+        agent_id="a",
+        model="m",
+        provider="p",
+        started_at="2026-01-01T00:00:00Z",
+        turns=(turn,),
+        total_tokens_in=10,
+        total_tokens_out=10,
+        total_latency_ms=50.0,
+        metadata={},
+    )
+
+    check = ToolSequenceCheck(expected=["search", "summarise"], ordered=True)
+    result = check.evaluate(run)
+    assert result.passed, (
+        "tool_sequence(['search','summarise']) should pass for "
+        "['search','search','summarise'] — subsequence is satisfied"
+    )
+
+
+def test_contract_no_pattern_pii_in_tool_args() -> None:
+    """no_pattern with field_name='tool_args' must catch PII embedded in tool arguments.
+
+    A naive implementation that only scans run.final_content() misses PII leaking
+    through tool arguments (e.g. an email passed to a send_email tool).
+
+    Fault: checking only final_content for field_name='tool_args' => email in args
+    is missed, and the contract passes when it should fail.
+    """
+    from agenteval.assertions import NoPatternCheck
+
+    run = _minimal_run(
+        tool_calls=[("send_email", {"to": "alice@example.com", "body": "hello"}, "sent")],
+        content="Message sent.",
+    )
+    check = NoPatternCheck(
+        field_name="tool_args",
+        regex=r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b",
+    )
+    result = check.evaluate(run)
+    assert (
+        not result.passed
+    ), "no_pattern check on 'tool_args' should FAIL when an email is present in tool args"
+
+
+def test_drift_churn_vs_regression_same_case_id() -> None:
+    """Drift must classify two-failing runs with different reasons as 'churn', not 'regression'.
+
+    A regression is pass->fail. Both-fail-with-different-reason is churn.
+
+    Fault: using only (a_passed and not b_passed) => 'regression' and treating
+    everything else as 'stable_fail', missing the churn classification.
+    """
+    from agenteval.assertions import CheckResults
+    from agenteval.drift import drift
+    from agenteval.scoring import CaseResult, SuiteResult, wilson_lower
+
+    def _make_suite(case_id: str, passed: bool, check_id: str, msg: str) -> dict:
+        cr = CheckResult(
+            check_id=check_id,
+            passed=passed,
+            severity="error",
+            message=msg,
+        )
+        case = CaseResult(
+            case_id=case_id,
+            passed=passed,
+            checks=CheckResults(results=(cr,)),
+            tokens_in=10,
+            tokens_out=10,
+            latency_ms=50.0,
+        )
+        suite = SuiteResult(
+            suite_name="test",
+            case_results=(case,),
+            pass_rate_value=1.0 if passed else 0.0,
+            wilson_lower_bound=wilson_lower(1 if passed else 0, 1),
+            total_tokens_in=10,
+            total_tokens_out=10,
+            total_cost_usd=0.0,
+            p50_latency_ms=50.0,
+            p95_latency_ms=50.0,
+        )
+        return suite.to_dict()
+
+    suite_a = _make_suite(
+        "case-1", passed=False, check_id="required_tools", msg="missing tool: search_docs"
+    )
+    suite_b = _make_suite(
+        "case-1", passed=False, check_id="forbidden_tools", msg="forbidden tool called: send_email"
+    )
+
+    report = drift(suite_a, suite_b)
+
+    assert len(report.churns) == 1, (
+        f"Expected 1 churn but got {len(report.churns)} churns, "
+        f"{len(report.regressions)} regressions, "
+        f"{len(report.stable_fails)} stable_fails"
+    )
+    assert report.churns[0].case_id == "case-1"
+    assert len(report.regressions) == 0
+    assert len(report.stable_fails) == 0
+
+
+def test_gate_crafted_baseline_cannot_inflate_thresholds() -> None:
+    """Gate must trip when actual token increase is 10.0001%, even if floor-rounded to 10%.
+
+    A baseline of 1_000_000 tokens vs current of 1_100_001 is a +10.0001% increase,
+    which exceeds the default 10% threshold.
+
+    Fault: rounding the percentage to an integer before comparison (10.0001 => 10)
+    causes a false pass at the boundary.
+    """
+    baseline = _suite(passed=4, total=4, tokens=1_000_000)
+    current = _suite(passed=4, total=4, tokens=1_100_001)  # +10.0001%
+    report = compare(current.to_dict(), Baseline(baseline.to_dict()))
+    assert not report.ok, (
+        "Gate must trip on 10.0001% token increase (> 10% threshold) — "
+        "integer rounding of the percentage is incorrect"
+    )
+
+
+def test_jsonl_roundtrip_with_unicode_and_null_bytes() -> None:
+    """Run.to_jsonl/from_jsonl must round-trip Unicode content without corruption.
+
+    Content with multi-byte Unicode (emoji adjacent characters, zero-width joiners,
+    and right-to-left marks) must survive the JSON serialisation cycle intact.
+
+    Fault: using json.dumps(ensure_ascii=True) or similar transforms break
+    content if the reading side doesn't decode \\uXXXX escapes identically.
+    """
+    unicode_content = "answer: \u03b1\u03b2\u03b3 \u200d \u2019 \ufffd done"
+    run = Run(
+        name="unicode-run",
+        agent_id="a",
+        model="m",
+        provider="p",
+        started_at="2026-01-01T00:00:00Z",
+        turns=(
+            Turn(
+                role="assistant",
+                content=unicode_content,
+                tool_calls=(),
+                tokens_in=5,
+                tokens_out=5,
+                latency_ms=1.0,
+            ),
+        ),
+        total_tokens_in=5,
+        total_tokens_out=5,
+        total_latency_ms=1.0,
+        metadata={"note": "\u6771\u4eac"},
+    )
+    jsonl = run.to_jsonl()
+    restored = Run.from_jsonl(jsonl)
+    assert (
+        restored.turns[0].content == unicode_content
+    ), f"Unicode content corrupted: got {restored.turns[0].content!r}"
+    assert restored.metadata["note"] == "\u6771\u4eac", "Unicode in metadata corrupted"
+
+
+def test_run_with_multiple_tool_calls_same_name_counted_correctly() -> None:
+    """max_tool_calls must count total invocations, not unique tool names.
+
+    A run calling 'search' three times must count as 3 calls.
+
+    Fault: using len(set(names)) de-duplicates calls, making 3 calls of 'search'
+    count as 1, which passes a max_tool_calls(2) check it should fail.
+    """
+    from agenteval.assertions import MaxToolCallsCheck
+
+    calls = [
+        ToolCall(name="search", args={"q": "a"}, result="r1", error=None, duration_ms=1.0),
+        ToolCall(name="search", args={"q": "b"}, result="r2", error=None, duration_ms=1.0),
+        ToolCall(name="search", args={"q": "c"}, result="r3", error=None, duration_ms=1.0),
+    ]
+    turn = Turn(
+        role="assistant",
+        content="done",
+        tool_calls=tuple(calls),
+        tokens_in=10,
+        tokens_out=10,
+        latency_ms=50.0,
+    )
+    run = Run(
+        name="three-searches",
+        agent_id="a",
+        model="m",
+        provider="p",
+        started_at="2026-01-01T00:00:00Z",
+        turns=(turn,),
+        total_tokens_in=10,
+        total_tokens_out=10,
+        total_latency_ms=50.0,
+        metadata={},
+    )
+
+    check_fail = MaxToolCallsCheck(n=2)  # 3 calls > 2 limit: must FAIL
+    check_pass = MaxToolCallsCheck(n=3)  # 3 calls == 3 limit: must PASS
+
+    assert not check_fail.evaluate(run).passed, (
+        "MaxToolCallsCheck(2) must FAIL for 3 calls of the same tool — "
+        "may be counting unique names instead of total calls"
+    )
+    assert check_pass.evaluate(run).passed, "MaxToolCallsCheck(3) must PASS for exactly 3 calls"
+
+
+def test_wilson_lower_zero_successes() -> None:
+    """wilson_lower(0, n) must return 0.0, not raise or return negative.
+
+    Hand computation (Wilson 1927):
+        z = 1.960, n = 10, s = 0, p_hat = 0.0
+        z2 = 3.8416
+        num = 0 + 3.8416/20 - 1.960*sqrt(0 + 3.8416/400)
+            = 0.19208 - 1.960*sqrt(0.009604)
+            = 0.19208 - 1.960*0.09800
+            = 0.19208 - 0.19208
+            = 0.0
+        denom = 1 + 3.8416/10 = 1.38416
+        lower = 0.0 / 1.38416 = 0.0
+
+    Expected: exactly 0.0.
+    Fault: computing sqrt(p_hat*(1-p_hat)/n) without guarding p_hat=0 => sqrt(0)=0.0,
+    which is fine, but then max(0.0, lower) must clip negative values from floating-point
+    rounding noise. A missing clip could return a tiny negative value.
+    """
+    lb = wilson_lower(0, 10)
+    assert lb == 0.0, f"wilson_lower(0, 10) should be 0.0, got {lb}"
+    lb_n1 = wilson_lower(0, 1)
+    assert lb_n1 == 0.0, f"wilson_lower(0, 1) should be 0.0, got {lb_n1}"

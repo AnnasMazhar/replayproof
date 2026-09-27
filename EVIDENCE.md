@@ -359,3 +359,89 @@ All checks passed!
 $ ruff format --check .
 19 files already formatted
 ```
+
+---
+
+## Pass c2-p05 verification (2026-09-27)
+
+### New adversarial/byzantine tests
+
+10 new cases added in `tests/test_adversarial.py` (28 total, up from 18):
+
+- `test_run_from_jsonl_truncated_raises_not_silently_corrupts` — malformed JSONL must raise, not produce a corrupt Run
+- `test_contract_empty_checks_always_passes` — zero-check contract must always pass (vacuous truth)
+- `test_contract_unknown_check_type_raises_valueerror` — unknown YAML check type must raise, not silently skip
+- `test_contract_tool_sequence_repeated_tool_names` — subsequence match must handle repeated tool names
+- `test_contract_no_pattern_pii_in_tool_args` — no_pattern must scan tool args, not just final_content
+- `test_drift_churn_vs_regression_same_case_id` — two-failing cases with different reasons are 'churn' not 'stable_fail'
+- `test_gate_crafted_baseline_cannot_inflate_thresholds` — 10.0001% increase must trip 10% gate (no integer rounding)
+- `test_jsonl_roundtrip_with_unicode_and_null_bytes` — Unicode content survives JSON round-trip intact
+- `test_run_with_multiple_tool_calls_same_name_counted_correctly` — max_tool_calls counts total calls, not unique names
+- `test_wilson_lower_zero_successes` — wilson_lower(0, n) returns 0.0, not negative or NaN
+
+### Bug fixed: churn detection
+
+`CaseResult.to_dict()` now includes `failure_reason` (the first failing check id + message).
+Previously, `_first_failure_reason` in `drift.py` always returned `""` because `to_dict()`
+stripped the checks data, causing all two-failure pairs to be classified as `stable_fail`
+rather than `churn` when the failure reasons differed. The new test caught this.
+
+### Full suite (c2-p05 — 125 tests)
+
+```
+$ pytest -q
+........................................................................ [ 57%]
+.....................................................                    [100%]
+125 passed in 2.71s
+```
+
+### Adversarial suite (28 tests)
+
+```
+$ pytest tests/test_adversarial.py -v --tb=short 2>&1 | tail -35
+tests/test_adversarial.py::test_replay_strict_byzantine_mismatched_result_type PASSED
+tests/test_adversarial.py::test_replay_strict_missing_tool_raises_not_returns_none PASSED
+tests/test_adversarial.py::test_dry_replay_run_with_no_turns PASSED
+tests/test_adversarial.py::test_wilson_lower_adversarial_n1_s1 PASSED
+tests/test_adversarial.py::test_wilson_lower_adversarial_high_confidence PASSED
+tests/test_adversarial.py::test_wilson_lower_adversarial_large_n PASSED
+tests/test_adversarial.py::test_gate_identical_inputs_always_passes PASSED
+tests/test_adversarial.py::test_gate_integer_overflow_token_count PASSED
+tests/test_adversarial.py::test_gate_pass_rate_drop_exactly_at_threshold PASSED
+tests/test_adversarial.py::test_gate_nan_pass_rate_does_not_crash PASSED
+tests/test_adversarial.py::test_contract_forbidden_tool_regex_injection PASSED
+tests/test_adversarial.py::test_contract_no_pattern_check_catastrophic_backtrack PASSED
+tests/test_adversarial.py::test_contract_arg_schema_null_value_passes_nullable PASSED
+tests/test_adversarial.py::test_contract_arg_schema_extra_properties_rejected PASSED
+tests/test_adversarial.py::test_contract_max_latency_check_sums_turns PASSED
+tests/test_adversarial.py::test_record_from_messages_empty_messages_no_crash PASSED
+tests/test_adversarial.py::test_record_from_messages_no_tool_calls PASSED
+tests/test_adversarial.py::test_transcript_unknown_fields_preserved PASSED
+tests/test_adversarial.py::test_run_from_jsonl_truncated_raises_not_silently_corrupts PASSED
+tests/test_adversarial.py::test_contract_empty_checks_always_passes PASSED
+tests/test_adversarial.py::test_contract_unknown_check_type_raises_valueerror PASSED
+tests/test_adversarial.py::test_contract_tool_sequence_repeated_tool_names PASSED
+tests/test_adversarial.py::test_contract_no_pattern_pii_in_tool_args PASSED
+tests/test_adversarial.py::test_drift_churn_vs_regression_same_case_id PASSED
+tests/test_adversarial.py::test_gate_crafted_baseline_cannot_inflate_thresholds PASSED
+tests/test_adversarial.py::test_jsonl_roundtrip_with_unicode_and_null_bytes PASSED
+tests/test_adversarial.py::test_run_with_multiple_tool_calls_same_name_counted_correctly PASSED
+tests/test_adversarial.py::test_wilson_lower_zero_successes PASSED
+28 passed in 0.27s
+```
+
+### Lint
+
+```
+$ ruff check .
+All checks passed!
+
+$ ruff format --check .
+19 files already formatted
+```
+
+### CONTRIBUTING.md updated
+
+`CONTRIBUTING.md` rewritten to include: setup, test commands, step-by-step guide for
+adding assertion checks and statistical routines, commit style, bug report format,
+good-first-issue guidance, and explicit "what not to contribute" section.
