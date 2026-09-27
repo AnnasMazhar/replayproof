@@ -1,6 +1,6 @@
 """agenteval — deterministic, offline-replayable regression testing for LLM agents."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from agenteval.assertions import Contract
 from agenteval.budget import Baseline, GateReport, compare
