@@ -6,7 +6,7 @@ name: Release to PyPI
 #   git tag v0.1.0 && git push origin v0.1.0
 # PyPI trusted-publishing setup (one-time):
 #   1. Create the project on PyPI: https://pypi.org/manage/account/publishing/
-#   2. Add a "pending" publisher: owner=AnnasMazhar, repo=agent-eval-harness,
+#   2. Add a "pending" publisher: owner=AnnasMazhar, repo=replayproof,
 #      workflow=release.yml, environment=pypi.
 
 on:
@@ -89,8 +89,14 @@ jobs:
           uv pip install -e '.[dev]'
           .venv/bin/python -m pytest -q
 
+  # Publishing to PyPI is OPT-IN. It stays skipped until a trusted publisher exists for this
+  # repo on PyPI (PyPI -> project -> Publishing -> add publisher: repository=AnnasMazhar/replayproof,
+  # workflow=release.yml, environment=pypi). Until then the job fails with `invalid-publisher`
+  # and turns every tag red for a reason that is pure configuration.
+  # Enable it by setting the repository variable PYPI_PUBLISH=true (Settings -> Variables -> Actions).
   publish:
     name: Publish to PyPI
+    if: vars.PYPI_PUBLISH == 'true'
     runs-on: ubuntu-latest
     needs: [build, test]
     environment: pypi
