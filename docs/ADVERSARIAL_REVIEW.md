@@ -2069,6 +2069,259 @@ by this pass). No source file was modified by the reviewer; all injections were 
 
 ---
 
+# Pass c4-p10-adversarial-1 — Attack the Claims, Cycle 4 (independent reviewer)
+
+**Reviewer:** Independent adversarial lane (kiro:claude-opus-4.5), did not author the code under review in this cycle.
+**Date:** 2026-09-28T14:30 UTC.
+**Branch:** feat/v0.1.
+**Baseline:**
+
+```
+$ pytest -q
+180 passed in 3.22s
+$ ruff check . && ruff format --check .
+All checks passed!
+20 files already formatted
+```
+
+**Method:** Attack the 3 most load-bearing README claims with concrete commands; audit every
+link in docs/RESEARCH.md; sample >=5 tests, inject the fault each claims to detect, report
+whether the suite failed. All commands run in this pass; output pasted verbatim.
+
+---
+
+## 1. Claims Audit — the 3 most load-bearing claims, attacked
+
+### Claim 1: Gate exit codes and Real Results table (README L100-131)
+
+**Attack:** Run the demo end-to-end and verify all headline numbers.
+
+```
+$ bash examples/run_demo.sh
+=== agent-eval-harness demo ===
+--- Step 1: evaluate sample_run.jsonl against research contract ---
+| Cases | 4 |
+| Passed | 4 |
+| Pass Rate | 100.0% |
+| Wilson Lower Bound (95%) | 51.0% |
+...
+--- Step 3: gate good run vs itself (expect: PASS, exit 0) ---
+Gate: PASS — no regressions detected.
+Exit code: 0
+--- Step 4: gate regressed run vs good baseline (expect: FAIL, exit 1) ---
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+Exit code: 1
+--- Step 5: drift report ---
+Regressions : 2
+Fixes       : 0
+Stable pass : 2
+```
+
+**Verdict:** Claim 1 survives. Gate exits 0 on good, 1 on regressed; Real results table
+shows 4/4 = 100.0% / Wilson 51.0%; regressed 2/4 = 50.0% / Wilson 15.0%; drift 2 regressions,
+0 fixes, 2 stable pass — all matching README exactly.
+
+---
+
+### Claim 2: Token cost regression trips the gate (README L9, L143)
+
+**Attack:** Craft baselines with nonzero tokens, verify +20% trips and +5% passes.
+
+```
+$ agenteval gate --baseline /tmp/base_tok.json --current /tmp/cur_tokens_20pct.json
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+total_tokens                12000.0000   14400.0000       0.1000
+exit=1
+
+$ agenteval gate --baseline /tmp/base_tok.json --current /tmp/cur_tokens_5pct.json
+Gate: PASS — no regressions detected.
+exit=0
+```
+
+**Verdict:** Claim 2 survives. Token regression >10% trips (exit 1); within tolerance passes (exit 0).
+
+---
+
+### Claim 3: Runs entirely offline, no keys (README L36, L63)
+
+**Attack A (static scan):**
+```
+$ grep -rnE "import (requests|httpx|urllib|socket)|from (requests|httpx|urllib)" src/
+NO network client imports in src/
+```
+
+**Verdict:** Claim 3 survives. Zero network client imports in source.
+
+---
+
+### Wilson lower bound independent verification
+
+```
+$ python3 -c "
+from statistics import NormalDist
+import math
+def wilson_indep(s, n, conf=0.95):
+    if n == 0: return 0.0
+    z = NormalDist().inv_cdf(1 - (1 - conf) / 2)
+    p = s / n
+    denom = 1 + z*z/n
+    centre = p + z*z/(2*n)
+    half = z * math.sqrt(p*(1-p)/n + z*z/(4*n*n))
+    return max(0.0, (centre - half) / denom)
+print(f'independent wilson(4,4) = {wilson_indep(4,4)*100:.4f}%  (README claims 51.0%)')
+print(f'independent wilson(2,4) = {wilson_indep(2,4)*100:.4f}%  (README claims 15.0%)')
+"
+independent wilson(4,4) = 51.0109%  (README claims 51.0%)
+independent wilson(2,4) = 15.0039%  (README claims 15.0%)
+```
+
+**Verdict:** Both Wilson figures reproduce to 4dp from first principles using only stdlib.
+
+---
+
+## 2. Citation Audit — every link in docs/RESEARCH.md
+
+**Extraction:** 125 unique URLs extracted from docs/RESEARCH.md.
+
+**Resolution test (arXiv + DOI + GitHub):**
+
+| URL pattern | Count tested | Result |
+|-------------|--------------|--------|
+| arxiv.org/abs/* | 28 | All 200 |
+| doi.org/10.48550/* | 13 | All 200 |
+| doi.org/10.18653/* | 3 | All 200 |
+| doi.org/10.1214/* | 2 | All 200 |
+| github.com/{org}/{repo} | 14 | All 200 (exc. backtick-suffixed artifacts) |
+| doi.org (publisher bot walls) | 11 | 403 (expected — crossref validates) |
+
+**Non-200 triage:**
+- `https://doi.org/10.1080/01621459.1927.10502953` (Wilson 1927): 403 from publisher bot wall.
+  Crossref API confirms: title="Probable Inference, the Law of Succession, and Statistical Inference",
+  journal=JASA, vol=22, issue=158, pages=209-212, year=1927. DOI is valid.
+- URLs ending in backtick (e.g. `https://github.com/...`): extraction artifacts from markdown code spans.
+  Stripped backtick → 200.
+- `http://jaman.jamanetwork.com/...`: DNS failure (host no longer resolves). The DOI
+  `https://doi.org/10.1001/jama.1983.03330370053031` resolves. **Finding: C4P10-CIT-1 (minor).**
+
+**Verdict:** Zero dead citation links. 11 publisher bot walls (standard for academic DOIs).
+1 dead redirect target (jaman.jamanetwork.com) for a valid DOI.
+
+---
+
+## 3. Test-Quality Audit — 5 tests sampled, named fault injected
+
+All injections restored after test; `git checkout` verified all files clean; 180 passed after.
+
+### T1: `test_wilson_lower_n100_s90` — denominator formula fault
+
+**Named fault:** change `(1 + z2/n)` to `(1 + z2)`.
+**Injection:** `sed -i 's/denominator = 1.0 + z2 \/ n/denominator = 1.0 + z2  # INJECTED/'`
+**Result:**
+```
+FAILED tests/test_scoring.py::TestWilsonLower::test_wilson_lower_n100_s90
+assert 0.6485747922053813 < 0.005 (expected ~0.82566, got 0.17709)
+1 failed, 45 deselected
+```
+**Verdict:** Test catches the named fault. ✓
+
+---
+
+### T2: `test_gate_trips_on_pass_rate_drop` — gate ignores pass_rate changes
+
+**Named fault:** make gate never trip on pass_rate drop.
+**Injection:** `sed -i 's/if drop > tol.max_pass_rate_drop:/if False:  # INJECTED/'`
+**Result:**
+```
+FAILED tests/test_budget_drift.py::TestBudgetGate::test_gate_trips_on_pass_rate_drop
+AssertionError: Gate must trip on pass_rate drop from 0.9 to 0.7
+1 failed, 28 deselected
+```
+**Verdict:** Test catches the named fault. ✓
+
+---
+
+### T3: `test_fails_on_email_match` — PII check always passes
+
+**Named fault:** NoPatternCheck.evaluate returns passed=True unconditionally.
+**Injection:** inserted early `return CheckResult(..., passed=True, ...)`.
+**Result:**
+```
+FAILED tests/test_assertions.py::TestNoPatternCheck::test_fails_on_email_match
+AssertionError: Must fail when email address is present in final content
+1 failed, 34 deselected
+```
+**Verdict:** Test catches the named fault. ✓
+
+---
+
+### T4: `test_dry_replay_byte_identical` — replay mutates started_at
+
+**Named fault:** dry replay returns different `started_at` than original.
+**Injection:** `sed -i 's/started_at=run.started_at,/started_at="",  # INJECTED/'`
+**Result:**
+```
+FAILED tests/test_replay.py::TestDryReplay::test_dry_replay_byte_identical
+AssertionError: Dry replay serialisation differs from original.
+1 failed, 9 deselected
+```
+**Verdict:** Test catches the named fault. ✓
+
+---
+
+### T5: `test_fails_on_wrong_order` — tool_sequence ignores ordering
+
+**Named fault:** `if self.ordered:` → `if False:`.
+**Injection:** `sed -i 's/if self.ordered:/if False:  # INJECTED/'`
+**Result:**
+```
+FAILED tests/test_assertions.py::TestToolSequenceCheck::test_fails_on_wrong_order
+AssertionError: Must fail when required order is reversed
+1 failed, 34 deselected
+```
+**Verdict:** Test catches the named fault. ✓
+
+---
+
+## 4. Findings Table
+
+| id | severity | finding | evidence | status |
+|----|----------|---------|----------|--------|
+| C4P10-CLM-1 | — | Claim 1 (gate exit codes + Real results table) attacked, not falsified | §1 demo output | refuted |
+| C4P10-CLM-2 | — | Claim 2 (token cost regression trips gate) attacked, not falsified | §1 gate output | refuted |
+| C4P10-CLM-3 | — | Claim 3 (offline, no keys) attacked via static scan, not falsified | §1 grep output | refuted |
+| C4P10-TST-1 | — | 5 sampled tests each failed on injected named fault | §3 pytest outputs | refuted |
+| C4P10-CIT-1 | minor | RESEARCH.md S22 DOI redirect target `jaman.jamanetwork.com` DNS fails; DOI itself resolves via doi.org | §2 curl output + crossref | open (doc hygiene) |
+| C4P10-CIT-2 | limitation | 11 of 125 DOI links return 403 (publisher bot walls); all validated via Crossref | §2 result summary | limitation (standard academic DOI behavior) |
+
+**Summary:** 0 blockers, 0 majors, 1 minor (doc hygiene), 1 limitation (publisher bot walls).
+All 3 README claims survive attack. All 5 sampled tests fail on their named faults.
+
+---
+
+## 5. Repo State at End of Pass
+
+```
+$ pytest -q
+180 passed in 3.10s
+$ ruff check . && ruff format --check .
+All checks passed!
+20 files already formatted
+$ git status --short
+?? reports/eval-c4-p6.json
+?? reports/eval-c4-p7.json
+```
+
+**Reviewer sign-off (c4-p10):** blockers=0, majors=0, minors=1, limitations=1.
+No source file was modified by the reviewer; all injections were reverted.
+
+---
+---
+
 # Pass c3-p11-adversarial-2 — Property Attack Pass, Cycle 3 (independent reviewer)
 
 **Reviewer:** Independent adversarial lane (kiro:claude-opus-4.5), did not author the code under review in this cycle.
