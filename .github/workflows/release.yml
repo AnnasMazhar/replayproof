@@ -32,7 +32,7 @@ jobs:
           tag="${GITHUB_REF_NAME#v}"
           pkg=$(python3 -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           echo "tag=v$tag package=$pkg"
-          test "$tag" = "$pkg" || { echo "::error::tag v$tag does not match package version $pkg"; exit 1; }
+          test "$tag" = "$pkg" || { echo "::error::tag v$tag does not match package version $pkg — bump pyproject.toml before tagging"; exit 1; }
 
   build:
     name: Build distribution
@@ -112,11 +112,12 @@ jobs:
           gh release create "$GITHUB_REF_NAME" artifacts/* \
             --title "$GITHUB_REF_NAME" --generate-notes
 
-  # Publishing to PyPI is OPT-IN. It stays skipped until a trusted publisher exists for this
-  # repo on PyPI (PyPI -> project -> Publishing -> add publisher: repository=AnnasMazhar/replayproof,
-  # workflow=release.yml, environment=pypi). Until then the job fails with `invalid-publisher`
-  # and turns every tag red for a reason that is pure configuration.
-  # Enable it by setting the repository variable PYPI_PUBLISH=true (Settings -> Variables -> Actions).
+  # Publishing to PyPI is OPT-IN. It stays skipped until a trusted publisher exists for this repo on
+  # PyPI (PyPI → project → Publishing → add publisher: repository=AnnasMazhar/replayproof,
+  # workflow=release.yml, environment=pypi). Until that exists the job fails with
+  # `invalid-publisher`, which turns every tag red for a pure configuration reason.
+  # Enable it by setting the repository variable PYPI_PUBLISH=true (Settings → Secrets and
+  # variables → Actions → Variables).
   publish:
     name: Publish to PyPI
     if: vars.PYPI_PUBLISH == 'true'
