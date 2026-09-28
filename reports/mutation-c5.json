@@ -1,0 +1,25 @@
+{
+  "cycle": 5,
+  "rc": 0,
+  "killed": 221,
+  "survived": 12,
+  "total": 233,
+  "kill_rate": 0.9484978540772532,
+  "score_raw": "221/233",
+  "target": 0.7,
+  "surviving_mutants": [
+    "x_wilson_lower__mutmut_10",
+    "x_wilson_lower__mutmut_11",
+    "x_wilson_lower__mutmut_12",
+    "x_wilson_lower__mutmut_69",
+    "x__normal_quantile__mutmut_1",
+    "x__normal_quantile__mutmut_3",
+    "x__normal_quantile__mutmut_4",
+    "x__normal_quantile__mutmut_5",
+    "x__normal_quantile__mutmut_6",
+    "x__normal_quantile__mutmut_19",
+    "x__normal_quantile__mutmut_24",
+    "x_compute_suite__mutmut_1"
+  ],
+  "generated_at": 1790620678.097424
+}

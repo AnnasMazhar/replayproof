@@ -1,6 +1,141 @@
 # Improvement Log — agent-eval-harness
 
-## c4-p09: Fix error messages (drift/replay/report), update README date, add EvalCore integration example (2026-09-28)
+## c5-p08: Fix fabricated mutation score in EVIDENCE.md — write real mutation-c5.json (2026-09-28)
+
+### Finding source
+
+Quality-contract audit: EVIDENCE.md section 9 claimed data from `reports/mutation-c4.json`
+that the file does not contain.
+
+Exact discrepancy:
+- EVIDENCE.md claimed: "Total mutants: 235, Killed: 223, Kill rate: 94.9%"
+- reports/mutation-c4.json actually contains: `"rc": 1, "killed": null, "total": null, "kill_rate": null`
+
+This is a fabricated evidence claim that violates QUALITY-CONTRACT §10 ("EVIDENCE.md is raw
+terminal output, pasted verbatim … If you did not run it, it does not go in the file.").
+
+### Root cause
+
+In c5-p04, the `mutation-c4.json` file was committed with `rc=1` and null values because the
+mutation runner had failed (the README path issue where the `test_readme_git_url_install_has_availability_note`
+test couldn't find README.md at `mutants/README.md`). That failure was fixed via `conftest.py`
+in the same c5-p04 commit, but the JSON committed at that time captured the failed run.
+
+In c5-p05, the EVIDENCE.md refresh wrote "Kill rate: 94.9%" from the c4-p04 pass (which did
+produce a real score of 94.8%) without reading the committed JSON file. The result: the section
+pointed at mutation-c4.json as its source but the values in the markdown did not match the JSON.
+
+No test existed that would fail when a mutation JSON has `rc=1` and null values — the only check
+was whether the file existed.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 186 passed |
+| EVIDENCE.md section 9 "Kill rate" claim | 94.9% (fabricated — not in mutation-c4.json) |
+| EVIDENCE.md section 9 "Killed" claim | 223 (fabricated — mutation-c4.json has null) |
+| reports/mutation-c4.json `rc` | 1 (runner failure) |
+| reports/mutation-c4.json `killed` | null |
+| reports/mutation-c5.json | MISSING |
+| Test validating mutation JSON has real data | NONE |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 187 passed (+1) |
+| EVIDENCE.md section 9 "Kill rate" claim | 94.8% — from reports/mutation-c5.json (real run) |
+| EVIDENCE.md section 9 "Killed" claim | 221 — from reports/mutation-c5.json (real run) |
+| reports/mutation-c5.json `rc` | 0 (success) |
+| reports/mutation-c5.json `killed` | 221 |
+| reports/mutation-c5.json `total` | 233 |
+| reports/mutation-c5.json `kill_rate` | 0.9485 (94.8%) |
+| Test validating mutation JSON has real data | YES — `TestMutationReportIntegrity.test_mutation_report_has_real_data` |
+
+### Evidence
+
+Mutation run (just completed, output from real mutmut run):
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/mutmut run
+    done in 664ms
+Found 21 new tests, rerunning stats collection
+    done
+Running mutation testing
+⠦ 233/233  🎉 221 🫥 0  ⏰ 0  🤔 0  🙁 12  🔇 0
+15.87 mutations/second
+
+$ .venv/bin/mutmut results
+    agenteval.scoring.x_wilson_lower__mutmut_10: survived
+    agenteval.scoring.x_wilson_lower__mutmut_11: survived
+    agenteval.scoring.x_wilson_lower__mutmut_12: survived
+    agenteval.scoring.x_wilson_lower__mutmut_69: survived
+    agenteval.scoring.x__normal_quantile__mutmut_1: survived
+    agenteval.scoring.x__normal_quantile__mutmut_3: survived
+    agenteval.scoring.x__normal_quantile__mutmut_4: survived
+    agenteval.scoring.x__normal_quantile__mutmut_5: survived
+    agenteval.scoring.x__normal_quantile__mutmut_6: survived
+    agenteval.scoring.x__normal_quantile__mutmut_19: survived
+    agenteval.scoring.x__normal_quantile__mutmut_24: survived
+    agenteval.scoring.x_compute_suite__mutmut_1: survived
+```
+
+Fault injection proof (test catches null values in mutation JSON):
+
+```
+$ python3 -c "
+data = {'cycle': 5, 'rc': 1, 'killed': None, 'total': None, 'kill_rate': None}
+assert data.get('rc') == 0, f'rc={data.get(\"rc\")} (expected 0)'
+"
+Traceback ... AssertionError: rc=1 (expected 0)
+# Simulation confirms test WOULD fail for mutation-c4.json's contents.
+```
+
+Full test run:
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................ [ 38%]
+........................................................................ [ 77%]
+...........................................                              [100%]
+187 passed in 2.75s
+```
+
+New test:
+
+```
+$ .venv/bin/python -m pytest tests/test_report.py::TestMutationReportIntegrity -v
+tests/test_report.py::TestMutationReportIntegrity::test_mutation_report_has_real_data PASSED
+1 passed in 0.21s
+```
+
+Ruff clean:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+21 files already formatted
+RUFF CLEAN
+```
+
+### Files changed
+
+- `reports/mutation-c5.json` — NEW: real mutation run output (221/233 = 94.8%, rc=0,
+  surviving mutants listed)
+- `EVIDENCE.md` — section 9 rewritten: "Mutation score (cycle 5)" with real terminal
+  output from the just-completed run; corrected kill count (221 not 223), total (233),
+  rate (94.8% not 94.9%); note explaining why mutation-c4.json has null values
+- `tests/test_report.py` — module docstring updated; added `TestMutationReportIntegrity`
+  class (1 test): `test_mutation_report_has_real_data` — asserts reports/mutation-c5.json
+  exists, has rc=0, integer killed/total, float kill_rate >0.70, and kill_rate is consistent
+  with killed/total within 1%
+- `mutants/tests/test_report.py` — synced with tests/test_report.py (identical)
+- `reports/improvements.md` — this entry
+
+---
+
+
 
 ### Finding source
 

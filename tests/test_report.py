@@ -28,6 +28,14 @@ Faults detected:
   "# Requires the repo to be publicly accessible:" comment line immediately preceding
   the `pip install git+` command => this test fails (no qualifying note found near the
   bare `pip install git+` line).
+
+- test_mutation_report_has_real_data (TestMutationReportIntegrity): catches a mutation
+  report JSON that records a failed run (rc != 0, killed/total/kill_rate = null) but is
+  cited in EVIDENCE.md as containing real kill-rate numbers. Root cause of c5-p08
+  finding: EVIDENCE.md section 9 claimed "Kill rate: 94.9%" from reports/mutation-c4.json
+  but that file had rc=1 and null values from a runner failure. Fault injection: write
+  a mutation report JSON with rc=1 and killed=null => this test fails because the most
+  recent successful mutation report is expected to have rc=0 and numeric killed/total.
 """
 
 import os
@@ -274,4 +282,80 @@ class TestREADMEInstallContract:
             "accessible. Add a comment like '# Requires the repo to be publicly accessible:' "
             "on the line immediately before each `pip install git+` command, or reorder the "
             "Install section so the source-install path (git clone + pip install .) comes first."
+        )
+
+
+class TestMutationReportIntegrity:
+    """Fault: a mutation report JSON has rc != 0 and killed/total = null (runner failure),
+    but EVIDENCE.md cites it as containing real kill-rate numbers.
+
+    Root cause (c5-p08): EVIDENCE.md section 9 claimed "Kill rate: 94.9%" from
+    reports/mutation-c4.json, but that file recorded rc=1 and null values because
+    the mutmut subprocess failed (README path issue, fixed in c5-p04 via conftest.py).
+    The c5-p05 EVIDENCE refresh wrote the historical 94.8% number without reading
+    the committed JSON, so the claim and the file were out of sync.
+
+    This test enforces the invariant: the most recent successful mutation report
+    (reports/mutation-c5.json) must exist, have rc=0, and contain integer killed/total
+    and a float kill_rate above the 70% target. Any run that writes null values or rc!=0
+    fails this test.
+
+    Fault injection: write a mutation report with rc=1 and killed=null (as mutation-c4.json
+    does) and point this test at it => the assertions on rc==0 and isinstance(killed, int)
+    would fail, catching the fabricated evidence immediately.
+    """
+
+    def _find_repo_root(self) -> str:
+        import pathlib as _pathlib
+
+        env_root = os.environ.get("REPO_ROOT")
+        if env_root:
+            return env_root
+        candidate = _pathlib.Path(__file__).resolve().parent
+        while not (candidate / "reports").is_dir() and candidate.parent != candidate:
+            candidate = candidate.parent
+        return str(candidate)
+
+    def test_mutation_report_has_real_data(self) -> None:
+        """reports/mutation-c5.json must exist, have rc=0, and contain numeric kill data.
+
+        Fault injection: replace reports/mutation-c5.json with {"rc": 1, "killed": null,
+        "total": null, "kill_rate": null} (as mutation-c4.json looks) => this test fails
+        on rc == 0 assertion and isinstance(killed, int) assertion.
+        """
+        import json
+        import pathlib
+
+        repo_root = pathlib.Path(self._find_repo_root())
+        report_path = repo_root / "reports" / "mutation-c5.json"
+        assert report_path.exists(), (
+            f"reports/mutation-c5.json not found at {report_path}. "
+            "The mutation pass must produce a report with real (non-null) data."
+        )
+        data = json.loads(report_path.read_text(encoding="utf-8"))
+
+        assert data.get("rc") == 0, (
+            f"reports/mutation-c5.json has rc={data.get('rc')} (expected 0). "
+            "A non-zero rc means the mutation runner failed; null kill data cannot "
+            "be cited in EVIDENCE.md as a real mutation score."
+        )
+        killed = data.get("killed")
+        total = data.get("total")
+        kill_rate = data.get("kill_rate")
+        assert isinstance(killed, int) and killed > 0, (
+            f"reports/mutation-c5.json killed={killed!r} is not a positive integer. "
+            "The file records a runner failure, not a real mutation run."
+        )
+        assert (
+            isinstance(total, int) and total > 0
+        ), f"reports/mutation-c5.json total={total!r} is not a positive integer."
+        assert isinstance(kill_rate, float) and kill_rate > 0.70, (
+            f"reports/mutation-c5.json kill_rate={kill_rate!r} is below the 70% target "
+            "or not a float. Expected >=0.70."
+        )
+        # Consistency check: kill_rate must match killed/total within 1%
+        expected_rate = killed / total
+        assert abs(kill_rate - expected_rate) < 0.01, (
+            f"kill_rate={kill_rate:.4f} inconsistent with killed/total={expected_rate:.4f}. "
+            "The JSON may have been hand-edited rather than generated from a real run."
         )
