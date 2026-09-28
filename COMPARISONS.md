@@ -1,7 +1,7 @@
 # COMPARISONS — where replayproof fits, and where it does not
 
 Every cell below was checked against the tool's own documentation or repository on
-**2026-09-28** (last full refresh: c5-p02-research-2, 15:31 UTC). Nothing here is
+**2026-09-28** (last full refresh: c6-p02-research-2, 21:31 UTC). Nothing here is
 inferred from marketing copy. Where a capability was not found in a tool's docs, the
 cell says so rather than guessing. Star counts and release dates are point-in-time from
 the GitHub API and PyPI; they drift.
@@ -11,21 +11,22 @@ questions an eval runner does not — which tool-call contract broke, what the p
 is with a 95% Wilson lower bound instead of a bare percentage, and whether token cost or
 latency regressed against a stored baseline.
 
-## Point-in-time facts (fetched 2026-09-28, 15:31 UTC)
+## Point-in-time facts (fetched 2026-09-28, 21:31 UTC)
 
 | Tool | Licence | Stars | Version / release |
 |---|---|---|---|
 | EvalCore (`eval-core/evalcore`) | Apache-2.0 | 16 | v0.7.5 released 2026-07-19; Rust, pre-1.0; **64 days inactive** |
-| inspect_ai (`UKGovernmentBEIS/inspect_ai`) | MIT | **2,872** | PyPI 0.3.271 published 2026-09-26 |
+| inspect_ai (`UKGovernmentBEIS/inspect_ai`) | MIT | **2,875** | PyPI **0.3.272** published **2026-09-28** |
 | inspect-replay (`repowazdogz-droid/inspect-replay`) | MIT | 0 | v0.2.0 (2026-07-14); not on PyPI; **77 days inactive** |
 | inspect-mlflow (`debu-sinha/inspect-mlflow`) | MIT | 3 | PyPI 0.8.1 published 2026-09-15 |
-| DeepEval (`confident-ai/deepeval`) | Apache-2.0 | **18,485** | 4.2.6 published 2026-09-24 |
-| promptfoo (`promptfoo/promptfoo`) | MIT (OpenAI) | **25,530** | 0.123.1 released 2026-09-18 |
+| DeepEval (`confident-ai/deepeval`) | Apache-2.0 | **18,489** | 4.2.6 published 2026-09-24 |
+| promptfoo (`promptfoo/promptfoo`) | MIT (OpenAI) | **25,537** | 0.123.1 released 2026-09-18 |
 | Braintrust (`braintrustdata/braintrust-sdk-python`) | SaaS / MIT SDK | 20 (SDK) | Python SDK v0.42.0 (2026-09-22) |
 | LangSmith (`langchain-ai/langsmith-sdk`) | SaaS / MIT SDK | 1,064 (SDK) | Python SDK v0.14.1 (2026-09-25) |
-| AgentOps (`AgentOps-AI/agentops`) | MIT | **5,847** | 0.4.21; cloud-first monitoring; **95 days inactive** |
-| Arize Phoenix (`Arize-ai/phoenix`) | Apache-2.0 | **11,644** | 20.16.0; observability + LLM-judge |
-| **Langfuse** (`langfuse/langfuse`) | MIT | **35,141** | 4.15.6 (2026-09-24); observability + LLM-judge; self-hostable |
+| AgentOps (`AgentOps-AI/agentops`) | MIT | **5,846** | 0.4.21; cloud-first monitoring; **95 days inactive** |
+| Arize Phoenix (`Arize-ai/phoenix`) | Apache-2.0 | **11,645** | 20.16.0; observability + LLM-judge |
+| **Langfuse** (`langfuse/langfuse`) | MIT | **35,148** | 4.15.6 (2026-09-24); observability + LLM-judge; self-hostable |
+| **Ragas** (`explodinggradients/ragas`) | Apache-2.0 | **15,868** | 0.4.3; RAG pipeline eval; **217 days inactive**; no tool-call assertions |
 | replayproof (this repo, `agenteval`) | MIT | 0 (not launched) | 0.1.0, 2026-09-26 |
 
 ## The table

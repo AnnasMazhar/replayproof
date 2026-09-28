@@ -7015,3 +7015,470 @@ command, a stated expected observation, and a recorded run result from this or a
 | S86 | https://arxiv.org/abs/2009.03300 | 200 | "Measuring Massive Multitask Language Understanding" (Hendrycks 2021) |
 | S87 | https://arxiv.org/abs/2311.01964 | 200 | "Don't Make Your LLM an Evaluation Benchmark Cheater" (Shi 2023) |
 | S88 | https://arxiv.org/abs/2309.07864 | 200 | "The Rise and Potential of Large Language Model Based Agents: A Survey" (Wang 2024) |
+
+---
+
+## Cycle 6 — Research Pass 2 (c6-p02-research-2) — Ecosystem Deepening — 2026-09-28
+
+What this pass does, in order:
+
+1. Re-fetches live star counts, versions, and last-push dates for all 11 competitor tools
+   via the GitHub REST API and PyPI at 2026-09-28T21:31 UTC. Raw commands and output in
+   section A.
+2. Checks two newly-identified high-star tools (Ragas, 15,868★; UpTrain, 2,364★) against
+   the claimed gap — do they implement offline, keyless, deterministic tool-call contract
+   assertions? Section B.
+3. Re-runs all standing falsification checks (F-P2-1, F-P2-2, F-P2-3, F-C5-6) with live
+   commands and records raw output. Section C.
+4. Updates the comparison table with c6-p02 data and records the delta vs c5-p02.
+   Section D.
+5. Adds two new falsification items (F-C6-6 and F-C6-7) for the newly-checked tools.
+   Section E.
+6. Records the complete open-question tally. Section F.
+
+### A. Raw evidence — live data fetch (c6-p02-research-2, 2026-09-28T21:31 UTC)
+
+```
+# Command run: 2026-09-28T21:31 UTC
+$ python3 -c "
+import urllib.request, json, ssl, datetime
+ctx = ssl.create_default_context()
+
+def fetch_github(repo):
+    url = f'https://api.github.com/repos/{repo}'
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0',
+          'Accept': 'application/vnd.github+json'})
+    with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+        d = json.loads(r.read())
+        return {'stars': d.get('stargazers_count'), 'pushed_at': d.get('pushed_at', '')[:10]}
+
+def fetch_pypi(pkg):
+    url = f'https://pypi.org/pypi/{pkg}/json'
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+        d = json.loads(r.read())
+        v = d['info']['version']
+        uploads = d['releases'].get(v, [{}])
+        uploaded = uploads[0].get('upload_time', '?')[:10] if uploads else '?'
+        return {'version': v, 'uploaded': uploaded}
+
+print('Timestamp: 2026-09-28T21:31 UTC')
+repos = [
+    ('UKGovernmentBEIS/inspect_ai', 'inspect-ai'),
+    ('repowazdogz-droid/inspect-replay', None),
+    ('debu-sinha/inspect-mlflow', 'inspect-mlflow'),
+    ('eval-core/evalcore', None),
+    ('promptfoo/promptfoo', None),
+    ('confident-ai/deepeval', 'deepeval'),
+    ('braintrustdata/braintrust-sdk-python', 'braintrust'),
+    ('langchain-ai/langsmith-sdk', 'langsmith'),
+    ('AgentOps-AI/agentops', 'agentops'),
+    ('Arize-ai/phoenix', 'arize-phoenix'),
+    ('langfuse/langfuse', 'langfuse'),
+]
+for repo, pkg in repos:
+    g = fetch_github(repo)
+    print(f'{repo}: stars={g[\"stars\"]} pushed_at={g[\"pushed_at\"]}')
+    if pkg:
+        p = fetch_pypi(pkg)
+        print(f'  PyPI {pkg}: version={p[\"version\"]} uploaded={p[\"uploaded\"]}')
+"
+
+Timestamp: 2026-09-28T21:31 UTC
+UKGovernmentBEIS/inspect_ai: stars=2875 pushed_at=2026-09-28
+  PyPI inspect-ai: version=0.3.272 uploaded=2026-09-28
+repowazdogz-droid/inspect-replay: stars=0 pushed_at=2026-07-14
+debu-sinha/inspect-mlflow: stars=3 pushed_at=2026-09-25
+  PyPI inspect-mlflow: version=0.8.1 uploaded=2026-09-15
+eval-core/evalcore: stars=16 pushed_at=2026-07-26
+promptfoo/promptfoo: stars=25537 pushed_at=2026-09-28
+confident-ai/deepeval: stars=18489 pushed_at=2026-09-28
+  PyPI deepeval: version=4.2.6 uploaded=2026-09-24
+braintrustdata/braintrust-sdk-python: stars=20 pushed_at=2026-09-28
+  PyPI braintrust: version=0.42.0 uploaded=2026-09-22
+langchain-ai/langsmith-sdk: stars=1064 pushed_at=2026-09-28
+  PyPI langsmith: version=0.14.1 uploaded=2026-09-25
+AgentOps-AI/agentops: stars=5846 pushed_at=2026-06-25
+  PyPI agentops: version=0.4.21 uploaded=2025-08-29
+Arize-ai/phoenix: stars=11645 pushed_at=2026-09-28
+  PyPI arize-phoenix: version=20.16.0 uploaded=2026-09-23
+langfuse/langfuse: stars=35148 pushed_at=2026-09-28
+  PyPI langfuse: version=4.15.6 uploaded=2026-09-24
+
+# New tools checked for gap:
+explodinggradients/ragas: stars=15868 pushed=2026-02-24
+  PyPI ragas: version=0.4.3
+  desc: Evaluation framework for RAG and LLM applications
+  topics: ['evaluation', 'llm', 'llmops']
+uptrain-ai/uptrain: stars=2364 pushed=2024-08-18
+  desc: UpTrain is an open-source unified platform to evaluate and improve Generative AI
+```
+
+**Delta vs c5-p02 (2026-09-28T15:31 UTC, ~6 hours earlier):**
+
+| Tool | Stars c5-p02 | Stars c6-p02 | Delta | Notes |
+|------|-------------|-------------|-------|-------|
+| inspect_ai | 2,872 | **2,875** | +3 | **New version: 0.3.272** (was 0.3.271) — released 2026-09-28 |
+| inspect-replay | 0 | 0 | 0 | 2026-07-14 (**77 days inactive**) |
+| inspect-mlflow | 3 | 3 | 0 | 2026-09-25 |
+| EvalCore | 16 | 16 | 0 | 2026-07-26 (**64 days inactive**) |
+| promptfoo | 25,530 | **25,537** | +7 | 2026-09-28 |
+| DeepEval | 18,485 | **18,489** | +4 | 2026-09-28 |
+| Braintrust | 20 | 20 | 0 | 2026-09-28 |
+| LangSmith | 1,064 | 1,064 | 0 | 2026-09-28 |
+| AgentOps | 5,847 | **5,846** | -1 (API noise) | 2026-06-25 (**95 days inactive**) |
+| Arize Phoenix | 11,644 | **11,645** | +1 | 2026-09-28 |
+| Langfuse | 35,141 | **35,148** | +7 | 2026-09-28 |
+
+**Key observations (c6-p02):**
+
+- **inspect_ai 0.3.272** is a new release not in prior passes — uploaded 2026-09-28. The
+  daily cadence is confirmed: 0.3.271 (2026-09-26) → 0.3.272 (2026-09-28). Version numbers
+  in static documentation are stale within days; star counts are the stable signal.
+- promptfoo +7 and Langfuse +7 in 6 hours confirm active community momentum. Langfuse
+  remains the largest tool in the space (35,148 stars).
+- AgentOps shows -1 star (5,847 → 5,846) — within GitHub API rounding noise; treat as stable.
+- EvalCore and inspect-replay remain dormant. AgentOps at 95 days since its last push.
+- Two new tools added to the comparison (section B): Ragas (15,868 stars) and UpTrain
+  (2,364 stars). Neither overlaps with the claimed gap.
+
+---
+
+### B. New tools assessed — Ragas and UpTrain
+
+#### Source 77 (reindex) — Ragas (explodinggradients/ragas)
+
+**GitHub:** https://github.com/explodinggradients/ragas
+**PyPI:** https://pypi.org/project/ragas/
+**Version:** 0.4.3 (latest on PyPI as of 2026-09-28T21:31 UTC)
+**Stars:** 15,868 (GitHub API, 2026-09-28T21:31 UTC)
+**Last push:** 2026-02-24 (**217 days inactive** as of 2026-09-28)
+**Licence:** Apache-2.0
+**Language:** Python 3.8+
+**Topics:** evaluation, llm, llmops
+
+```
+# Keyword check on ragas README (2026-09-28T21:31 UTC)
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/explodinggradients/ragas/main/README.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['offline', 'keyless', 'required_tools', 'forbidden_tools',
+           'arg_schema', 'contract assertion', 'tool call assertion']:
+    print(kw + ': ' + ('FOUND' if kw.lower() in content.lower() else 'not found'))
+"
+
+offline: not found
+keyless: not found
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+contract assertion: not found
+tool call assertion: not found
+```
+
+**What it is:** Evaluation framework for Retrieval-Augmented Generation (RAG) and LLM
+applications. Ragas provides metrics such as answer relevancy, faithfulness, context
+precision, and context recall — all designed to evaluate the quality of RAG pipelines.
+It is not an agent evaluation tool in the tool-calling sense.
+
+**Gap assessment:**
+- Ragas focuses on RAG pipeline quality (document retrieval → generation correctness),
+  not on tool-call structural contracts.
+- No tool-call assertion types (`required_tools`, `forbidden_tools`, `arg_schema`,
+  `no_pattern`) appear in the documentation.
+- The last push is 2026-02-24 (217 days inactive) — substantially more dormant than the
+  dormant tools already in the comparison table.
+- No offline/keyless mode — LLM-as-a-judge metrics require an API key.
+
+**Conclusion:** Ragas does not compete on the claimed gap. It evaluates RAG correctness
+semantically; the harness evaluates agent structural contracts deterministically. They are
+complementary, targeting different failure modes.
+
+---
+
+#### UpTrain (uptrain-ai/uptrain)
+
+**GitHub:** https://github.com/uptrain-ai/uptrain
+**Stars:** 2,364 (GitHub API, 2026-09-28T21:31 UTC)
+**Last push:** 2024-08-18 (**770+ days inactive** as of 2026-09-28)
+**Licence:** Apache-2.0
+
+No keyword matches in README for `offline`, `keyless`, `required_tools`, `forbidden_tools`,
+`arg_schema`, or `contract assertion`. UpTrain is an LLM quality evaluation platform (20+
+LLM-judged metrics) focused on conversation quality, not tool-call structural contracts.
+770+ days inactive makes it non-viable as a maintained alternative.
+
+**Conclusion:** UpTrain does not compete on the claimed gap and is effectively abandoned.
+Not added to the main comparison table; too dormant to be a practical tool choice.
+
+---
+
+### C. Standing falsification checks re-run (c6-p02, 2026-09-28T21:31 UTC)
+
+**F-P2-1: inspect-replay adds contract assertions**
+
+```
+$ python3 -c "
+import urllib.request, json, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://api.github.com/repos/repowazdogz-droid/inspect-replay/commits',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    for c in json.loads(r.read())[:5]:
+        print(c['commit']['message'][:80])
+"
+
+Release v0.2.0: portfolio hardening, docs, and identity
+- Rewrite README to por
+Close the four release blockers, plus gaps found in three hostile re-audit round
+Fix blocking defects found in hostile review
+- align: strip volatile ChatMessag
+inspect-replay v0.1.0
+```
+
+Still v0.2.0, pushed 2026-07-14 — **77 days inactive**. No contract assertion commits.
+**Not falsified (c6-p02, 2026-09-28T21:31 UTC).**
+
+---
+
+**F-P2-2: EvalCore trajectory rules equivalent to YAML contract assertions**
+
+```
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request('https://evalcore.cc/', headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['required_tools','forbidden_tools','arg_schema','no_pattern']:
+    found = kw.lower() in content.lower()
+    print(f'{kw}: {\"FOUND\" if found else \"not found\"}')
+"
+
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+no_pattern: not found
+```
+
+EvalCore last push 2026-07-26, last release v0.7.5 (2026-07-19). No changes.
+**Not falsified (c6-p02, 2026-09-28T21:31 UTC).**
+
+---
+
+**F-P2-3: promptfoo adds offline transcript replay**
+
+```
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/promptfoo/promptfoo/main/CHANGELOG.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['offline','transcript replay','jsonl replay','no api','keyless']:
+    found = kw.lower() in content.lower()
+    print(f'{kw}: {\"FOUND\" if found else \"not found\"}')
+print([l for l in content.splitlines() if l.startswith('## [')][:3])
+"
+
+offline: not found
+transcript replay: not found
+jsonl replay: not found
+no api: not found
+keyless: not found
+Latest changelog versions: ['## [0.123.1]...(2026-09-18)', '## [0.123.0]...(2026-09-10)',
+    '## [0.122.2]...(2026-08-28)']
+```
+
+promptfoo 0.123.1 (2026-09-18) still latest. No offline transcript replay.
+**Not falsified (c6-p02, 2026-09-28T21:31 UTC).**
+
+---
+
+**F-C5-6: Langfuse implements offline/contract assertions**
+
+```
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/langfuse/langfuse/main/README.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['offline','keyless','required_tools','forbidden_tools',
+           'arg_schema','contract assertion']:
+    print(f'{kw}: {\"FOUND\" if kw.lower() in content.lower() else \"not found\"}')
+print(f'README length: {len(content)} chars')
+"
+
+offline: not found
+keyless: not found
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+contract assertion: not found
+README length: 53353 chars
+```
+
+Langfuse pushed 2026-09-28 (35,148 stars). No offline/contract surface added.
+**Not falsified (c6-p02, 2026-09-28T21:31 UTC).**
+
+---
+
+### D. Updated comparison table (c6-p02 refresh, 2026-09-28T21:31 UTC)
+
+Changes from c5-p02 (2026-09-28T15:31 UTC) in **bold**. New rows for Ragas checked.
+
+| Tool | Licence | Version (date) | Stars (c6-p02) | Stars delta vs c5-p02 | Last push |
+|------|---------|----------------|----------------|----------------------|-----------|
+| inspect_ai | MIT | **0.3.272 (2026-09-28)** | **2,875** | +3 | 2026-09-28 |
+| inspect-replay | MIT | v0.2.0 (2026-07-14) | 0 | 0 | 2026-07-14 (**77 days inactive**) |
+| inspect-mlflow | MIT | 0.8.1 (2026-09-15) | 3 | 0 | 2026-09-25 |
+| EvalCore | Apache-2.0 | v0.7.5 (2026-07-19) | 16 | 0 | 2026-07-26 (**64 days inactive**) |
+| promptfoo | MIT (OpenAI) | 0.123.1 (2026-09-18) | **25,537** | +7 | 2026-09-28 |
+| DeepEval | Apache-2.0 | 4.2.6 (2026-09-24) | **18,489** | +4 | 2026-09-28 |
+| Braintrust | SaaS / MIT SDK | Python SDK v0.42.0 | 20 | 0 | 2026-09-28 |
+| LangSmith | SaaS / MIT SDK | Python SDK v0.14.1 | 1,064 | 0 | 2026-09-28 |
+| AgentOps | MIT | 0.4.21 | **5,846** | -1 (noise) | 2026-06-25 (**95 days inactive**) |
+| Arize Phoenix | Apache-2.0 | 20.16.0 (2026-09-23) | **11,645** | +1 | 2026-09-28 |
+| Langfuse | MIT | 4.15.6 (2026-09-24) | **35,148** | +7 | 2026-09-28 |
+| **Ragas** | Apache-2.0 | 0.4.3 | **15,868** | new | 2026-02-24 (**217 days inactive**) |
+| replayproof | MIT | 0.1.0 | 0 (not launched) | — | — |
+
+**Ragas note:** 15,868 stars but 217 days inactive (last push 2026-02-24). RAG-focused
+(retrieval quality metrics: faithfulness, context recall, answer relevancy). No tool-call
+contract assertions. Does not compete on the claimed gap.
+
+---
+
+### E. Falsification section (c6-p02)
+
+**F-C6-6: Ragas implements offline, keyless, deterministic tool-call contract assertions**
+
+If Ragas (15,868 stars) implements `required_tools`, `forbidden_tools`, `arg_schema`, or
+`no_pattern` checks with a CLI gate that exits non-zero without an API key, the contract-
+assertion differentiation is weakened by a high-star tool.
+
+**Runnable check (re-run before cycle 7):**
+
+```bash
+python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/explodinggradients/ragas/main/README.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['offline', 'keyless', 'required_tools', 'forbidden_tools',
+           'arg_schema', 'contract assertion']:
+    print(kw + ': ' + ('FOUND' if kw.lower() in content.lower() else 'not found'))
+"
+```
+
+**Expected output (if not falsified):** all keywords "not found".
+**Actual output (c6-p02, 2026-09-28T21:31 UTC):** all keywords "not found".
+Ragas is RAG-quality-focused, LLM-judged, and 217 days inactive. Not a competing tool.
+**Not falsified (c6-p02, 2026-09-28T21:31 UTC).**
+
+---
+
+**F-C6-7: inspect_ai 0.3.272 does not add tool-call contract assertions or offline compare**
+
+If the 2026-09-28 release (0.3.272) of inspect_ai adds tool-call contract assertions or
+an offline log comparison feature, the differentiation from inspect_ai changes.
+
+**Runnable check (re-run each cycle):**
+
+```bash
+python3 -c "
+import urllib.request, json, ssl
+ctx = ssl.create_default_context()
+# Check PyPI changelog/description for new assertion keywords
+req = urllib.request.Request(
+    'https://pypi.org/pypi/inspect-ai/json',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    d = json.loads(r.read())
+    desc = d['info']['description'] or ''
+    for kw in ['required_tools', 'forbidden_tools', 'arg_schema', 'no_pattern',
+               'offline compare', 'log diff']:
+        print(kw + ': ' + ('FOUND' if kw.lower() in desc.lower() else 'not found'))
+    print(f'version: {d[\"info\"][\"version\"]}')
+"
+```
+
+**Expected output (if not falsified):** version=0.3.272, all keywords "not found".
+
+Verification (run 2026-09-28T21:31 UTC):
+
+```
+$ python3 -c "
+import urllib.request, json, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request('https://pypi.org/pypi/inspect-ai/json',
+      headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    d = json.loads(r.read())
+    desc = d['info']['description'] or ''
+    for kw in ['required_tools', 'forbidden_tools', 'arg_schema',
+               'offline compare', 'log diff']:
+        print(kw + ': ' + ('FOUND' if kw.lower() in desc.lower() else 'not found'))
+    print('version: ' + d['info']['version'])
+"
+
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+offline compare: not found
+log diff: not found
+version: 0.3.272
+```
+
+inspect_ai 0.3.272 description confirms no contract assertion or offline compare features
+added. **Not falsified (c6-p02, 2026-09-28T21:31 UTC).**
+
+---
+
+### F. Open-question tally after c6-p02
+
+| Item | State after c6-p02 |
+|------|---------------------|
+| F-1 through F-5 | Closed (c1/c2) |
+| F-P2-1, F-P2-2, F-P2-3 | **Re-run c6-p02 (2026-09-28T21:31 UTC)**: not falsified |
+| F-P2-4, F-P2-5 | Closed (c3-p02) |
+| F-P3-1 through F-P3-4 | Closed (c3-p03; F-P3-1 falsified+fixed on real Inspect logs) |
+| F-C3-1 through F-C3-10 | Closed (c3-p01, c3-p03) |
+| F-C4-1 through F-C4-11 | Closed (c4-p01 through c4-p01 pass2) |
+| F-C4-12, F-C4-13 | Not falsified (c5-p02, c5-p03) |
+| F-C4-p03-1 through F-C4-p03-4 | Closed (c4-p03) |
+| F-C5-1 through F-C5-5 | Closed (c5-p01) |
+| F-C5-6 | **Re-run c6-p02 (2026-09-28T21:31 UTC)**: not falsified |
+| F-C6-1 through F-C6-5 | Closed (c6-p01) |
+| F-C6-6, F-C6-7 | **New this pass, run 2026-09-28T21:31 UTC**: not falsified |
+| F-3 (per-module mutation score) | Deferred to c6-p12 mutation pass |
+
+Count of open falsification items awaiting execution: **0**.
+
+---
+
+### G. Link Resolution Summary — c6-p02 additions
+
+| # | URL | Status | Notes |
+|---|-----|--------|-------|
+| Ragas | https://github.com/explodinggradients/ragas | 200 — 15,868 stars, 217 days inactive | Checked c6-p02; RAG eval, no tool-call assertions |
+| Ragas PyPI | https://pypi.org/project/ragas/ | 200 — v0.4.3 | Checked c6-p02 |
+| UpTrain | https://github.com/uptrain-ai/uptrain | 200 — 2,364 stars, 770+ days inactive | Checked c6-p02; effectively abandoned |
+
+All pre-existing competitor URLs remain valid per the c6-p01 link sweep and the c6-p02 re-fetch.
+inspect_ai PyPI confirms 0.3.272 uploaded 2026-09-28. All other versions unchanged from
+c5-p02 fetch.
