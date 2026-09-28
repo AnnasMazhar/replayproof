@@ -21,6 +21,8 @@ agenteval run --contract examples/contracts/real_research.yaml \
 agenteval gate --baseline baseline.json --current result.json   # exit 1 on regression
 ```
 
+The distribution is `replayproof`; the command is `agenteval`.
+
 Note: `pip install agent-eval-harness` installs a **different, unrelated package** on PyPI
 (Franck Ndzomga, 2026-02-09). Install from the git URL above or from source — the PyPI name
 `replayproof` is reserved for the v0.2 release.
@@ -321,12 +323,15 @@ See [COMPARISONS.md](COMPARISONS.md) for a full factual table. The short version
   It detects structured PII (email, SSN, phone, credit card) but not free-form PII
   (names, addresses, unformatted numbers).
 
-- **v0.1 does not read Inspect `.eval` logs.** It reads its own JSONL and normalises
-  OpenAI/Anthropic-style message lists. Inspect log import is planned.
+- **v0.1 ships an Inspect `.eval` converter.** `scripts/convert_inspect_log.py` reads
+  Inspect `.eval` ZIP archives and writes replayproof JSONL. It handles both the current
+  multi-file layout (`header.json` + `samples/<id>.json`) and the legacy single-file
+  layout (`log.json`). The converter is best-effort: it extracts model-event turns and
+  token counts; non-model events (tool calls injected at the scorer layer, human turns)
+  are not surfaced. See [docs/ADOPTION.md](docs/ADOPTION.md) for a step-by-step walkthrough.
 
 ## Roadmap
 
-- Inspect `.eval` log reader
 - Hierarchical bootstrap for nested evaluation structures
 - Judge-based scoring plugin API
 - HTML report with per-case expandable details

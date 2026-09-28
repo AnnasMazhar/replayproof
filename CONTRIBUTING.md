@@ -5,8 +5,8 @@ Thank you for considering a contribution. This project is in active development 
 ## Setup
 
 ```bash
-git clone https://github.com/AnnasMazhar/agent-eval-harness
-cd agent-eval-harness
+git clone https://github.com/AnnasMazhar/replayproof
+cd replayproof
 uv venv && uv pip install -e '.[dev]'
 ```
 

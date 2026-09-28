@@ -35,6 +35,7 @@ def _cmd_record(args: argparse.Namespace) -> int:
             --output recordings/run.jsonl
     """
     import importlib
+    import os
 
     from agenteval.record import Recorder
 
@@ -46,6 +47,12 @@ def _cmd_record(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+
+    # Add cwd to sys.path so `--agent examples.research_agent:fn` works without
+    # requiring the user to set PYTHONPATH=. explicitly.
+    cwd = os.getcwd()
+    if cwd not in sys.path:
+        sys.path.insert(0, cwd)
 
     try:
         module = importlib.import_module(module_path)

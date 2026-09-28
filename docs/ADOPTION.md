@@ -31,9 +31,10 @@ Requirements:
 
 ```bash
 cd your-project/
-uv pip install 'agent-eval-harness>=0.1.0'
+uv pip install 'git+https://github.com/AnnasMazhar/replayproof'
 # or, from source:
-uv pip install 'git+https://github.com/openclaw/agent-eval-harness.git@feat/v0.1'
+git clone https://github.com/AnnasMazhar/replayproof && cd replayproof
+uv venv && uv pip install -e '.[dev]'
 ```
 
 Verify:
@@ -277,7 +278,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install 'agent-eval-harness>=0.1.0'
+      - run: pip install 'git+https://github.com/AnnasMazhar/replayproof'
 
       # 1. Evaluate the current recordings
       - name: Evaluate runs against contract
@@ -513,7 +514,7 @@ Does your team have eval recordings already?
 
 ---
 
-## Cycle 2 deepening — c2-p03-research-3 (2026-09-27)
+## Cycle 2 deepening (2026-09-27)
 
 This section adds:
 1. A second integration target: **EvalCore** (the nearest tool with overlapping replay/gate features)
@@ -687,7 +688,7 @@ Does your team have eval recordings?
 
 ---
 
-## Cycle 3 deepening — c3-p03-research-3 (2026-09-27)
+## Cycle 3 deepening (2026-09-27)
 
 This pass executes the whole Tuesday recipe for real (50-case suite, gate exit codes,
 drift) and runs the Step 1 bridge against **real inspect_ai `.eval` fixtures fetched

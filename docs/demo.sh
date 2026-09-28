@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# docs/demo.sh — record an asciinema demo of agent-eval-harness
+# docs/demo.sh — record an asciinema demo of replayproof
 #
 # PREREQUISITES
 #   pip install asciinema          (or brew install asciinema)
@@ -43,9 +43,9 @@ fi
 echo "Recording to $CAST …"
 echo "Press Ctrl+D or type 'exit' when done to stop the recording."
 
-asciinema rec "$CAST" --title "agent-eval-harness — offline LLM agent regression testing" \
+asciinema rec "$CAST" --title "replayproof — offline LLM agent regression testing" \
     --command "bash -c '
-echo \"=== agent-eval-harness — replayproof ===\"
+echo \"=== replayproof — offline LLM agent regression testing ===\"
 echo
 echo \"1) Evaluate the good run against a YAML contract\"
 .venv/bin/agenteval run \\
