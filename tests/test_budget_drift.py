@@ -30,6 +30,11 @@ TestGateCLIRejectsJSONL:
   actionable error message when given a JSONL file (multiple JSON objects) instead of
   the expected single-object JSON produced by agenteval run.
 
+TestGateCLIActionableJSONLError:
+- test_gate_cli_jsonl_current_error_is_actionable: catches the unhelpful "not valid JSON:
+  Extra data" error that does not tell the user to run 'agenteval run' first. The error
+  must contain 'agenteval run' as the recovery action hint.
+
 TestCLIErrorHandlingMissingFiles:
 - test_drift_cli_missing_a: catches drift CLI emitting a raw FileNotFoundError
   traceback when --a file is missing; must return rc=1 with an actionable message.
@@ -518,6 +523,63 @@ class TestGateCLIRejectsJSONL:
         assert rc == 1, (
             "gate CLI must return exit code 1 when --current is a JSONL file "
             "(multi-line, not a single JSON object); got rc=" + str(rc)
+        )
+
+
+class TestGateCLIActionableJSONLError:
+    """Tests that the gate CLI emits an actionable error when --current is a JSONL file.
+
+    Context: A common first-use mistake is passing a JSONL recording file (produced by
+    agenteval record) directly to agenteval gate --current, instead of first running it
+    through agenteval run --output to produce a JSON suite result.
+
+    The old error "not valid JSON: Extra data" was not actionable — a stranger does not
+    know to run `agenteval run` first. The new error should tell them exactly what to do.
+    """
+
+    def test_gate_cli_jsonl_current_error_is_actionable(
+        self, tmp_path: "pytest.TempDir", capsys: "pytest.CaptureFixture"
+    ) -> None:
+        """Fault: gate CLI emits a generic 'not valid JSON' error when --current is a
+        .jsonl recording file instead of telling the user to run 'agenteval run' first.
+        A stranger cloning the repo and misreading the docs hits this immediately.
+        The error must mention 'agenteval run' so the recovery path is obvious.
+        """
+        import json as _json
+
+        from agenteval.cli import _cmd_gate, build_parser
+
+        baseline_file = tmp_path / "baseline.json"
+        baseline_file.write_text(
+            _json.dumps(
+                {
+                    "pass_rate": 1.0,
+                    "total_tokens_in": 0,
+                    "total_tokens_out": 0,
+                    "p95_latency_ms": 0.1,
+                    "total_cost_usd": 0.0,
+                }
+            )
+        )
+
+        # A JSONL recording file — two JSON objects, one per line
+        jsonl_file = tmp_path / "recording.jsonl"
+        jsonl_file.write_text(
+            '{"schema_version": 1, "name": "run1", "turns": []}\n'
+            '{"schema_version": 1, "name": "run2", "turns": []}\n'
+        )
+
+        parser = build_parser()
+        args = parser.parse_args(
+            ["gate", "--baseline", str(baseline_file), "--current", str(jsonl_file)]
+        )
+        rc = _cmd_gate(args)
+        assert rc == 1, "gate must exit 1 when --current is a JSONL file"
+
+        captured = capsys.readouterr()
+        assert "agenteval run" in captured.err, (
+            "Error message must mention 'agenteval run' so user knows the recovery path; "
+            f"got: {captured.err!r}"
         )
 
 

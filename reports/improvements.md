@@ -1,5 +1,140 @@
 # Improvement Log — agent-eval-harness
 
+## c5-p09-improve-2: Fix fabricated EvalCore integration, README ecosystem omissions, gate JSONL error message (2026-09-28)
+
+### Finding source
+
+Systematic credibility audit of README.md against COMPARISONS.md (the repo's own research
+document) and the CLI implementation. Three gaps found:
+
+1. **BIGGEST GAP — fabricated EvalCore command sequence:** README showed:
+   ```
+   evalcore run --suite suite.yaml --cache replay --format jsonl --output /tmp/traces.jsonl
+   agenteval run --runs /tmp/traces.jsonl ...
+   ```
+   COMPARISONS.md (c5-p02) explicitly states EvalCore reads "OTel / OpenInference exports
+   and its own trajectory JSON. Not Inspect .eval, not message JSONL." The command implies
+   EvalCore outputs message JSONL that `agenteval run` can consume natively — it does not.
+   A skeptical reviewer running this snippet would get an error or wrong results. The README
+   contradicted the repo's own research document.
+
+2. **Selective comparison in "Where this fits":** Only 3 tools were named (EvalCore,
+   inspect_ai+inspect-replay, promptfoo). Langfuse (35,141 stars — the largest tool in the
+   space, added in c5-p02 COMPARISONS.md), AgentOps (5,847 stars), and Arize Phoenix
+   (11,644 stars) were absent. Omitting the largest tool in the ecosystem looks cherry-picked.
+
+3. **Unhelpful gate error when `--current` is a JSONL file:** Passing a `.jsonl` recording
+   to `agenteval gate --current` gave: "not valid JSON: Extra data" — no recovery hint.
+   A user who reads the EvalCore section and tries to pipe recordings directly to gate hits
+   this wall with no idea what to do next.
+
+### Root causes
+
+**Gap 1:** The c5-p09 improve pass added the EvalCore integration section but used a command
+from an earlier draft that assumed EvalCore outputs message JSONL. COMPARISONS.md was updated
+in c4-p02/c5-p02 to reflect EvalCore's actual format, but the README was not updated to match.
+
+**Gap 2:** The "Where this fits" section was written in c1-p09 before Langfuse/AgentOps/
+Phoenix were added to COMPARISONS.md in c4-p02 and c5-p02. The section was never revisited
+to include the newly-assessed tools.
+
+**Gap 3:** The `_cmd_gate` JSON decode error handler was a generic fallback that printed the
+raw exception message without checking whether the user had passed the wrong file type.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 187 passed |
+| README EvalCore integration command | `evalcore run --format jsonl --output /tmp/traces.jsonl` (unsupported) |
+| README "Where this fits" named tools | 3 (EvalCore, inspect_ai, promptfoo) |
+| Langfuse (35k stars) mentioned in "Where this fits" | NO |
+| `agenteval gate --current recording.jsonl` error | `"not valid JSON: Extra data"` (no recovery hint) |
+| Test for actionable JSONL gate error | NONE |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 188 passed (+1) |
+| README EvalCore integration | Honest prose: EvalCore outputs its own format; shows separate agenteval run step against agent's own JSONL |
+| README "Where this fits" named tools | 6 (EvalCore, inspect_ai, promptfoo, Langfuse, AgentOps, Arize Phoenix) |
+| Langfuse (35k stars) mentioned in "Where this fits" | YES — with star count |
+| `agenteval gate --current recording.jsonl` error | "not a valid JSON suite result. … run it through the contract first: agenteval run --contract ... --runs ... --output result.json. Then pass result.json to agenteval gate --current result.json." |
+| Test for actionable JSONL gate error | YES — `TestGateCLIActionableJSONLError.test_gate_cli_jsonl_current_error_is_actionable` |
+
+### Evidence
+
+Full test run:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest -q
+........................................................................ [ 38%]
+........................................................................ [ 76%]
+............................................                             [100%]
+188 passed in 2.75s
+```
+
+Ruff clean:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+21 files already formatted
+RUFF CLEAN
+```
+
+New error message (before: "not valid JSON: Extra data"; after: actionable with recovery):
+
+```
+$ .venv/bin/agenteval gate --baseline /tmp/sample_result.json --current examples/recordings/sample_run.jsonl 2>&1; echo "Exit: $?"
+error: 'examples/recordings/sample_run.jsonl' is not a valid JSON suite result.
+The --current argument must be a JSON file produced by 'agenteval run --output'.
+If you passed a JSONL recording, run it through the contract first:
+  agenteval run --contract <contract.yaml> --runs <recording.jsonl> --output <result.json>
+Then pass the result.json to 'agenteval gate --current result.json'.
+Exit: 1
+```
+
+Demo still passes:
+
+```
+$ bash examples/run_demo.sh | grep -E "PASS: gate exits|Demo complete"
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+New test:
+
+```
+$ .venv/bin/python -m pytest tests/test_budget_drift.py::TestGateCLIActionableJSONLError -v
+tests/test_budget_drift.py::TestGateCLIActionableJSONLError::test_gate_cli_jsonl_current_error_is_actionable PASSED
+1 passed in 0.19s
+```
+
+### Files changed
+
+- `README.md` — (1) `## Integration with EvalCore`: replaced the unsupported
+  `evalcore run --format jsonl` pipe with honest prose explaining EvalCore uses its own
+  OTel/trajectory format; corrected workflow to show agenteval run reading the agent's
+  own JSONL separately from EvalCore's replay run. (2) `## Where this fits`: added
+  Langfuse (35k stars), AgentOps (6k), Arize Phoenix (12k) as a fourth bullet covering
+  the dominant observability/LLM-judge platforms.
+- `src/agenteval/cli.py` — `_cmd_gate`: in the `json.JSONDecodeError` handler, detect
+  whether the error is likely from a JSONL file (`.jsonl` extension or "extra data" in
+  the exception message); if so, print an actionable 4-line error with the `agenteval run`
+  recovery path instead of the raw exception text.
+- `tests/test_budget_drift.py` — updated module docstring; added
+  `TestGateCLIActionableJSONLError` class (1 test):
+  `test_gate_cli_jsonl_current_error_is_actionable` — passes a `.jsonl` file as
+  `--current`, asserts rc=1 and that stderr contains 'agenteval run'.
+- `mutants/tests/test_budget_drift.py` — synced with tests/test_budget_drift.py
+- `reports/improvements.md` — this entry
+
+---
+
+
+
 ## c5-p08: Fix fabricated mutation score in EVIDENCE.md — write real mutation-c5.json (2026-09-28)
 
 ### Finding source

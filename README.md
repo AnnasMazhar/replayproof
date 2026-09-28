@@ -261,17 +261,22 @@ CI YAML and a concrete failure mode walkthrough.
 
 [EvalCore](https://github.com/eval-core/evalcore) handles record-and-replay with a
 content-addressed cassette; `--cache replay` never calls a live model and fails the case
-on a cache miss. replayproof sits on top: assert a named YAML contract over the traces
-EvalCore already recorded, and gate CI on cost regression.
+on a cache miss. replayproof sits on top: assert a named YAML contract over the recordings
+and gate CI on cost regression.
+
+EvalCore outputs its own OTel/trajectory format — not OpenAI-style message JSONL. To
+compose the two tools, your agent must also write standard OpenAI-style JSONL recordings
+that `agenteval run` can read directly. The workflow:
 
 ```bash
 # 1. Run EvalCore in replay mode — no model calls, no keys
-evalcore run --suite suite.yaml --cache replay --format jsonl --output /tmp/traces.jsonl
+evalcore run --suite suite.yaml --cache replay
 
-# 2. Evaluate the traces against a replayproof contract
+# 2. Separately, evaluate your agent's JSONL recordings against a replayproof contract
+#    (produced by agenteval record, or your own agent instrumented to write JSONL)
 agenteval run \
     --contract contracts/my_agent.yaml \
-    --runs /tmp/traces.jsonl \
+    --runs recordings/my_agent.jsonl \
     --output /tmp/current.json
 
 # 3. Gate: exit 1 if pass_rate dropped, tokens +10%, cost +10%, or p95 latency +25%
@@ -283,7 +288,8 @@ agenteval gate \
 What EvalCore's `trajectory` rules add: `must_call`, `must_not_call`, ordering, step budget.
 What replayproof adds on top: JSON-Schema argument validation (`arg_schema`), PII-pattern
 detection (`no_pattern`), a Wilson lower bound on every pass rate, and a cost delta gate
-against a committed baseline. The two tools do not overlap; they compose.
+against a committed baseline. See [docs/ADOPTION.md](docs/ADOPTION.md) for the full
+integration walkthrough.
 
 ## Recording your own agent
 
@@ -313,6 +319,11 @@ See [COMPARISONS.md](COMPARISONS.md) for a full factual table. The short version
   question is "which sample moved". Use this when the question is "which contract broke".
 - **promptfoo** has the broadest tool-call assertion surface and 25k stars. Choose it for
   breadth and red-teaming. Choose this for deterministic, keyless, baseline-gated CI.
+- **Langfuse** (35k stars), **AgentOps** (6k), and **Arize Phoenix** (12k) are the
+  dominant observability and LLM-judged evaluation platforms — cloud-connected, rich UIs,
+  team dashboards. Choose them when production monitoring or semantic evaluation is the
+  question. None implements offline, keyless tool-call contract assertions; see
+  [COMPARISONS.md](COMPARISONS.md) for the full evidence.
 
 ## Limitations
 

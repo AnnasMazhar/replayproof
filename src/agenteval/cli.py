@@ -232,10 +232,24 @@ def _cmd_gate(args: argparse.Namespace) -> int:
         )
         return 1
     except json.JSONDecodeError as exc:
-        print(
-            f"error: {args.current!r} is not valid JSON: {exc}",
-            file=sys.stderr,
-        )
+        # Detect the common mistake of passing a JSONL recording instead of a JSON result.
+        is_likely_jsonl = args.current.endswith(".jsonl") or "extra data" in str(exc).lower()
+        if is_likely_jsonl:
+            print(
+                f"error: {args.current!r} is not a valid JSON suite result.\n"
+                "The --current argument must be a JSON file produced by"
+                " 'agenteval run --output'.\n"
+                "If you passed a JSONL recording, run it through the contract first:\n"
+                "  agenteval run --contract <contract.yaml>"
+                " --runs <recording.jsonl> --output <result.json>\n"
+                "Then pass the result.json to 'agenteval gate --current result.json'.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"error: {args.current!r} is not valid JSON: {exc}",
+                file=sys.stderr,
+            )
         return 1
 
     try:
