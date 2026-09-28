@@ -19,6 +19,15 @@ Faults detected:
   Fault injection: add <script> tag => test fails.
 
 - test_contract_yaml_round_trip: catches a Contract serialiser that loses type or fields.
+
+- test_readme_git_url_install_has_availability_note (TestREADMEInstallContract): catches
+  a README where `pip install git+` appears without a caveat that the command requires
+  the repo to be publicly accessible. Root cause of ADV2-3 (major, c2-p10): the primary
+  install instruction failed for every user because the repo was private; anyone following
+  the README hit `fatal: Authentication failed`. Fault injection: remove the
+  "# Requires the repo to be publicly accessible:" comment line immediately preceding
+  the `pip install git+` command => this test fails (no qualifying note found near the
+  bare `pip install git+` line).
 """
 
 import os
@@ -191,3 +200,64 @@ checks:
         assert contract.checks[1].id == "no_pii"
         # Verify the no_pattern check has the right field_name.
         assert contract.checks[1].field_name == "final_content"  # type: ignore[attr-defined]
+
+
+class TestREADMEInstallContract:
+    """Fault: README's pip install git+ appears without an availability disclaimer.
+
+    Root cause of ADV2-3 (major, c2-p10): the primary install instruction failed for
+    every user because the repo was private. Anyone following the README hit
+    fatal: Authentication failed for https://github.com/...
+
+    This test enforces the invariant: every `pip install git+` line in README.md must
+    have a qualifying note - on the immediately preceding line, within the same code
+    block, or within 2 lines above - that indicates the command requires the repo to
+    be publicly accessible.
+
+    Fault injection: removing the `# Requires the repo to be publicly accessible:`
+    comment line from README.md causes this test to fail, because the bare
+    `pip install git+` line no longer has a qualifying note.
+    """
+
+    # Phrases that constitute an acceptable availability note.
+    _NOTES = (
+        "requires the repo to be publicly accessible",
+        "requires the repo to be public",
+        "only works when the repo is public",
+        "only when the repo is public",
+        "once the repo is public",
+    )
+
+    def _has_qualifying_note(self, lines: list, git_url_lineno: int) -> bool:
+        """Return True if any of the 3 lines preceding git_url_lineno contain a note."""
+        window = lines[max(0, git_url_lineno - 3) : git_url_lineno]
+        combined = " ".join(line.lower() for line in window)
+        return any(note in combined for note in self._NOTES)
+
+    def test_readme_git_url_install_has_availability_note(self) -> None:
+        """Every pip install git+ line in README.md must be preceded by a note.
+
+        Fault injection: remove the qualifying comment above the pip install git+ line
+        => the window above the command no longer contains any qualifying phrase
+        => this assertion fails.
+        """
+        import pathlib
+
+        readme_path = pathlib.Path(__file__).parent.parent / "README.md"
+        assert readme_path.exists(), f"README.md not found at {readme_path}"
+        lines = readme_path.read_text(encoding="utf-8").splitlines()
+
+        violations: list = []
+        for i, line in enumerate(lines):
+            if "pip install git+" in line:
+                if not self._has_qualifying_note(lines, i):
+                    violations.append(i + 1)  # 1-indexed line number
+
+        assert not violations, (
+            "README.md has `pip install git+` on line(s) "
+            + str(violations)
+            + " without a preceding note that the command requires the repo to be publicly "
+            "accessible. Add a comment like '# Requires the repo to be publicly accessible:' "
+            "on the line immediately before each `pip install git+` command, or reorder the "
+            "Install section so the source-install path (git clone + pip install .) comes first."
+        )

@@ -1,5 +1,127 @@
 # Improvement Log — agent-eval-harness
 
+## c4-p08: Fix ADV2-3 (install URL unreproducible) — README source-install primary, git+ URL qualified (2026-09-28)
+
+### Finding source
+
+ADV2-3 (major, c2-p10-adversarial-1): README install instruction
+`pip install git+https://github.com/AnnasMazhar/replayproof` is not reproducible —
+`git ls-remote` fails authentication because the repo is private. Evidence from c2-p10:
+
+```
+$ git ls-remote https://github.com/AnnasMazhar/agent-eval-harness
+remote: Invalid username or token. Password authentication is not supported for Git operations.
+fatal: Authentication failed for 'https://github.com/AnnasMazhar/agent-eval-harness/'
+```
+
+Still open as of c4-p05 (not addressed by any prior improve pass). The finding was recorded
+as "pending repo publish" but that is a deferral, not a fix — every person cloning the repo
+to evaluate it sees a broken first command.
+
+### Root cause
+
+The Install section led with the git-URL form (`pip install git+...`) which requires the
+repo to be publicly accessible. The source-install form (`git clone ... && pip install .`)
+was listed as an "Or from source" fallback. Someone following the docs in the natural order
+(primary form first) hit an authentication failure before reaching the fallback.
+
+No test existed that would fail when a bare `pip install git+` command appeared without any
+context indicating it requires public repo access.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 175 passed |
+| README Install primary instruction | `pip install git+https://github.com/AnnasMazhar/replayproof` (fails if private) |
+| README Install source path label | "Or from source" (secondary, buried) |
+| Top-level quickstart note | "Install from the git URL above or from source" (ambiguous) |
+| Test detecting bare git+ without availability note | NONE |
+| ADV2-3 status | open (major) |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 176 passed (+1) |
+| README Install primary instruction | `git clone ... && uv pip install -e '.[dev]'` (always works) |
+| README git+ form placement | secondary, labelled "Once the repo is public, you can also install..." |
+| Comment in git+ code block | `# Requires the repo to be publicly accessible:` on the line before the command |
+| Top-level quickstart note | updated: "install from source as shown above ... if not yet public, see Install section" |
+| Test detecting bare git+ without availability note | YES — `TestREADMEInstallContract.test_readme_git_url_install_has_availability_note` |
+| ADV2-3 status | fixed |
+
+### Evidence
+
+Full test run:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest -q
+........................................................................ [ 40%]
+........................................................................ [ 81%]
+................................                                         [100%]
+176 passed in 5.15s
+```
+
+Ruff clean:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+20 files already formatted
+RUFF CLEAN
+```
+
+New test verifies current README passes:
+
+```
+$ .venv/bin/python -m pytest tests/test_report.py::TestREADMEInstallContract -v
+tests/test_report.py::TestREADMEInstallContract::test_readme_git_url_install_has_availability_note PASSED
+1 passed in 0.19s
+```
+
+Fault injection (old README state — pip install git+ as primary with no preceding context):
+
+```
+$ python3 -c "
+lines = ['## Install', '', '\`\`\`bash', 'pip install git+https://github.com/AnnasMazhar/replayproof', '\`\`\`']
+notes = ('requires the repo to be publicly accessible', 'once the repo is public')
+for i, line in enumerate(lines):
+    if 'pip install git+' in line:
+        window = lines[max(0, i-3):i]
+        combined = ' '.join(l.lower() for l in window)
+        print(f'Has note: {any(n in combined for n in notes)}')
+"
+Has note: False
+```
+
+The test assertion `assert not violations` fails for that README state (violations = [4]).
+
+Demo still exits correctly:
+
+```
+$ bash examples/run_demo.sh | grep -E "=== Demo complete|PASS: gate exits"
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+### Files changed
+
+- `README.md` — (1) Install section: reordered — source-install (`git clone` + `uv pip install
+  -e '.[dev]'`) and plain pip variant are now primary; git-URL form is now secondary, preceded
+  by "Once the repo is public..." prose and `# Requires the repo to be publicly accessible:`
+  comment in the code block. (2) Top-level quickstart note: updated to reference "install from
+  source as shown above" and direct to Install section for the offline path.
+- `tests/test_report.py` — added `TestREADMEInstallContract` class (1 test):
+  `test_readme_git_url_install_has_availability_note` — parses README.md, finds every
+  `pip install git+` line, asserts that a qualifying availability note appears in the 3
+  lines preceding it. Added fault description to module docstring.
+- `reports/improvements.md` — this entry
+
+---
+
+
+
 ## c3-p09: Fix four README credibility and usability gaps (2026-09-27)
 
 ### Finding source

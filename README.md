@@ -20,8 +20,9 @@ agenteval gate --baseline /tmp/good.json --current /tmp/bad.json   # exit 1 — 
 ```
 
 Note: `pip install agent-eval-harness` installs a **different, unrelated package** on PyPI
-(Franck Ndzomga, 2026-02-09). Install from the git URL above or from source — the PyPI name
-`replayproof` is reserved for the v0.2 release.
+(Franck Ndzomga, 2026-02-09). Install from source as shown above — the PyPI name
+`replayproof` is reserved for the v0.2 release. If the repo is not yet public, see the
+**Install** section below for the offline install path that requires no network access.
 
 ## What problem this solves
 
@@ -59,15 +60,24 @@ Record agent run  ──►  Run.jsonl  ──►  Contract.evaluate  ──► 
 ## Install
 
 ```bash
-pip install git+https://github.com/AnnasMazhar/replayproof
+git clone https://github.com/AnnasMazhar/replayproof
+cd replayproof
+uv venv && uv pip install -e '.[dev]'
 ```
 
-Or from source (no API keys needed — runs entirely offline):
+Or with plain pip (no `uv` required):
 
 ```bash
 git clone https://github.com/AnnasMazhar/replayproof
 cd replayproof
-uv venv && uv pip install -e '.[dev]'
+python3 -m venv .venv && . .venv/bin/activate && pip install .
+```
+
+Once the repo is public, you can install directly from the git URL (no local clone needed):
+
+```bash
+# Requires the repo to be publicly accessible:
+pip install git+https://github.com/AnnasMazhar/replayproof
 ```
 
 ## 60-second quickstart
