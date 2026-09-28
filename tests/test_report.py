@@ -241,10 +241,24 @@ class TestREADMEInstallContract:
         => the window above the command no longer contains any qualifying phrase
         => this assertion fails.
         """
+        import os
         import pathlib
 
-        readme_path = pathlib.Path(__file__).parent.parent / "README.md"
-        assert readme_path.exists(), f"README.md not found at {readme_path}"
+        # Walk up from this file's directory until we find README.md.
+        # This handles both the normal layout (tests/test_report.py → repo root)
+        # and the mutmut layout (mutants/tests/test_report.py → mutants/ → repo root).
+        env_root = os.environ.get("REPO_ROOT")
+        if env_root:
+            readme_path = pathlib.Path(env_root) / "README.md"
+        else:
+            candidate = pathlib.Path(__file__).resolve().parent
+            readme_path = candidate / "README.md"
+            while not readme_path.exists() and candidate.parent != candidate:
+                candidate = candidate.parent
+                readme_path = candidate / "README.md"
+        assert (
+            readme_path.exists()
+        ), f"README.md not found (searched up from {pathlib.Path(__file__).resolve()})"
         lines = readme_path.read_text(encoding="utf-8").splitlines()
 
         violations: list = []

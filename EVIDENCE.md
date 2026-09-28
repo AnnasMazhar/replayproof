@@ -921,3 +921,110 @@ $ ruff format --check .
    CONTRIBUTING.md, launch/topics.txt (19 topics), docs/demo.sh (asciinema instructions),
    .github/workflows/release.yml (trusted publishing). PASS.
 6. No push. Conventional commit. No AI attribution. PASS.
+
+
+---
+
+## c5-p04-implement-1 verification (2026-09-28)
+
+### Changes
+
+- Fixed `test_readme_git_url_install_has_availability_note` path resolution: now uses
+  `REPO_ROOT` env var (set by conftest.py) with a walk-up fallback anchored on `README.md`.
+  The previous `__file__.parent.parent` approach pointed to `mutants/README.md` (which
+  does not exist) when mutmut ran the test from its mirrored `mutants/tests/` directory.
+  This caused the entire mutmut run to fail before collecting any mutants (see `reports/mutation-c4.json`).
+- Added `conftest.py` at repo root and `mutants/conftest.py`, both walking up from `__file__`
+  to find `README.md` and writing the resolved path to `REPO_ROOT`. The anchor is `README.md`,
+  not `pyproject.toml`, because `mutants/` has its own `pyproject.toml`.
+- Added `TestWilsonLowerKATSmallN` class with two new KAT tests anchored on external ground truth:
+  - `test_wilson_lower_n10_s1_hand_computed`: hand-derived wilson_lower(1,10,0.95) = 0.017876
+  - `test_wilson_lower_n20_s3_hand_computed`: hand-derived wilson_lower(3,20,0.95) = 0.052369
+  Both derivations are shown step-by-step in the test docstrings and verified against the
+  repo implementation on this machine.
+
+### pytest -q
+
+```
+$ pytest -q
+........................................................................ [ 39%]
+........................................................................ [ 79%]
+......................................                                   [100%]
+182 passed in 2.74s
+```
+
+### ruff
+
+```
+$ ruff check .
+All checks passed!
+
+$ ruff format --check .
+21 files already formatted
+```
+
+### Version
+
+```
+$ python -c "import agenteval; print(agenteval.__version__)"
+0.1.0
+```
+
+### Demo
+
+```
+$ bash examples/run_demo.sh
+=== agent-eval-harness demo ===
+
+--- Step 1: evaluate sample_run.jsonl against research contract ---
+| Cases | 4 |
+| Passed | 4 |
+| Pass Rate | 100.0% |
+| Wilson Lower Bound (95%) | 51.0% |
+| p95 Latency | 0.1 ms |
+
+--- Step 2: evaluate regressed_run.jsonl against research contract ---
+| Cases | 4 |
+| Passed | 2 |
+| Pass Rate | 50.0% |
+| Wilson Lower Bound (95%) | 15.0% |
+
+--- Step 3: gate good run vs itself (expect: PASS, exit 0) ---
+Gate: PASS — no regressions detected.
+Exit code: 0
+
+--- Step 4: gate regressed run vs good baseline (expect: FAIL, exit 1) ---
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+Exit code: 1
+
+--- Step 5: drift report ---
+Regressions : 2
+Fixes       : 0
+Stable pass : 2
+
+--- Final checks ---
+PASS: gate exits correctly (0 on good, 1 on regressed)
+
+=== Demo complete ===
+```
+
+### Mutants README path fix — verified from mutants/ directory
+
+```
+$ cd mutants && python -m pytest tests/test_report.py::TestREADMEInstallContract::test_readme_git_url_install_has_availability_note -v
+tests/test_report.py::TestREADMEInstallContract::test_readme_git_url_install_has_availability_note PASSED
+1 passed in 0.21s
+```
+
+### Acceptance criteria (c5-p04)
+
+1. `pytest -q` = 182 passed (up from 180), no failures. PASS.
+2. `bash examples/run_demo.sh` completes with real results table. PASS.
+3. Gate exits 1 on regressed, 0 on good. PASS.
+4. `ruff check .` clean, `ruff format --check .` clean. PASS.
+5. `test_readme_git_url...` passes from both repo root and `mutants/` directory. PASS.
+6. Two new KAT tests with external ground truth (hand-derived Wilson values). PASS.
+7. No push. Conventional commit. No AI attribution. PASS.

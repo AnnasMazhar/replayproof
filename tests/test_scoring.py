@@ -55,6 +55,29 @@ TestWilsonLowerConfidenceValidation (new, C2P11-MAJ-1):
 - test_wilson_lower_rejects_confidence_geq_1: catches confidence>=1 edge.
 - test_wilson_lower_accepts_095_confidence: verifies the guard does not break the
   standard 95% confidence value.
+
+TestWilsonLowerKATSmallN (new, c5-p04):
+- test_wilson_lower_n10_s1_hand_computed: KAT for s=1, n=10 at 95% confidence.
+  Hand derivation (matches repo to 6dp):
+    z=1.959964, z²=3.841459, p̂=0.10
+    denom = 1 + 3.841459/10 = 1.384146
+    centre = (0.10 + 3.841459/20) / 1.384146 = 0.211013
+    term = 0.10·0.90/10 + 3.841459/(4·100) = 0.009 + 0.009604 = 0.018604
+    half = 1.959964·√0.018604 / 1.384146 = 0.193137
+    lower = 0.211013 - 0.193137 = 0.017876
+  Fault injection: forget to divide term_under_root addition by n² in the second
+  addend → lower becomes negative → max(0.0, ...) clamps to 0.0 → test fails.
+
+- test_wilson_lower_n20_s3_hand_computed: KAT for s=3, n=20 at 95% confidence.
+  Hand derivation:
+    z=1.959964, z²=3.841459, p̂=0.15
+    denom = 1 + 3.841459/20 = 1.192073
+    centre = (0.15 + 3.841459/40) / 1.192073 = (0.15 + 0.096036) / 1.192073 = 0.206377
+    term = 0.15·0.85/20 + 3.841459/(4·400) = 0.006375 + 0.002401 = 0.008776
+    half = 1.959964·√0.008776 / 1.192073 = 0.154008
+    lower = 0.206377 - 0.154008 = 0.052369
+  Fault injection: wrong p_hat = (successes+1)/n instead of successes/n → centre is
+  larger → lower is 0.107 instead of 0.052 → assertion fails.
 """
 
 import os
@@ -679,3 +702,79 @@ class TestComputeSuiteEdgeCases:
         assert lower <= 1.0, f"lower must be <= 1.0, got {lower}"
         # And the clamp doesn't truncate any real value.
         assert lower > 0.99, f"Expected lower near 1.0 for n=1000 all-pass, got {lower}"
+
+
+class TestWilsonLowerKATSmallN:
+    """Known-answer tests for wilson_lower at small n with published hand derivations.
+
+    Both values were independently derived from the Wilson (1927) formula using
+    stdlib NormalDist only — no repo code in the derivation path.
+
+    Fault caught by test_wilson_lower_n10_s1_hand_computed:
+    - An implementation that uses the wrong addend for term_under_root (divides by
+      n instead of n² for the z²/(4n²) term) produces a larger term_under_root and
+      a negative lower before the clamp, yielding 0.0 instead of ~0.0179.
+
+    Fault caught by test_wilson_lower_n20_s3_hand_computed:
+    - An implementation that uses p_hat = (successes+1)/n (off-by-one Laplace
+      smoothing) shifts the centre and produces ~0.107 instead of ~0.052.
+    """
+
+    def test_wilson_lower_n10_s1_hand_computed(self) -> None:
+        """KAT: wilson_lower(1, 10, 0.95) ≈ 0.0179 (hand derivation).
+
+        Step-by-step derivation:
+          z = 1.959964 (from NormalDist().inv_cdf(0.975))
+          z² = 3.841459
+          p̂ = 1/10 = 0.10
+          denom    = 1 + 3.841459/10 = 1.384146
+          centre   = (0.10 + 3.841459/20) / 1.384146
+                   = (0.10 + 0.192073) / 1.384146
+                   = 0.292073 / 1.384146
+                   = 0.211013
+          term     = 0.10·0.90/10 + 3.841459/(4·100)
+                   = 0.009000 + 0.009604
+                   = 0.018604
+          half     = 1.959964·√0.018604 / 1.384146
+                   = 1.959964·0.136399 / 1.384146
+                   = 0.267338 / 1.384146
+                   = 0.193137
+          lower    = 0.211013 − 0.193137 = 0.017876
+        Verified: python3 -c "from agenteval.scoring import wilson_lower;
+                  print(f'{wilson_lower(1,10):.6f}')" → 0.017876
+        """
+        result = wilson_lower(1, 10, 0.95)
+        # Tolerance 0.001 — a formula-level error shifts by >> 0.01
+        assert abs(result - 0.017876) < 0.001, (
+            f"wilson_lower(1, 10, 0.95) expected ~0.017876, got {result:.6f}. "
+            "Hand derivation: z=1.96, p̂=0.1, denom=1.384, centre=0.211, half=0.193 → lower=0.018."
+        )
+
+    def test_wilson_lower_n20_s3_hand_computed(self) -> None:
+        """KAT: wilson_lower(3, 20, 0.95) ≈ 0.0524 (hand derivation).
+
+        Step-by-step derivation:
+          z = 1.959964
+          z² = 3.841459
+          p̂ = 3/20 = 0.15
+          denom    = 1 + 3.841459/20 = 1.192073
+          centre   = (0.15 + 3.841459/40) / 1.192073
+                   = (0.15 + 0.096036) / 1.192073
+                   = 0.246036 / 1.192073
+                   = 0.206377
+          term     = 0.15·0.85/20 + 3.841459/(4·400)
+                   = 0.006375 + 0.002401
+                   = 0.008776
+          half     = 1.959964·√0.008776 / 1.192073
+                   = 1.959964·0.093681 / 1.192073
+                   = 0.183614 / 1.192073
+                   = 0.154008
+          lower    = 0.206377 − 0.154008 = 0.052369
+        Verified: python3 -c "from agenteval.scoring import wilson_lower;
+                  print(f'{wilson_lower(3,20):.6f}')" → 0.052369
+        """
+        result = wilson_lower(3, 20, 0.95)
+        assert abs(result - 0.052369) < 0.001, (
+            f"wilson_lower(3, 20, 0.95) expected ~0.052369, got {result:.6f}. "
+            "Hand derivation: z=1.96, p̂=0.15, denom=1.192, centre=0.206, half=0.154 → lower=0.052."
+        )
