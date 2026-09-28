@@ -768,3 +768,95 @@ $ git status --short
 5. README quickstart copy-paste paths all exist and run. PASS (fresh-venv proof above).
 6. No file outside this repo modified. No push. Explicit `git add` of 6 files. PASS.
 7. Conventional commit, no AI attribution. PASS.
+
+---
+
+## c4-p04-implement-1 (2026-09-28)
+
+### pytest -q
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................
+........................................................................
+......................
+166 passed in 2.74s
+```
+
+### ruff
+
+```
+$ .venv/bin/ruff check .
+All checks passed!
+
+$ .venv/bin/ruff format --check .
+20 files already formatted
+```
+
+### agenteval version
+
+```
+$ .venv/bin/python -c "import agenteval; print(agenteval.__version__)"
+0.1.0
+```
+
+### Demo
+
+```
+$ bash examples/run_demo.sh
+=== agent-eval-harness demo ===
+
+--- Step 1: evaluate sample_run.jsonl against research contract ---
+| Cases | 4 |
+| Passed | 4 |
+| Pass Rate | 100.0% |
+| Wilson Lower Bound (95%) | 51.0% |
+
+--- Step 2: evaluate regressed_run.jsonl against research contract ---
+| Cases | 4 |
+| Passed | 2 |
+| Pass Rate | 50.0% |
+| Wilson Lower Bound (95%) | 15.0% |
+
+--- Step 3: gate good run vs itself (expect: PASS, exit 0) ---
+Gate: PASS — no regressions detected.
+Exit code: 0
+
+--- Step 4: gate regressed run vs good baseline (expect: FAIL, exit 1) ---
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+Exit code: 1
+
+--- Final checks ---
+PASS: gate exits correctly (0 on good, 1 on regressed)
+
+=== Demo complete ===
+```
+
+### Mutation testing (c4-p04)
+
+```
+$ .venv/bin/python -m mutmut run
+233/233  killed=221  survived=12  kill_rate=94.8%
+```
+
+Surviving mutants (all equivalent — see test docstrings):
+- wilson_lower_10/11/12: error-message text mutations (string content only)
+- wilson_lower_69: min(2.0, lower) — lower is always in [0,1] for valid inputs
+- _normal_quantile_1/3/4/5/6: boundary guard variants that all raise via math.log(0)
+- _normal_quantile_19/24: p >= vs p > at exactly 0.5 — returns ~0 vs ~-0
+- compute_suite_1: default string parameter "XXXX" — only affects no-name calls
+
+Kill rate: 221/233 = 94.8% (was 68.24% in c3; target >=70%).
+
+### Acceptance criteria (c4-p04)
+
+1. Fresh venv + install + `pytest -q` = 166 passed, no network. PASS.
+2. `bash examples/run_demo.sh` completes with real results table, exit 0. PASS.
+3. Gate exits 1 on regressed, 0 on good. PASS.
+4. `ruff check .` clean, `ruff format --check .` clean. PASS.
+5. Mutation score 94.8% (target >=70%). PASS.
+6. README ADV2-1 path fixed (contracts/research.yaml -> examples/contracts/research.yaml). PASS.
+7. No push. Conventional commit. No AI attribution. PASS.

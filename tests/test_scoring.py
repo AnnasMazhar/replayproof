@@ -68,6 +68,7 @@ from agenteval.assertions import CheckResults
 from agenteval.scoring import (
     CaseResult,
     Pricing,
+    _normal_quantile,
     _percentile,
     compute_suite,
     pass_rate,
@@ -273,6 +274,18 @@ class TestPercentile:
         """Fault detected: index error for single-element list."""
         assert _percentile([42.0], 95) == 42.0
 
+    def test_percentile_p100_at_last_element(self) -> None:
+        """Fault: mutmut_22 changes 'upper = min(lower+1, n-1)' to 'min(lower+1, n+1)'.
+
+        At p=100 on a 5-element list: rank = 100/100 * 4 = 4.0 (the last index).
+        lower = 4, upper = min(5, n-1=4) = 4 (correct: clamp to last element).
+        With mutant: upper = min(5, n+1=6) = 5 => values[5] => IndexError.
+        This test kills the mutant by accessing p=100 (rank at the last element).
+        """
+        values = [10.0, 20.0, 30.0, 40.0, 50.0]
+        result = _percentile(values, 100)
+        assert result == 50.0, f"p100 of [10..50] should be 50.0 (last element), got {result}"
+
 
 class TestComputeSuite:
     """Integration KAT for compute_suite."""
@@ -451,3 +464,218 @@ class TestWilsonLowerConfidenceValidation:
         """Boundary: 0.99 is another standard value; must still work."""
         result = wilson_lower(90, 100, 0.99)
         assert 0.0 < result < 0.82566  # 99% CI lower bound is tighter
+
+
+class TestNormalQuantile:
+    """Direct KATs for _normal_quantile (probit / inverse-CDF) to kill surviving mutants.
+
+    _normal_quantile is only reached via wilson_lower when the confidence value
+    maps to a p not in the _known lookup.  Most surviving mutants are in the
+    Abramowitz & Stegun coefficients (c0, c1, c2, d1, d2, d3) and in the
+    boundary guard.  These tests exercise those paths directly.
+
+    Published reference values:
+        Standard normal quantile z such that Phi(z) = p.
+        z(0.975) = 1.9599639845...   (exact; in _known lookup)
+        z(0.95)  = 1.6448536270...   (exact; in _known lookup)
+        z(0.99)  = 2.3263478740...   (exact; in _known lookup)
+        z(0.995) = 2.5758293040...   (exact; in _known lookup)
+        z(0.90)  ≈ 1.2815516        (Abramowitz & Stegun max error < 3e-4)
+        z(0.80)  ≈ 0.8415            (A&S approximation; symmetry partner at 0.20)
+    Source: Abramowitz & Stegun (1964), Handbook of Mathematical Functions,
+    formula 26.2.17, p.933.
+    """
+
+    def test_normal_quantile_boundary_zero(self) -> None:
+        """Fault: p=0.0 accepted because guard uses p < 0.0 instead of p <= 0.0.
+
+        Injection: change guard to 'if p < 0.0 or p >= 1.0' => p=0.0 not caught =>
+        log(1-q) = log(1) = 0 => t=0 => returns -(c0/1) = -2.515 (wrong sign, not
+        infinity).  Test must see ValueError, not a garbage float.
+        """
+        with pytest.raises(ValueError):
+            _normal_quantile(0.0)
+
+    def test_normal_quantile_boundary_one(self) -> None:
+        """Fault: p=1.0 accepted (log(0) => math.log raises ValueError in Python)."""
+        with pytest.raises((ValueError, OverflowError)):
+            _normal_quantile(1.0)
+
+    def test_normal_quantile_known_lookup_0975(self) -> None:
+        """KAT: z(0.975) must equal the exact value stored in the _known dict.
+
+        Mutation: change 1.959963985 to any other float => test fails.
+        Published: Wilson (1927) uses z=1.96; exact = 1.959963985... per standard tables.
+        """
+        z = _normal_quantile(0.975)
+        # Exact value from the dict; any coefficient mutation that reaches the
+        # approximation path would return a different value (~1.96 from A&S).
+        assert abs(z - 1.959963985) < 1e-9, f"Expected 1.959963985, got {z}"
+
+    def test_normal_quantile_known_lookup_095(self) -> None:
+        """KAT: z(0.95) from lookup must equal 1.6448536270.
+
+        Mutation: change key 0.95 → 1.95 => miss the lookup => fall through to
+        approximation => returns ~1.645 via A&S (close but != 1.6448536270).
+        Mutation: change value 1.6448536270 → 2.644... => obvious mismatch.
+        """
+        z = _normal_quantile(0.95)
+        assert abs(z - 1.6448536270) < 1e-9, f"Expected 1.6448536270, got {z}"
+
+    def test_normal_quantile_known_lookup_099(self) -> None:
+        """KAT: z(0.99) from lookup must equal 2.326347874.
+
+        Mutation: key 0.99 → 1.99 => lookup miss => A&S returns a different value.
+        """
+        z = _normal_quantile(0.99)
+        assert abs(z - 2.326347874) < 1e-9, f"Expected 2.326347874, got {z}"
+
+    def test_normal_quantile_known_lookup_0995(self) -> None:
+        """KAT: z(0.995) from lookup must equal 2.575829304.
+
+        Mutation: key 0.995 → 1.995 => lookup miss.
+        """
+        z = _normal_quantile(0.995)
+        assert abs(z - 2.575829304) < 1e-9, f"Expected 2.575829304, got {z}"
+
+    def test_normal_quantile_lookup_not_in_keys(self) -> None:
+        """Fault: 'p not in _known' inversion causes lookup miss for every valid key.
+
+        Mutation: 'if p in _known' → 'if p not in _known' => p=0.975 falls through
+        to the A&S approximation and returns ~1.96 instead of the exact 1.959963985.
+        p=0.90 (not in _known) must still return a finite value close to 1.282.
+        This test checks the non-lookup path is reached for p=0.90.
+        """
+        z = _normal_quantile(0.90)
+        # A&S formula 26.2.17: max error < 3e-4.  Published value: 1.281552.
+        assert abs(z - 1.28155) < 5e-4, f"Expected ~1.28155, got {z}"
+
+    def test_normal_quantile_approx_090(self) -> None:
+        """KAT: z(0.90) exercises the A&S approximation path.
+
+        Any mutation to c0, c1, c2, d1, d2, or d3 changes the output by at least 0.01.
+        Published: Abramowitz & Stegun (1964) formula 26.2.17 — z(0.90) ≈ 1.28155.
+        """
+        z = _normal_quantile(0.90)
+        # Tolerance 5e-4 (A&S formula max error is < 3e-4; 5e-4 gives margin).
+        assert abs(z - 1.28155) < 5e-4, f"Expected ~1.28155, got {z}"
+
+    def test_normal_quantile_approx_080(self) -> None:
+        """KAT: z(0.80) — second independent coefficient-coverage test.
+
+        Published: z(0.80) ≈ 0.84162 from standard normal tables.
+        """
+        z = _normal_quantile(0.80)
+        assert abs(z - 0.84162) < 5e-4, f"Expected ~0.84162, got {z}"
+
+    def test_normal_quantile_negative_branch(self) -> None:
+        """Fault: sign branch mutations cause p<0.5 to return positive z.
+
+        Mutation: 'sign = 1.0 if p >= 0.5 else -1.0' → constant +1.0 =>
+        _normal_quantile(0.10) = +1.282 instead of -1.282.
+        """
+        z = _normal_quantile(0.10)
+        assert z < 0, f"z({0.10}) must be negative, got {z}"
+        # By symmetry: _normal_quantile(0.10) = -_normal_quantile(0.90)
+        z_sym = _normal_quantile(0.90)
+        assert abs(z + z_sym) < 1e-10, f"Symmetry broken: z(0.1)={z}, -z(0.9)={z_sym}"
+
+    def test_normal_quantile_symmetry(self) -> None:
+        """Property: _normal_quantile(p) = -_normal_quantile(1-p) for all valid p.
+
+        Catches sign-flip mutations in the return expression.
+        """
+        for p in [0.60, 0.70, 0.80, 0.90]:
+            z_p = _normal_quantile(p)
+            z_mirror = _normal_quantile(1.0 - p)
+            assert (
+                abs(z_p + z_mirror) < 1e-10
+            ), f"Symmetry broken at p={p}: z(p)={z_p}, z(1-p)={z_mirror}"
+
+
+class TestComputeSuiteEdgeCases:
+    """Edge-case KATs for compute_suite to kill surviving mutants.
+
+    Faults detected:
+    - test_compute_suite_empty_gives_zero_pass_rate: catches 'n >= 0' mutant
+      (mutmut_14: changes 'n > 0' to 'n >= 0' — no observable effect for n=0
+      since both evaluate the same when n is exactly 0; BUT 'n > 0' is the
+      correct guard and 'n >= 0' with n=0 still divides by zero — the mutant
+      would raise ZeroDivisionError on an empty list).
+    - test_compute_suite_empty_gives_zero_cost: catches cost initialisation
+      mutation (mutmut_27: cost=0.0 → cost=1.0 => empty suite returns cost=1.0).
+    - test_compute_suite_p50_and_p95_differ: catches latency percentile bugs
+      where p50 and p95 are confused or constants are swapped (mutmut_41, _47).
+    - test_wilson_lower_clamp_upper_at_one: catches min(2.0, lower) mutation
+      (mutmut_69: min(1.0, ...) → min(2.0, ...) => lower bounds > 1.0 pass
+      through unclipped).  For valid inputs lower is always <= 1.0, so this is
+      an equivalent mutant — documented below.
+    """
+
+    def test_compute_suite_empty_gives_zero_pass_rate(self) -> None:
+        """Fault: empty case list causes ZeroDivisionError (n > 0 guard absent).
+
+        Mutation mutmut_14 changes 'n > 0' to 'n >= 0'; when n=0 the condition
+        'n >= 0' is still True, so 0/0 is attempted => ZeroDivisionError.
+        This test catches that by verifying empty input returns 0.0, not an error.
+        """
+        suite = compute_suite([], suite_name="empty")
+        assert suite.pass_rate_value == 0.0, f"Expected 0.0 pass rate, got {suite.pass_rate_value}"
+        assert suite.wilson_lower_bound == 0.0
+
+    def test_compute_suite_empty_gives_zero_cost(self) -> None:
+        """Fault: cost initialised to 1.0 instead of 0.0 (mutmut_27).
+
+        An empty suite with no pricing must produce cost=0.0, not 1.0.
+        """
+        suite = compute_suite([], suite_name="empty_cost")
+        assert suite.total_cost_usd == 0.0, f"Expected 0.0 cost, got {suite.total_cost_usd}"
+
+    def test_compute_suite_p50_and_p95_differ(self) -> None:
+        """Fault: p50 and p95 args to _percentile are swapped (mutmut_41: 51, mutmut_47: 96).
+
+        10 cases with latencies 10, 20, ..., 100ms.
+        Exact values (linear interpolation):
+            p50: rank = 50/100 * 9 = 4.5 => vals[4] + 0.5*(vals[5]-vals[4]) = 50 + 5 = 55.0
+            p95: rank = 95/100 * 9 = 8.55 => vals[8] + 0.55*(vals[9]-vals[8]) = 90 + 5.5 = 95.5
+        With mutmut_41 (arg=51): rank=4.59 => 55.9 (not 55.0) => assertion fails.
+        With mutmut_47 (arg=96): rank=8.64 => 96.4 (not 95.5) => assertion fails.
+        """
+        cases = [
+            CaseResult(
+                case_id=f"c{i}",
+                passed=True,
+                checks=CheckResults(results=()),
+                tokens_in=0,
+                tokens_out=0,
+                latency_ms=float(i * 10),
+            )
+            for i in range(1, 11)  # 10, 20, 30, 40, 50, 60, 70, 80, 90, 100
+        ]
+        suite = compute_suite(cases, suite_name="latency_test")
+        # Exact p50: 55.0ms (linear interpolation at rank 4.5 of sorted [10..100])
+        assert abs(suite.p50_latency_ms - 55.0) < 0.5, (
+            f"p50 expected ~55.0ms, got {suite.p50_latency_ms} " f"(mutmut_41 would give 55.9)"
+        )
+        # Exact p95: 95.5ms (rank 8.55)
+        assert abs(suite.p95_latency_ms - 95.5) < 0.5, (
+            f"p95 expected ~95.5ms, got {suite.p95_latency_ms} " f"(mutmut_47 would give 96.4)"
+        )
+
+    def test_wilson_lower_clamp_upper_at_one(self) -> None:
+        """Equivalent-mutant documentation: min(1.0, lower) vs min(2.0, lower).
+
+        The mutant changes min(1.0, lower) to min(2.0, lower).  For any valid
+        call (0 <= successes <= n, n > 0), lower is provably in [0.0, 1.0]:
+        p_hat is in [0, 1], and the Wilson formula cannot produce lower > 1.0.
+        Therefore this mutant is equivalent — no test can kill it without an
+        invalid input.
+
+        This test documents that the existing clamp is defensive (belt-and-suspenders)
+        and that the mutant is equivalent by exercising the maximum attainable lower.
+        """
+        # p_hat = 1.0 with large n gives lower close to (but below) 1.0.
+        lower = wilson_lower(1000, 1000)
+        assert lower <= 1.0, f"lower must be <= 1.0, got {lower}"
+        # And the clamp doesn't truncate any real value.
+        assert lower > 0.99, f"Expected lower near 1.0 for n=1000 all-pass, got {lower}"

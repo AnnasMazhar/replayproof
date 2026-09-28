@@ -240,10 +240,10 @@ def convert(eval_path, out_dir):
 
 ```bash
 python scripts/convert_inspect_log.py logs/my_eval.eval recordings/
-agenteval run --contract contracts/research.yaml --runs recordings/my_eval.jsonl --output baseline.json
+agenteval run --contract examples/contracts/research.yaml --runs recordings/my_eval.jsonl --output baseline.json
 # When a newer recording is available, convert it the same way and evaluate it:
 python scripts/convert_inspect_log.py logs/my_eval_new.eval recordings/
-agenteval run --contract contracts/research.yaml --runs recordings/my_eval_new.jsonl --output current.json
+agenteval run --contract examples/contracts/research.yaml --runs recordings/my_eval_new.jsonl --output current.json
 agenteval gate --baseline baseline.json --current current.json
 ```
 
