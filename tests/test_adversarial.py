@@ -201,6 +201,32 @@ test_run_from_jsonl_blank_line_raises_not_fabricates_run:
     evaluate as a run that exists and is green — a false pass in CI.
     Fault injection: on json.JSONDecodeError return Run(name="", ...) => blank line
     silently becomes a default run instead of raising.
+
+--- New in c6-p05 ---
+
+test_suite_large_run_hundreds_of_tool_calls_does_not_crash:
+    Catches an assertion or scoring implementation that blows up or slows
+    catastrophically on a run with a large number of tool calls (500 calls, 100
+    turns). Typical faults: O(n^2) subsequence scan, unbounded list growth in
+    max_tool_calls, or a str join that exceeds a regex engine's backtrack limit.
+    Fault injection: build a 500-call run and assert it completes within 2 seconds
+    and does not raise.
+
+test_case_id_non_ascii_unicode_survives_roundtrip:
+    Catches a scoring or report module that assumes case_id is ASCII. A case_id
+    containing non-ASCII Unicode (e.g. Arabic or CJK glyphs) must round-trip through
+    to_dict/from_dict and appear verbatim in the markdown report, not mangled or
+    replaced with backslash escapes.
+    Fault injection: use json.dumps(ensure_ascii=True) in to_jsonl => case_id in
+    report output is backslash-escaped \\uXXXX instead of the original character.
+
+test_gate_baseline_with_zero_tokens_and_nonzero_current_trips:
+    Catches a gate that skips the token regression check when baseline tokens = 0,
+    even when current tokens are nonzero. The gate must warn (or enforce) rather
+    than silently pass, because a baseline with 0 tokens often means the first run
+    was a mock with no LLM and the real run now has real cost.
+    Fault injection: guard with 'if baseline_tokens == 0: skip' => a real LLM run
+    that costs $10 is never caught because the seed baseline was a zero-token mock.
 """
 
 from __future__ import annotations
@@ -1548,4 +1574,142 @@ def test_contract_forbidden_and_required_same_tool_evaluates_both() -> None:
     assert not forb_result.passed, (
         "ForbiddenToolsCheck must fail when 'dangerous_search' is in the run — "
         "both checks must be evaluated independently, not resolved as a conflict"
+    )
+
+
+# ──────────────────────────────────────────────────────────────
+# New in c6-p05: huge inputs, unicode case IDs, zero-baseline token gate
+# ──────────────────────────────────────────────────────────────
+
+
+def test_suite_large_run_hundreds_of_tool_calls_does_not_crash() -> None:
+    """Contract evaluation on a run with 500 tool calls must not crash or hang.
+
+    A naive subsequence scan is O(n*m) where n = calls in run, m = required tools.
+    With 500 calls and a 5-item required sequence, a buggy O(n^2) implementation
+    takes noticeably longer; an unbounded list in max_tool_calls may also blow up.
+
+    This test verifies: no exception, correct pass/fail verdict, completes under
+    2 seconds on a modern single core.
+
+    Fault injection: an O(n^2) subsequence scan or quadratic growth in a list
+    accumulator => run time spikes proportionally with n.
+    """
+    import time
+
+    from agenteval.assertions import MaxToolCallsCheck, RequiredToolsCheck
+
+    # Build a run with 100 turns, 5 tool calls each = 500 total tool calls.
+    # Every call is named "search" so RequiredToolsCheck("search") must pass.
+    turns = []
+    for i in range(100):
+        calls = tuple(
+            ToolCall(
+                name="search",
+                args={"q": f"query_{i}_{j}"},
+                result="ok",
+                error=None,
+                duration_ms=1.0,
+            )
+            for j in range(5)
+        )
+        turns.append(
+            Turn(
+                role="assistant",
+                content=f"turn {i}",
+                tool_calls=calls,
+                tokens_in=10,
+                tokens_out=5,
+                latency_ms=5.0,
+            )
+        )
+
+    run = _make_run(turns)
+
+    start = time.monotonic()
+    req_result = RequiredToolsCheck(names=["search"]).evaluate(run)
+    max_result_pass = MaxToolCallsCheck(n=500).evaluate(run)  # 500 == 500: passes
+    max_result_fail = MaxToolCallsCheck(n=499).evaluate(run)  # 500 > 499: fails
+    elapsed = time.monotonic() - start
+
+    assert req_result.passed, "RequiredToolsCheck must pass when 'search' is called"
+    assert max_result_pass.passed, "500 calls against n=500 must pass (boundary)"
+    assert not max_result_fail.passed, "500 calls against n=499 must fail (exceeded)"
+    assert elapsed < 2.0, (
+        f"Contract evaluation of 500-call run took {elapsed:.2f}s; "
+        "expected < 2.0s — likely an O(n^2) algorithm"
+    )
+
+
+def test_case_id_non_ascii_unicode_survives_report_roundtrip() -> None:
+    """A case_id with non-ASCII Unicode must appear verbatim in Markdown output.
+
+    Catches a report module or serialiser using ensure_ascii=True, which replaces
+    non-ASCII characters with \\uXXXX backslash escapes — making the case_id
+    unreadable in the report.
+
+    Fault injection: json.dumps(..., ensure_ascii=True) anywhere in the
+    serialisation chain => CJK/Arabic case_id rendered as backslash escapes.
+    """
+    from agenteval.report import to_markdown
+    from agenteval.scoring import CaseResult, SuiteResult
+
+    non_ascii_id = "\u8bc4\u4f30\u6848\u4f8b-\u0627\u062e\u062a\u0628\u0627\u0631"
+
+    case = CaseResult(
+        case_id=non_ascii_id,
+        passed=True,
+        checks=(),
+        tokens_in=0,
+        tokens_out=0,
+        latency_ms=0.0,
+    )
+    suite = SuiteResult(
+        suite_name="unicode-test",
+        case_results=(case,),
+        pass_rate_value=1.0,
+        wilson_lower_bound=0.206,
+        total_tokens_in=0,
+        total_tokens_out=0,
+        total_cost_usd=0.0,
+        p50_latency_ms=0.0,
+        p95_latency_ms=0.0,
+    )
+
+    md = to_markdown(suite)
+    assert non_ascii_id in md, (
+        f"Non-ASCII case_id {non_ascii_id!r} was not found verbatim in Markdown output; "
+        "the report likely used ensure_ascii=True and backslash-escaped the characters"
+    )
+
+
+def test_gate_zero_baseline_tokens_nonzero_current_is_flagged_not_silently_passed() -> None:
+    """Baseline tokens=0 with nonzero current must appear in skipped_zero_baseline.
+
+    The gate correctly skips the percentage check (ratio undefined) but must record
+    the metric in GateReport.skipped_zero_baseline so CI can surface it.  Silently
+    passing with no record lets a real-cost LLM run slip past a mock baseline with
+    no CI signal.
+
+    Fault injection: omit skipped_zero_baseline tracking entirely => gate returns
+    ok=True with nothing to indicate the token gate was not enforced.
+    """
+    from agenteval.budget import Baseline, Tolerances, compare
+
+    baseline = _suite(passed=4, total=4, tokens=0)  # mock baseline: zero tokens
+    current = _suite(passed=4, total=4, tokens=50_000)  # real run: 50k tokens
+
+    report = compare(
+        current.to_dict(),
+        Baseline(baseline.to_dict()),
+        Tolerances(),
+    )
+
+    # The gate must pass (no regression in pass_rate, latency, or cost) ...
+    assert report.ok, "Gate must pass when only token count increased from a 0-baseline"
+    # ... but must NOT silently suppress the zero-baseline fact
+    assert "total_tokens" in report.skipped_zero_baseline, (
+        "GateReport.skipped_zero_baseline must contain 'total_tokens' when the baseline "
+        "is zero and current is nonzero — silent suppression means a costly LLM run "
+        "would never trip the token gate on its first recorded run"
     )

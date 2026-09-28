@@ -40,6 +40,7 @@ agenteval = "agenteval.cli:main"
 [project.urls]
 Homepage = "https://github.com/AnnasMazhar/replayproof"
 Repository = "https://github.com/AnnasMazhar/replayproof"
+Documentation = "https://github.com/AnnasMazhar/replayproof/blob/main/docs/DESIGN.md"
 "Bug Tracker" = "https://github.com/AnnasMazhar/replayproof/issues"
 Changelog = "https://github.com/AnnasMazhar/replayproof/blob/main/CHANGELOG.md"
 

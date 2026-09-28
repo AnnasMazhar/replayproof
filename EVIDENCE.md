@@ -26,24 +26,30 @@ Installed 1 package in 2ms
 
 ```
 $ pytest -q
-........................................................................ [ 38%]
-........................................................................ [ 76%]
-............................................                             [100%]
-188 passed in 4.17s
+........................................................................ [ 37%]
+........................................................................ [ 75%]
+...............................................                          [100%]
+191 passed in 4.98s
 ```
 
-188 tests (c6-p04). Previous cycle high-water marks:
+191 tests (c6-p05). Previous cycle high-water marks:
+- c6-p04: 188 tests
 - c5-p05: 188 tests (4 new adversarial tests added)
 - c5-p09: 188 tests (1 new test for actionable JSONL gate error)
 
-Test breakdown by file (c6-p04):
-- test_adversarial.py: 43 tests (byzantines, hostile inputs, injection attempts)
+Test breakdown by file (c6-p05):
+- test_adversarial.py: 46 tests (byzantines, hostile inputs, injection attempts; +3 new)
 - test_assertions.py: 34 tests (each check type, good/bad run, property-based)
 - test_budget_drift.py: 38 tests (gate thresholds, drift classification, edge cases)
 - test_properties.py: 21 tests (hypothesis property-based: Wilson monotone, replay idempotent, etc.)
 - test_replay.py: 19 tests (dry/strict/lenient modes, ReplayMismatch, determinism)
 - test_report.py: 21 tests (markdown stable, no timestamps, HTML self-contained)
 - test_scoring.py: 12 tests (KAT with hand-computed values, Wilson bounds, pass_rate)
+
+New adversarial tests in c6-p05:
+- test_suite_large_run_hundreds_of_tool_calls_does_not_crash: 500-call run completes in < 2s
+- test_case_id_non_ascii_unicode_survives_report_roundtrip: CJK+Arabic case_id verbatim in Markdown
+- test_gate_zero_baseline_tokens_nonzero_current_is_flagged_not_silently_passed: skipped_zero_baseline recorded
 
 ---
 
