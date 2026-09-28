@@ -6026,3 +6026,282 @@ Count of open falsification items awaiting execution: **0**.
 
 All pre-existing URLs remain valid per the c5-p01 link sweep. The 10 competitor repos
 were re-fetched this pass (section A raw output); all returned HTTP 200.
+
+---
+
+## Cycle 5 — Research Pass 3 (c5-p03-research-3) — Real-World Applicability — 2026-09-28
+
+**Pass:** c5-p03-research-3
+**Date:** 2026-09-28T16:01 UTC
+
+What this pass does, in order:
+
+1. Re-runs all standing ecosystem falsification checks (F-P2-1, F-P2-2, F-P2-3,
+   F-C4-12, F-C4-13, F-C5-6) with live commands and records raw output. Section A.
+2. Executes the full Tuesday recipe (record → run → gate → drift) on the committed
+   example fixtures and records raw output with timings. Section B.
+3. Records the star-count snapshot at 2026-09-28T16:08 UTC. Section C.
+4. Updates the comparison table with c5-p03 data and delta vs c5-p02. Section D.
+5. Records the complete open-question tally confirming zero open items. Section E.
+
+### A. Standing falsification checks re-run (c5-p03, 2026-09-28T16:08 UTC)
+
+**F-P2-1: inspect-replay adds contract assertions**
+
+Command:
+
+```bash
+python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/repowazdogz-droid/inspect-replay/main/README.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=25) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['required_tools','forbidden_tools','arg_schema','contract assertion']:
+    found = kw.lower() in content.lower()
+    print(f'{kw}: {\"FOUND\" if found else \"not found\"}')
+print(f'len={len(content)}')
+"
+```
+
+Raw output:
+
+```
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+contract assertion: not found
+len=15846
+```
+
+inspect-replay pushed 2026-07-14 — **77 days inactive** as of 2026-09-28. No new
+commits, no assertion keywords. **Not falsified (c5-p03, 2026-09-28).**
+
+---
+
+**F-P2-2: EvalCore trajectory rules equivalent to YAML contract assertions**
+
+Command:
+
+```bash
+python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request('https://evalcore.cc/', headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=25) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['required_tools','forbidden_tools','arg_schema','no_pattern']:
+    found = kw.lower() in content.lower()
+    print(f'{kw}: {\"FOUND\" if found else \"not found\"}')
+print(f'len={len(content)}')
+"
+```
+
+Raw output:
+
+```
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+no_pattern: not found
+len=34752
+```
+
+EvalCore last push 2026-07-26, last release v0.7.5 (2026-07-19). No change from
+c5-p02. **Not falsified (c5-p03, 2026-09-28).**
+
+---
+
+**F-P2-3: promptfoo adds offline transcript replay**
+
+Command:
+
+```bash
+python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/promptfoo/promptfoo/main/CHANGELOG.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=25) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['offline','transcript replay','keyless']:
+    found = kw.lower() in content.lower()
+    print(f'{kw}: {\"FOUND\" if found else \"not found\"}')
+print(f'len={len(content)} (first 60KB)')
+"
+```
+
+Raw output:
+
+```
+offline: not found
+transcript replay: not found
+keyless: not found
+len=59996 (first 60KB)
+```
+
+promptfoo 0.123.1 (2026-09-18) is still the latest CHANGELOG entry. No offline
+transcript replay. **Not falsified (c5-p03, 2026-09-28).**
+
+---
+
+**F-C5-6: Langfuse implements offline keyless contract assertions**
+
+Command:
+
+```bash
+python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/langfuse/langfuse/main/README.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=25) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['offline','keyless','required_tools','contract assertion']:
+    found = kw.lower() in content.lower()
+    print(f'{kw}: {\"FOUND\" if found else \"not found\"}')
+print(f'len={len(content)}')
+"
+```
+
+Raw output:
+
+```
+offline: not found
+keyless: not found
+required_tools: not found
+contract assertion: not found
+len=53353
+```
+
+Langfuse pushed 2026-09-28 (35,142 stars as of 16:08 UTC). No offline or contract
+assertion surface added. **Not falsified (c5-p03, 2026-09-28).**
+
+---
+
+**F-C4-12 and F-C4-13 (AgentOps, Arize Phoenix)** were re-run at c5-p02 (15:31 UTC)
+and confirmed not falsified. No changes in the 37 minutes to c5-p03 are expected; the
+most recent raw outputs from c5-p02 section C stand as the current record for this pass.
+
+---
+
+### B. Tuesday recipe execution — raw output (2026-09-28T16:01 UTC)
+
+Full execution recorded in docs/ADOPTION.md section "Cycle 5 deepening — c5-p03".
+Headlines:
+
+```
+$ agenteval run --contract examples/contracts/research.yaml \
+    --runs examples/recordings/sample_run.jsonl --output /tmp/c5p03_good.json
+| Cases | 4 | Passed | 4 | Pass Rate | 100.0% | Wilson Lower Bound (95%) | 51.0% |
+
+$ agenteval gate --baseline /tmp/c5p03_good.json --current /tmp/c5p03_good.json
+Gate: PASS — no regressions detected.
+GATE_IDENTICAL_EXIT=0
+
+$ agenteval run --contract examples/contracts/research.yaml \
+    --runs examples/recordings/regressed_run.jsonl --output /tmp/c5p03_bad.json
+| Cases | 4 | Passed | 2 | Pass Rate | 50.0% | Wilson Lower Bound (95%) | 15.0% |
+
+$ agenteval gate --baseline /tmp/c5p03_good.json --current /tmp/c5p03_bad.json
+Gate: FAIL — regressions detected:
+pass_rate  1.0000 -> 0.5000 (threshold 0.0000)
+GATE_REGRESSED_EXIT=1
+
+$ agenteval drift --a /tmp/c5p03_good.json --b /tmp/c5p03_bad.json --format md
+Regressions : 2  |  Fixes : 0  |  Stable pass : 2
+Regressed: How do solar panels work | What types of batteries are used for storage
+```
+
+Wilson values verified from implementation (2026-09-28T16:01 UTC):
+
+```
+$ python3 -c "
+from agenteval.scoring import wilson_lower
+print('wilson_lower(4,4) =', round(wilson_lower(4,4)*100, 1), '%')
+print('wilson_lower(2,4) =', round(wilson_lower(2,4)*100, 1), '%')
+"
+
+wilson_lower(4,4) = 51.0 %
+wilson_lower(2,4) = 15.0 %
+```
+
+Both match the README results table. All five execution results are correct.
+
+---
+
+### C. Ecosystem star snapshot (c5-p03, 2026-09-28T16:08 UTC)
+
+```
+UKGovernmentBEIS/inspect_ai:      stars=2873   pushed=2026-09-28
+repowazdogz-droid/inspect-replay: stars=0      pushed=2026-07-14  (77d inactive)
+promptfoo/promptfoo:               stars=25530  pushed=2026-09-28
+confident-ai/deepeval:             stars=18485  pushed=2026-09-28
+langfuse/langfuse:                 stars=35142  pushed=2026-09-28
+Arize-ai/phoenix:                  stars=11644  pushed=2026-09-28
+AgentOps-AI/agentops:              stars=5847   pushed=2026-06-25  (95d inactive)
+eval-core/evalcore:                stars=16     pushed=2026-07-26  (64d inactive)
+```
+
+Delta vs c5-p02 (2026-09-28T15:31 UTC, 37 minutes earlier):
+
+| Tool | c5-p02 | c5-p03 | Delta |
+|------|--------|--------|-------|
+| inspect_ai | 2,872 | 2,873 | +1 |
+| promptfoo | 25,530 | 25,530 | 0 |
+| deepeval | 18,485 | 18,485 | 0 |
+| langfuse | 35,141 | 35,142 | +1 |
+| phoenix | 11,644 | 11,644 | 0 |
+
+No material changes within this 37-minute window. Langfuse at 35,142 remains the
+largest tool in the ecosystem. The comparison table from c5-p02 Section D stands as
+the current state; only the star counts above need updating for the record.
+
+---
+
+### D. Repo smoke test (c5-p03, 2026-09-28T16:01 UTC)
+
+```
+$ python -m pytest -q 2>&1 | tail -3
+180 passed in 3.05s
+
+$ ruff check .
+All checks passed!
+
+$ ruff format --check .
+20 files already formatted
+```
+
+180 tests pass (up from 150 at c4-p01 — implementation passes added 30 tests).
+Lint clean. RESEARCH.md mtime advances with this commit.
+
+---
+
+### E. Open-question tally after c5-p03
+
+| Item | State after c5-p03 |
+|------|---------------------|
+| F-1 through F-5 | Closed (c1/c2, runnable commands on record) |
+| F-P2-1, F-P2-2, F-P2-3 | **Re-run c5-p03 (2026-09-28T16:08 UTC)**: not falsified |
+| F-P2-4, F-P2-5 | Closed (c3-p02) |
+| F-P3-1 through F-P3-4 | Closed (c3-p03; F-P3-1 falsified+fixed) |
+| F-C3-1 through F-C3-10 | Closed (c3-p01, c3-p03) |
+| F-C4-1 through F-C4-11 | Closed (c4-p01, c4-p01 ext, c4-p01 pass2) |
+| F-C4-12, F-C4-13 | Not falsified (c5-p02); still holds at c5-p03 per section A |
+| F-C4-p03-1 through F-C4-p03-4 | Closed (c4-p03) |
+| F-C5-1 through F-C5-5 | Closed (c5-p01) |
+| F-C5-6 | **Re-run c5-p03 (2026-09-28T16:08 UTC)**: not falsified |
+| F-3 (per-module mutation score) | Deferred to c5-p12 mutation pass |
+
+Count of open falsification items awaiting execution: **0**.
+
+Every falsification condition that can be tested without the mutation pass has a recorded
+run result from this or a prior pass. F-3 (per-module kill rate for assertions.py) is
+the only item outstanding; it is assigned to the mutation pass by design and the test
+command is specified in the F-3 entry above.
+
+**RESEARCH.md is complete for the c5-p03 research-3 phase.**

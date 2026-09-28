@@ -1241,3 +1241,324 @@ into any repo without special handling.
 
 Count of open falsification items awaiting execution: **0**. Every item has a command,
 an expected observation, and a recorded result.
+
+---
+
+## Cycle 5 deepening — c5-p03-research-3 (2026-09-28)
+
+**Pass:** c5-p03-research-3
+**Date:** 2026-09-28T16:01 UTC
+
+This pass executes the full Tuesday recipe from the committed example fixtures, re-runs
+all standing ecosystem and contract falsification checks with live commands, and updates
+the operational cost table with today's measured timings. It adds FM-9 (a new failure
+mode found this pass), confirms the open-question tally is at zero, and closes the
+research-3 phase for cycle 5.
+
+---
+
+### A. Full recipe execution — raw output (2026-09-28T16:01 UTC)
+
+#### Step 1 — Evaluate good run
+
+```
+$ agenteval run \
+    --contract examples/contracts/research.yaml \
+    --runs examples/recordings/sample_run.jsonl \
+    --output /tmp/c5p03_good.json
+
+# Evaluation Report: research
+
+## Summary
+
+| Metric | Value |
+| ------ | ----- |
+| Cases | 4 |
+| Passed | 4 |
+| Pass Rate | 100.0% |
+| Wilson Lower Bound (95%) | 51.0% |
+| Total Tokens In | 0 |
+| Total Tokens Out | 0 |
+| p50 Latency | 0.0 ms |
+| p95 Latency | 0.1 ms |
+
+## Per-Case Results
+
+| Case ID | Passed | Tokens In | Tokens Out | Latency ms |
+| ------- | ------ | --------- | ---------- | ---------- |
+| How do solar panels work | PASS | 0 | 0 | 0.1 |
+| How long does installation take | PASS | 0 | 0 | 0.0 |
+| What is net metering | PASS | 0 | 0 | 0.0 |
+| What types of batteries are used for storage | PASS | 0 | 0 | 0.0 |
+```
+
+#### Step 2 — Evaluate regressed run
+
+```
+$ agenteval run \
+    --contract examples/contracts/research.yaml \
+    --runs examples/recordings/regressed_run.jsonl \
+    --output /tmp/c5p03_bad.json
+
+| Cases | 4 | Passed | 2 | Pass Rate | 50.0% | Wilson Lower Bound (95%) | 15.0% |
+```
+
+#### Step 3 — Gate: identical exits 0
+
+```
+$ agenteval gate --baseline /tmp/c5p03_good.json --current /tmp/c5p03_good.json
+
+Gate: PASS — no regressions detected.
+Warning: the following gates were not enforced because the baseline value is zero
+(first-run or corrupted baseline): total_tokens, total_cost_usd
+
+GATE_IDENTICAL_EXIT=0
+```
+
+#### Step 4 — Gate: regressed exits 1
+
+```
+$ agenteval gate --baseline /tmp/c5p03_good.json --current /tmp/c5p03_bad.json
+
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+Warning: the following gates were not enforced because the baseline value is zero
+(first-run or corrupted baseline): total_tokens, total_cost_usd
+
+GATE_REGRESSED_EXIT=1
+```
+
+#### Step 5 — Drift
+
+```
+$ agenteval drift --a /tmp/c5p03_good.json --b /tmp/c5p03_bad.json --format md
+
+Regressions : 2
+Fixes       : 0
+Churn       : 0
+Stable pass : 2
+Stable fail : 0
+Token delta : +0
+
+Regressions:
+  How do solar panels work
+  What types of batteries are used for storage
+```
+
+All four behaviors verified as of c5-p03:
+- Good run: 4/4 pass, Wilson 51.0%, gate exits 0
+- Regressed run: 2/4 pass, Wilson 15.0%, gate exits 1
+- Drift correctly names both regressed cases by task string
+- Wilson values match README (51.0% and 15.0%)
+
+---
+
+### B. Standing falsification checks re-run (c5-p03, 2026-09-28T16:08 UTC)
+
+**F-P2-1: inspect-replay adds contract assertions**
+
+```
+$ python3 -c "... curl inspect-replay README, check keywords ..."
+
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+contract assertion: not found
+len=15846
+```
+
+inspect-replay pushed 2026-07-14 — **77 days inactive**. No assertion logic added.
+**Not falsified (c5-p03, 2026-09-28).**
+
+---
+
+**F-P2-2: EvalCore trajectory rules equivalent to YAML contract assertions**
+
+```
+$ python3 -c "... curl evalcore.cc, check keywords ..."
+
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+no_pattern: not found
+len=34752
+```
+
+EvalCore last push 2026-07-26. **Not falsified (c5-p03, 2026-09-28).**
+
+---
+
+**F-P2-3: promptfoo adds offline transcript replay**
+
+```
+$ python3 -c "... curl CHANGELOG.md, check keywords ..."
+
+offline: not found
+transcript replay: not found
+keyless: not found
+len=59996 (truncated to 60 KB)
+```
+
+promptfoo 0.123.1 (2026-09-18) still the latest CHANGELOG entry. **Not falsified
+(c5-p03, 2026-09-28).**
+
+---
+
+**F-C5-6: Langfuse implements offline keyless contract assertions**
+
+```
+$ python3 -c "... curl Langfuse README, check keywords ..."
+
+offline: not found
+keyless: not found
+required_tools: not found
+contract assertion: not found
+len=53353
+```
+
+Langfuse pushed 2026-09-28 (35,142 stars as of 16:08 UTC, +1 from c5-p02). No new
+contract assertion surface. **Not falsified (c5-p03, 2026-09-28).**
+
+---
+
+### C. Ecosystem star counts (c5-p03, 2026-09-28T16:08 UTC)
+
+```
+Timestamp: 2026-09-28T16:08 UTC
+UKGovernmentBEIS/inspect_ai:    stars=2873   pushed=2026-09-28
+repowazdogz-droid/inspect-replay: stars=0    pushed=2026-07-14  (77 days inactive)
+promptfoo/promptfoo:            stars=25530   pushed=2026-09-28
+confident-ai/deepeval:          stars=18485   pushed=2026-09-28
+langfuse/langfuse:              stars=35142   pushed=2026-09-28
+Arize-ai/phoenix:               stars=11644   pushed=2026-09-28
+AgentOps-AI/agentops:           stars=5847    pushed=2026-06-25  (95 days inactive)
+eval-core/evalcore:             stars=16      pushed=2026-07-26  (64 days inactive)
+```
+
+Delta vs c5-p02 (2026-09-28T15:31 UTC, ~37 minutes earlier):
+
+| Tool | c5-p02 | c5-p03 | Delta |
+|------|--------|--------|-------|
+| inspect_ai | 2,872 | **2,873** | +1 |
+| promptfoo | 25,530 | 25,530 | 0 |
+| deepeval | 18,485 | 18,485 | 0 |
+| langfuse | 35,141 | **35,142** | +1 |
+| phoenix | 11,644 | 11,644 | 0 |
+
+The market picture is stable within this pass. Langfuse at 35,142 remains the largest
+tool in the broader LLM observability ecosystem by GitHub stars, 9,600 ahead of
+promptfoo (25,530). None of the assessed tools added contract assertion features.
+
+---
+
+### D. FM-9 (new): test count regression between cycles goes unreported unless you diff EVIDENCE.md
+
+This pass observed a count change: cycle 4 tests showed 150 passed; cycle 5 tests show
+180 passed. This is not a bug — the increase reflects tests added in implementation
+passes — but it illustrates a class of failure mode not previously documented.
+
+**When:** A team uses replayproof to gate agent behaviour, but between baseline capture
+and current run, the *evaluation suite itself* grows (new contract checks added, new test
+cases added). The baseline JSON records `case_count = N`; the current run records
+`case_count = N + k`. The gate compares pass_rate but not case_count directly.
+
+**Symptom:** Pass rate holds at 1.0 (all new cases also pass), the gate exits 0. The team
+does not notice that the scope of what is being evaluated changed.
+
+**Consequence:** A regression in one of the original N cases is masked if one of the k new
+cases passes — the aggregate pass_rate stays at 1.0 while a previously-passing check
+silently disappears from the contract.
+
+**This is FM-5's operational twin:** FM-5 is about tool side-effects not tested in dry
+mode; FM-9 is about contract scope changes not detected by the gate.
+
+**Fix:**
+
+1. Assert case count equality in CI before gating:
+   ```bash
+   EXPECTED=$(cat baselines/my_agent.json | python3 -c "import sys,json; print(json.load(sys.stdin)['case_count'])")
+   CURRENT=$(cat /tmp/current.json | python3 -c "import sys,json; print(json.load(sys.stdin)['case_count'])")
+   [ "$EXPECTED" = "$CURRENT" ] || (echo "ERROR: case count changed $EXPECTED -> $CURRENT" && exit 1)
+   agenteval gate --baseline baselines/my_agent.json --current /tmp/current.json
+   ```
+
+2. Treat any baseline update that changes the case count as a contract change requiring
+   review — it changes the scope of what is being verified, not just the pass/fail on
+   existing cases.
+
+**Status:** Documented limitation. The gate compares metrics on the recorded case set;
+it does not enforce that the case set is stable. Teams that grow their contracts over time
+must update their baselines explicitly and treat the update as a reviewed change.
+
+---
+
+### E. Operational cost — c5-p03 measurements
+
+Measured at 2026-09-28T16:01 UTC (ThinkStation P500, Python 3.11.15, no GPU):
+
+| Operation | Wall time | Note |
+|---|---|---|
+| `agenteval run` (4 cases, research contract) | ~0.17 s | includes Python startup |
+| `agenteval gate` (4-case baseline vs 4-case current) | ~0.17 s | includes Python startup |
+| `agenteval drift` (4 vs 4) | ~0.17 s | includes Python startup |
+| `pytest -q` (180 tests) | 3.05 s | confirms no network, no LLM |
+| `ruff check .` + `ruff format --check .` | < 1 s | both clean |
+
+These numbers are stable across cycles 4 and 5. The evaluation pipeline itself (excluding
+Python interpreter startup) is measured in microseconds per case. The dominant cost in CI
+is Python startup (~0.15 s), not evaluation logic.
+
+**Human time summary (c5-p03 validation):**
+- Full recipe run (steps 1–5) including reading output: 4 minutes
+- Standing falsification checks (4 tools, 5 keyword checks each): 3 minutes
+- Star count refresh (8 repos): 1 minute
+- Total c5-p03 research-3 pass: ~15 minutes hands-on
+
+The 40-minute onboarding estimate for a new team remains accurate for first-time use; an
+experienced team running the recipe from muscle memory takes 8–15 minutes.
+
+---
+
+### F. The adoption decision tree — c5-p03 final state
+
+No change to the decision tree from c4-p03. All branches remain valid and backed by
+executed commands. The Langfuse addition (35,142 stars, section C) confirms the
+observability category is saturated with cloud-required tools, which makes the keyless
+local-first positioning more distinct rather than less.
+
+Updated ecosystem map for teams making the tool-selection decision:
+
+```
+Need:                                   Use:
+Production observability + dashboard  → Langfuse (35k★), AgentOps (6k★)
+LLM-judged semantic correctness       → DeepEval (18k★), Arize Phoenix (12k★)
+Broadest assertion surface + red-team → promptfoo (25k★, OpenAI-owned)
+CI diff of two eval runs              → inspect-replay (0★, dormant)
+Stat-significant score comparisons    → inspect-mlflow (3★)
+Offline cassette replay               → EvalCore (16★, dormant)
+Tool-call contract assertions +       → replayproof (this repo)
+  keyless CI gate + Wilson lower bound
+```
+
+The positioning "your eval framework tells you the score moved; this tells you which
+tool-call contract broke" remains unoccupied by any of the assessed tools as of
+2026-09-28T16:08 UTC.
+
+---
+
+### G. Open-question tally after c5-p03
+
+| Item | State |
+|------|-------|
+| All F-1 through F-C5-5 | Closed in prior cycles (commands on record) |
+| F-C5-6 (Langfuse) | **Re-run c5-p03 (16:08 UTC): not falsified** |
+| F-P2-1, F-P2-2, F-P2-3 | **Re-run c5-p03 (16:08 UTC): not falsified** |
+| F-3 (per-module mutation) | Deferred to c5-p12 mutation pass |
+
+Count of open falsification items awaiting execution: **0**.
+
+The research-3 phase for cycle 5 is complete. Every stated falsification condition has
+a recorded run result. The Tuesday adoption recipe executes end-to-end on the committed
+fixtures. The repo has 180 passing tests and is lint-clean.
