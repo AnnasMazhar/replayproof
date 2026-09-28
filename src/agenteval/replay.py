@@ -91,8 +91,16 @@ def replay(
             elif mode == "lenient":
                 fn = tools.get(tc.name)
                 if fn is None:
-                    warnings.append(f"lenient: tool '{tc.name}' not found; using recorded result")
-                    new_calls.append(tc)
+                    warnings.append(f"lenient: tool '{tc.name}' not found; result set to None")
+                    new_calls.append(
+                        ToolCall(
+                            name=tc.name,
+                            args=tc.args,
+                            result=None,
+                            error=f"tool not found: {tc.name}",
+                            duration_ms=tc.duration_ms,
+                        )
+                    )
                 else:
                     actual = fn(**tc.args)
                     if actual != tc.result:

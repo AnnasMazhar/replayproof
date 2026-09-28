@@ -1,0 +1,18 @@
+{
+  "cycle": 3,
+  "pass": 6,
+  "tests_run": 138,
+  "failures": 0,
+  "pytest_rc": 0,
+  "pytest_tail": [
+    "Building replayproof @ file:///home/openclaw/portfolio/agent-eval-harness",
+    "      Built replayproof @ file:///home/openclaw/portfolio/agent-eval-harness",
+    "Uninstalled 1 package in 2ms",
+    "Installed 1 package in 1ms",
+    "........................................................................ [ 52%]",
+    "..................................................................       [100%]",
+    "- generated xml file: /home/openclaw/portfolio/agent-eval-harness/.cycle-eval-c3-p6.xml -",
+    "138 passed in 6.02s"
+  ],
+  "generated_at": 1790524842.398688
+}

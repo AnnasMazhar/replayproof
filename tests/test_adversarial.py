@@ -1013,3 +1013,337 @@ def test_run_from_jsonl_blank_line_raises_not_fabricates_run() -> None:
 
     with pytest.raises(json.JSONDecodeError):
         Run.from_jsonl("   \n\t ")
+
+
+# ──────────────────────────────────────────────────────────────
+# Byzantine / property-attack cases added in c4-p05
+# ──────────────────────────────────────────────────────────────
+#
+# test_tool_sequence_unordered_missing_tool_fails:
+#     Catches a tool_sequence(ordered=False) that returns passed=True even when a
+#     required tool is absent. The unordered variant checks presence, not order, but
+#     still requires every named tool to appear.
+#     Fault injection: return passed=True for any non-empty intersection of required
+#     and actual => a run missing one of two required tools incorrectly passes.
+#
+# test_arg_schema_missing_required_field_fails:
+#     Catches an ArgSchemaCheck that ignores the 'required' keyword in a JSON Schema,
+#     treating it as optional. A schema that mandates 'q' must fail when 'q' is absent.
+#     Fault injection: validate only types, skip required => missing field passes.
+#
+# test_contract_from_yaml_ordered_false_respected:
+#     Catches a YAML loader that ignores the ordered: false flag and always applies
+#     subsequence checking. With ordered=false, ['b','a'] must pass for expected=['a','b'].
+#     Fault injection: always set ordered=True regardless of YAML value.
+#
+# test_gate_cost_regression_trips_at_boundary:
+#     Catches a gate that uses integer arithmetic on USD cost (truncating sub-cent values).
+#     A cost increase of exactly 10.1% (above the 10% threshold) must trip the gate.
+#     Fault injection: round cost to 2 decimal places before comparison.
+#
+# test_replay_lenient_missing_tool_returns_none_not_raises:
+#     Catches a lenient replay that raises ReplayMismatch instead of recording a warning
+#     when a tool is missing. Lenient mode must continue; strict mode raises.
+#     Fault injection: use the same code path for strict and lenient tool-not-found.
+#
+# test_drift_regression_and_fix_in_same_report:
+#     Catches a drift function that cannot simultaneously report a regression AND a fix
+#     (one case regressed, a different case was fixed). Both must appear in the same report.
+#     Fault injection: early-return after finding the first verdict type.
+#
+# test_suite_result_deterministic_ordering:
+#     Catches a SuiteResult serialisation that sorts case_results by dict insertion order
+#     (non-deterministic) rather than by case_id. Two SuiteResults with the same cases
+#     in different input order must produce identical to_dict() output.
+#     Fault injection: use list ordering from input rather than sorting by case_id.
+#
+# test_no_pattern_final_content_empty_run_does_not_crash:
+#     Catches a NoPatternCheck that accesses turns[-1] without checking whether turns
+#     is empty. A run with no turns has no final_content; the check must pass vacuously.
+#     Fault injection: access run.turns[-1].content unconditionally.
+#
+# test_wilson_lower_successes_equals_n_near_one:
+#     Catches an implementation that returns exactly 1.0 for perfect scores when n is
+#     small. For n=2, s=2 the Wilson lower bound is well below 1.0 (~0.342 at 95%).
+#     Fault injection: return float(s/n) when s == n instead of computing the formula.
+#
+# test_gate_latency_regression_not_suppressed_by_zero_tokens:
+#     Catches a gate that skips the latency comparison when token counts are both 0
+#     (treating 0-token runs as "not real"). A latency regression must be reported
+#     regardless of whether token counts are present.
+#     Fault injection: guard latency comparison with 'if baseline_tokens > 0'.
+
+
+def test_tool_sequence_unordered_missing_tool_fails() -> None:
+    """tool_sequence(ordered=False) must fail when a required tool is absent.
+
+    Fault: returning passed=True for any non-empty intersection ignores a fully-absent
+    required tool, producing a false-green contract.
+    """
+    from agenteval.assertions import ToolSequenceCheck
+    from agenteval.transcript import Run, ToolCall, Turn
+
+    calls = [ToolCall(name="search", args={}, result="r", error=None, duration_ms=1.0)]
+    turn = Turn(
+        role="assistant",
+        content="done",
+        tool_calls=tuple(calls),
+        tokens_in=5,
+        tokens_out=5,
+        latency_ms=10.0,
+    )
+    run = Run(
+        name="missing-tool",
+        agent_id="a",
+        model="m",
+        provider="p",
+        started_at="2026-01-01T00:00:00Z",
+        turns=(turn,),
+        total_tokens_in=5,
+        total_tokens_out=5,
+        total_latency_ms=10.0,
+        metadata={},
+    )
+
+    check = ToolSequenceCheck(expected=["search", "summarise"], ordered=False)
+    result = check.evaluate(run)
+    assert not result.passed, (
+        "tool_sequence(ordered=False) must FAIL when 'summarise' is absent — "
+        "intersection-only check incorrectly passes when any required tool is found"
+    )
+
+
+def test_arg_schema_missing_required_field_fails() -> None:
+    """ArgSchemaCheck must fail when a JSON-Schema-required field is absent.
+
+    A schema declaring 'q' as required must fail when the tool is called without 'q'.
+
+    Fault: validating only types (not 'required') lets missing fields pass,
+    defeating the input-validation purpose of the check.
+    """
+    run = _minimal_run(tool_calls=[("search", {"limit": 10}, "result")])  # 'q' missing
+    schema = {
+        "type": "object",
+        "properties": {
+            "q": {"type": "string"},
+            "limit": {"type": "integer"},
+        },
+        "required": ["q"],
+    }
+    check = ArgSchemaCheck(tool="search", schema=schema)
+    result = check.evaluate(run)
+    assert not result.passed, (
+        "ArgSchemaCheck must FAIL when a JSON-Schema required field ('q') is absent — "
+        "check may be ignoring the 'required' keyword"
+    )
+
+
+def test_contract_from_yaml_ordered_false_respected() -> None:
+    """YAML contract with ordered: false must allow any permutation of required tools.
+
+    Fault: ignoring the ordered: false flag and applying subsequence logic means
+    a run calling ['summarise', 'search'] fails when it should pass.
+    """
+    from agenteval.assertions import Contract
+    from agenteval.transcript import Run, ToolCall, Turn
+
+    yaml_text = """
+name: unordered
+checks:
+  - type: tool_sequence
+    id: seq_check
+    expected: [search, summarise]
+    ordered: false
+    severity: error
+"""
+    contract = Contract.from_yaml(yaml_text)
+
+    calls = [
+        ToolCall(name="summarise", args={}, result="s", error=None, duration_ms=1.0),
+        ToolCall(name="search", args={}, result="r", error=None, duration_ms=1.0),
+    ]
+    turn = Turn(
+        role="assistant",
+        content="done",
+        tool_calls=tuple(calls),
+        tokens_in=5,
+        tokens_out=5,
+        latency_ms=10.0,
+    )
+    run = Run(
+        name="reversed-order",
+        agent_id="a",
+        model="m",
+        provider="p",
+        started_at="2026-01-01T00:00:00Z",
+        turns=(turn,),
+        total_tokens_in=5,
+        total_tokens_out=5,
+        total_latency_ms=10.0,
+        metadata={},
+    )
+
+    results = contract.evaluate(run)
+    assert results.passed, (
+        "tool_sequence with ordered=false must PASS when all required tools are present "
+        "in any order — ordered flag may be ignored in from_yaml"
+    )
+
+
+def test_gate_cost_regression_trips_at_boundary() -> None:
+    """Gate must trip on a cost increase of exactly 10.1% (above the 10% threshold).
+
+    Fault: rounding cost to 2 decimal places (e.g. $0.0100 -> $0.01 and $0.0111 -> $0.01)
+    before comparison causes a false pass at the boundary.
+    """
+    baseline = _suite(passed=4, total=4, cost=0.1000)
+    current = _suite(passed=4, total=4, cost=0.1101)  # +10.1%
+    report = compare(current.to_dict(), Baseline(baseline.to_dict()))
+    assert not report.ok, (
+        "Gate must trip on 10.1% cost increase (> 10% threshold) — "
+        "rounding cost before comparison causes false pass"
+    )
+
+
+def test_replay_lenient_missing_tool_returns_none_not_raises() -> None:
+    """Lenient replay must continue when a tool is missing (record warning, not raise).
+
+    Fault: sharing the raise-on-missing code path between strict and lenient modes
+    means lenient replay blows up on any unknown tool.
+    """
+    run = _minimal_run(tool_calls=[("search_docs", {}, "some result")])
+    # lenient mode — missing tool must NOT raise
+    replayed = replay(run, {}, mode="lenient")
+    assert replayed is not None, "lenient replay must return a Run even when tools are missing"
+    # The replayed result for the missing tool should be None (recorded as warning)
+    tc = replayed.turns[0].tool_calls[0]
+    assert (
+        tc.result is None or tc.error is not None
+    ), "lenient replay should record None result or an error for a missing tool, not the original"
+
+
+def test_drift_regression_and_fix_in_same_report() -> None:
+    """DriftReport must contain both a regression AND a fix when each appears in different cases.
+
+    Fault: early-returning after finding the first verdict type means a report
+    with both a regression (case-A) and a fix (case-B) only captures one of them.
+    """
+    from agenteval.assertions import CheckResult, CheckResults
+    from agenteval.drift import drift
+    from agenteval.scoring import CaseResult, SuiteResult, wilson_lower
+
+    def _case(case_id: str, passed: bool) -> CaseResult:
+        cr = CheckResult(check_id="required_tools", passed=passed, severity="error", message="msg")
+        return CaseResult(
+            case_id=case_id,
+            passed=passed,
+            checks=CheckResults(results=(cr,)),
+            tokens_in=5,
+            tokens_out=5,
+            latency_ms=10.0,
+        )
+
+    def _suite_dict(case_a_passed: bool, case_b_passed: bool) -> dict:
+        cases = (_case("case-A", case_a_passed), _case("case-B", case_b_passed))
+        passed_n = sum(1 for c in cases if c.passed)
+        suite = SuiteResult(
+            suite_name="test",
+            case_results=cases,
+            pass_rate_value=passed_n / 2,
+            wilson_lower_bound=wilson_lower(passed_n, 2),
+            total_tokens_in=10,
+            total_tokens_out=10,
+            total_cost_usd=0.0,
+            p50_latency_ms=10.0,
+            p95_latency_ms=10.0,
+        )
+        return suite.to_dict()
+
+    # suite_a: case-A passes, case-B fails
+    # suite_b: case-A fails (regression), case-B passes (fix)
+    suite_a_dict = _suite_dict(case_a_passed=True, case_b_passed=False)
+    suite_b_dict = _suite_dict(case_a_passed=False, case_b_passed=True)
+
+    report = drift(suite_a_dict, suite_b_dict)
+
+    assert (
+        len(report.regressions) >= 1
+    ), f"Expected at least 1 regression (case-A), got {len(report.regressions)}"
+    assert len(report.fixes) >= 1, f"Expected at least 1 fix (case-B), got {len(report.fixes)}"
+    regression_ids = {r.case_id for r in report.regressions}
+    fix_ids = {f.case_id for f in report.fixes}
+    assert (
+        "case-A" in regression_ids
+    ), f"case-A should be a regression, regressions={regression_ids}"
+    assert "case-B" in fix_ids, f"case-B should be a fix, fixes={fix_ids}"
+
+
+def test_no_pattern_final_content_empty_run_does_not_crash() -> None:
+    """NoPatternCheck on 'final_content' must not crash when the run has no turns.
+
+    Fault: accessing run.turns[-1].content without checking for empty turns
+    raises IndexError on a Run with no turns.
+    """
+    from agenteval.assertions import NoPatternCheck
+
+    empty_run = Run(
+        name="empty",
+        agent_id="a",
+        model="m",
+        provider="p",
+        started_at="2026-01-01T00:00:00Z",
+        turns=(),
+        total_tokens_in=0,
+        total_tokens_out=0,
+        total_latency_ms=0.0,
+        metadata={},
+    )
+    check = NoPatternCheck(
+        field_name="final_content",
+        regex=r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b",
+    )
+    # Must not raise — empty run has no content to match against
+    result = check.evaluate(empty_run)
+    assert result.passed, (
+        "NoPatternCheck on empty run should PASS (no content means no pattern match), "
+        "but raised an exception instead"
+    )
+
+
+def test_wilson_lower_successes_equals_n_near_one() -> None:
+    """Wilson lower for n=2, s=2 must be well below 1.0 (~0.342 at 95%).
+
+    Hand computation (Wilson 1927):
+        z = 1.960, n = 2, s = 2, p_hat = 1.0
+        z2 = 3.8416
+        numerator = p_hat + z2/(2n) - z*sqrt(p_hat*(1-p_hat)/n + z2/(4n^2))
+                  = 1.0 + 0.9604 - 1.960*sqrt(0 + 3.8416/16)
+                  = 1.9604 - 1.960*sqrt(0.24010)
+                  = 1.9604 - 1.960*0.48998
+                  = 1.9604 - 0.96036
+                  = 1.00004
+        denom = 1 + z2/n = 1 + 3.8416/2 = 2.9208
+        lower = 1.00004 / 2.9208 ≈ 0.3424
+
+    Expected: approximately 0.342, certainly in (0.30, 0.40).
+    Fault: return float(s/n) = 1.0 when s == n.
+    """
+    lb = wilson_lower(2, 2)
+    assert lb < 0.50, f"Wilson n=2 s=2 lower bound {lb:.4f} should be < 0.50 (naive returns 1.0)"
+    assert lb > 0.20, f"Wilson n=2 s=2 lower bound {lb:.4f} should be > 0.20"
+
+
+def test_gate_latency_regression_not_suppressed_by_zero_tokens() -> None:
+    """Gate must report latency regression even when both runs have 0 token counts.
+
+    Fault: guarding the latency comparison with 'if baseline_tokens > 0' causes the
+    latency gate to be silently skipped for runs recorded without token metadata.
+    """
+    baseline = _suite(passed=4, total=4, tokens=0, p95_latency_ms=100.0)
+    # +50% latency: above the default 25% threshold
+    current = _suite(passed=4, total=4, tokens=0, p95_latency_ms=150.0)
+    report = compare(current.to_dict(), Baseline(baseline.to_dict()))
+    assert not report.ok, (
+        "Gate must trip on 50% latency increase (> 25% threshold) even when tokens=0 — "
+        "latency gate must not be suppressed by absent token counts"
+    )

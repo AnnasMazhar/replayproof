@@ -1,0 +1,14 @@
+{
+  "cycle": 3,
+  "pass": 7,
+  "tests_run": 138,
+  "failures": 0,
+  "pytest_rc": 0,
+  "pytest_tail": [
+    "........................................................................ [ 52%]",
+    "..................................................................       [100%]",
+    "- generated xml file: /home/openclaw/portfolio/agent-eval-harness/.cycle-eval-c3-p7.xml -",
+    "138 passed in 7.30s"
+  ],
+  "generated_at": 1790526643.287951
+}

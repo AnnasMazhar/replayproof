@@ -26,9 +26,13 @@ Faults detected by each test:
   warnings instead of recording them on the new Run's metadata.
   Fault injection: remove the `warnings.append(...)` call => no warnings key => test fails.
 
-- test_lenient_mode_unknown_tool_uses_recorded_result: catches lenient replay that crashes
-  on an unknown tool instead of falling back to the recorded result.
-  Fault injection: raise KeyError for missing tool in lenient mode => test fails.
+- test_lenient_mode_unknown_tool_returns_none: catches lenient replay that uses the
+  recorded result for an unknown tool instead of returning None (per spec). The spec
+  states 'unknown tools return None'; returning the recorded result obscures the fact
+  that the tool was not actually executed during the replay.
+  Fault injection: fall back to recorded result for missing tool => result != None => fails.
+  (NOTE: this test was updated from test_lenient_mode_unknown_tool_uses_recorded_result
+  in c4-p05; the previous behaviour contradicted the spec. See EVIDENCE.md.)
 
 - test_dry_mode_no_tools_needed: catches dry replay that fails when tools dict is empty
   (dry mode must not consult tools at all).
@@ -168,17 +172,26 @@ class TestLenientReplay:
             "mismatch" in w.lower() for w in warnings
         ), f"Warning should mention 'mismatch'. Got: {warnings}"
 
-    def test_lenient_mode_unknown_tool_uses_recorded_result(self) -> None:
-        """Lenient mode must fall back to the recorded result for unknown tools."""
+    def test_lenient_mode_unknown_tool_returns_none(self) -> None:
+        """Lenient mode must return None for unknown tools (spec: 'unknown tools return None').
+
+        The spec (assertions.py § replay) states lenient mode returns None for
+        unknown tools, not the recorded result. A result of None signals that the
+        tool was not available, so downstream assertions and the test report can
+        distinguish 'tool not run' from 'tool returned X'.
+
+        This replaced the previous test that expected the recorded result to be
+        preserved. The spec is authoritative; see EVIDENCE.md for the correction note.
+        """
         original = _make_run_with_tool_calls(tool_results={"search": "recorded_result"})
-        # 'search' not in tools — lenient should fall back.
+        # 'search' not in tools — lenient returns None per spec.
         replayed = replay(original, tools={}, mode="lenient")
         calls = replayed.all_tool_calls()
         assert len(calls) >= 1
         search_calls = [c for c in calls if c.name == "search"]
         assert (
-            search_calls[0].result == "recorded_result"
-        ), "Lenient mode should use recorded result for unknown tool."
+            search_calls[0].result is None
+        ), "Lenient mode must return None for unknown tool (spec), not the recorded result."
 
     def test_lenient_mode_records_warning_for_unknown_tool(self) -> None:
         """Fault detected: lenient mode silently drops unknown tool instead of warning."""
