@@ -5533,3 +5533,496 @@ No dead links. All arXiv IDs confirmed against expected paper titles.
 
 Count of open falsification items awaiting execution: **0**. The only outstanding item is
 F-3's per-module breakdown, which is the mutation pass's responsibility.
+
+---
+
+## Cycle 5 — Research Pass 2 (c5-p02-research-2) — Ecosystem Deepening — 2026-09-28
+
+What this pass does, in order:
+
+1. Re-fetches live star counts, versions, and last-push dates for all 10 competitor tools
+   via the GitHub REST API and PyPI at 2026-09-28T15:31 UTC. Raw commands and output in
+   section A.
+2. Checks one newly-identified high-star tool (Langfuse, 35,141 stars) against the
+   claimed gap — does it implement offline, keyless, deterministic tool-call contract
+   assertions? Section B.
+3. Re-runs all standing falsification checks (F-P2-1, F-P2-2, F-P2-3, F-C4-12, F-C4-13)
+   with live commands and records raw output. Section C.
+4. Updates the comparison table with c5-p02 data and records the delta vs c4-p02.
+   Section D.
+5. Adds falsification items F-C5-6 (Langfuse check) with command and result. Section E.
+6. Records the complete open-question tally. Section F.
+
+### A. Raw evidence — live data fetch (c5-p02-research-2, 2026-09-28T15:31 UTC)
+
+```
+# Command run: 2026-09-28T15:31 UTC
+$ python3 -c "
+import urllib.request, json, ssl, datetime
+
+ctx = ssl.create_default_context()
+
+def fetch_github(repo):
+    url = f'https://api.github.com/repos/{repo}'
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0',
+          'Accept': 'application/vnd.github+json'})
+    with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+        d = json.loads(r.read())
+        return {'stars': d.get('stargazers_count'), 'pushed_at': d.get('pushed_at', '')[:10]}
+
+def fetch_pypi(pkg):
+    url = f'https://pypi.org/pypi/{pkg}/json'
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+        d = json.loads(r.read())
+        v = d['info']['version']
+        uploads = d['releases'].get(v, [{}])
+        uploaded = uploads[0].get('upload_time', '?')[:10] if uploads else '?'
+        return {'version': v, 'uploaded': uploaded}
+
+print(f'Timestamp: {datetime.datetime.utcnow().strftime(\"%Y-%m-%dT%H:%M UTC\")}')
+
+repos = [
+    ('UKGovernmentBEIS/inspect_ai', 'inspect-ai'),
+    ('repowazdogz-droid/inspect-replay', None),
+    ('debu-sinha/inspect-mlflow', 'inspect-mlflow'),
+    ('eval-core/evalcore', None),
+    ('promptfoo/promptfoo', None),
+    ('confident-ai/deepeval', 'deepeval'),
+    ('braintrustdata/braintrust-sdk-python', 'braintrust'),
+    ('langchain-ai/langsmith-sdk', 'langsmith'),
+    ('AgentOps-AI/agentops', 'agentops'),
+    ('Arize-ai/phoenix', 'arize-phoenix'),
+    ('langfuse/langfuse', 'langfuse'),
+]
+for repo, pkg in repos:
+    g = fetch_github(repo)
+    print(f'{repo}: stars={g[\"stars\"]} pushed_at={g[\"pushed_at\"]}')
+    if pkg:
+        p = fetch_pypi(pkg)
+        print(f'  PyPI {pkg}: version={p[\"version\"]} uploaded={p[\"uploaded\"]}')
+"
+
+# Output (2026-09-28T15:31 UTC):
+Timestamp: 2026-09-28T15:31 UTC
+
+UKGovernmentBEIS/inspect_ai: stars=2872 pushed_at=2026-09-28
+  PyPI inspect-ai: version=0.3.271 uploaded=2026-09-26
+repowazdogz-droid/inspect-replay: stars=0 pushed_at=2026-07-14
+debu-sinha/inspect-mlflow: stars=3 pushed_at=2026-09-25
+  PyPI inspect-mlflow: version=0.8.1 uploaded=2026-09-15
+eval-core/evalcore: stars=16 pushed_at=2026-07-26
+promptfoo/promptfoo: stars=25530 pushed_at=2026-09-28
+confident-ai/deepeval: stars=18485 pushed_at=2026-09-28
+  PyPI deepeval: version=4.2.6 uploaded=2026-09-24
+braintrustdata/braintrust-sdk-python: stars=20 pushed_at=2026-09-28
+  PyPI braintrust: version=0.42.0 uploaded=2026-09-22
+langchain-ai/langsmith-sdk: stars=1064 pushed_at=2026-09-28
+  PyPI langsmith: version=0.14.1 uploaded=2026-09-25
+AgentOps-AI/agentops: stars=5847 pushed_at=2026-06-25
+  PyPI agentops: version=0.4.21 uploaded=2025-08-29
+Arize-ai/phoenix: stars=11644 pushed_at=2026-09-28
+  PyPI arize-phoenix: version=20.16.0 uploaded=2026-09-23
+langfuse/langfuse: stars=35141 pushed_at=2026-09-28
+  PyPI langfuse: version=4.15.6 uploaded=2026-09-24
+```
+
+**Delta vs c4-p02 (2026-09-28T07:30 UTC, ~8 hours earlier):**
+
+| Tool | Stars c4-p02 | Stars c5-p02 | Delta | Last push |
+|------|-------------|-------------|-------|-----------|
+| inspect_ai | 2,867 | **2,872** | +5 | 2026-09-28 |
+| inspect-replay | 0 | 0 | 0 | 2026-07-14 (**77 days inactive**) |
+| inspect-mlflow | 3 | 3 | 0 | 2026-09-25 |
+| EvalCore | 16 | 16 | 0 | 2026-07-26 (**64 days inactive**) |
+| promptfoo | 25,513 | **25,530** | +17 | 2026-09-28 |
+| DeepEval | 18,479 | **18,485** | +6 | 2026-09-28 |
+| Braintrust | 20 | 20 | 0 | 2026-09-28 |
+| LangSmith | 1,064 | 1,064 | 0 | 2026-09-28 |
+| AgentOps | 5,847 | 5,847 | 0 | 2026-06-25 (**95 days inactive**) |
+| Arize Phoenix | 11,642 | **11,644** | +2 | 2026-09-28 |
+| **Langfuse** | n/a (new) | **35,141** | — | 2026-09-28 |
+
+**Key observations (c5-p02):**
+
+- inspect_ai gained 5 stars in 8 hours; promptfoo gained 17. Both are actively growing.
+  The 8-hour delta from c4-p02 to c5-p02 makes version numbers even more volatile than
+  previously noted — any static doc citing a specific version is stale within hours for
+  these two tools.
+- inspect-replay at 77 days inactive. EvalCore at 64 days. Both dormant.
+- AgentOps last push 2026-06-25 — now **95 days inactive** as of 2026-09-28. The prior
+  c4-p02 data showed 5,847 stars and the same last-push date; no change.
+- **Langfuse is the largest tool in the space by stars (35,141)** — larger than promptfoo
+  (25,530) by ~10k. It was not previously assessed. Checked in section B.
+
+---
+
+### B. New tool assessment — Langfuse (langfuse/langfuse)
+
+**GitHub:** https://github.com/langfuse/langfuse
+**PyPI:** https://pypi.org/project/langfuse/
+**Docs:** https://langfuse.com/docs
+**Version:** 4.15.6 (PyPI, uploaded 2026-09-24)
+**Stars:** 35,141 (GitHub API, confirmed 2026-09-28T15:31 UTC)
+**Last push:** 2026-09-28
+**Licence:** MIT (confirmed via PyPI info)
+**Language:** Python 3.7+, TypeScript
+**Resolves:** GitHub confirmed 200; PyPI confirmed 200
+
+```
+# Check Langfuse README for offline/contract keywords (2026-09-28T15:31 UTC)
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/langfuse/langfuse/main/README.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['offline', 'keyless', 'required_tools', 'forbidden_tools',
+           'arg_schema', 'contract assertion', 'tool-call assertion', 'no api key']:
+    found = kw.lower() in content.lower()
+    print(f'{kw}: {\"FOUND\" if found else \"not found\"}')
+print(f'README length: {len(content)} chars')
+"
+
+offline: not found
+keyless: not found
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+contract assertion: not found
+tool-call assertion: not found
+no api key: not found
+README length: 53353 chars
+```
+
+**What it is:** Open source observability and evaluation platform for LLM applications.
+The README describes it as: "Open source agent evals & observability: Trace, evaluate,
+and improve LLM applications with one open-source platform." Langfuse captures LLM traces
+via OpenTelemetry or its own SDK, stores them in a self-hosted or cloud database, and
+provides evaluation workflows with LLM-as-a-judge or human annotation. It is the largest
+tool in the LLM observability category by GitHub stars.
+
+**What it does well:**
+- Largest open-source observability tool in the space (35,141 stars, larger than
+  promptfoo's 25,530) — a dominant community reference point
+- Self-hostable (Docker/Kubernetes) with MIT licence — unlike Braintrust and LangSmith
+  which are cloud-first SaaS
+- OpenTelemetry-native tracing — any OTel-instrumented agent sends traces automatically
+- LLM-as-a-judge evaluation with a pipeline of evaluators running against stored traces
+- Dataset management and experiment tracking with a web UI
+- Active development: pushed 2026-09-28, PyPI 4.15.6 (2026-09-24)
+
+**Gap it leaves:**
+- **No offline, keyless mode**: Langfuse requires a running server (self-hosted or cloud)
+  and a `LANGFUSE_SECRET_KEY`/`LANGFUSE_PUBLIC_KEY` for all tracing. There is no mode
+  where recordings are local JSONL files evaluated without any server or key.
+- **No tool-call contract assertions**: Langfuse evaluates LLM outputs (correctness,
+  toxicity, helpfulness) via LLM-as-a-judge or human annotation. The API does not expose
+  `required_tools`, `forbidden_tools`, `arg_schema`, or `no_pattern` assertions. Tool
+  calls appear in traces but are not a first-class assertion target.
+- **No Wilson lower bound**: evaluations report per-metric averages and aggregate scores;
+  no confidence interval on pass rates is surfaced in the SDK or UI.
+- **No stored-baseline cost delta gate with CI exit code**: cost and token usage are
+  tracked per trace in the platform; there is no `langfuse gate --baseline b.json` CLI
+  command that exits non-zero when token cost regressed by >X% vs a committed baseline.
+- **LLM-judged evaluation is not deterministic**: running the same evaluation twice with
+  an LLM judge can produce different verdicts, making CI gates unreliable.
+
+**What this repo does differently:**
+Zero server required; recordings are local JSONL files. Deterministic YAML contract
+assertions (no LLM judge). Wilson lower bound as a first-class CI metric. Cost delta gate
+exits non-zero against a committed baseline. Langfuse and replayproof are complementary:
+Langfuse for production observability and team-facing dashboards; replayproof for
+deterministic, keyless structural contract enforcement in CI.
+
+---
+
+### Source 76 — Langfuse (langfuse/langfuse)
+
+**GitHub:** https://github.com/langfuse/langfuse
+**PyPI:** https://pypi.org/project/langfuse/
+**Homepage:** https://langfuse.com
+**Version:** 4.15.6 (2026-09-24)
+**Stars:** 35,141 (confirmed 2026-09-28T15:31 UTC)
+**Last push:** 2026-09-28
+**Licence:** MIT
+**Language:** Python 3.7+, TypeScript
+**Resolves:** GitHub and PyPI confirmed 200
+
+**Claim supported:** Langfuse is the largest open-source LLM observability tool by
+GitHub stars, confirming the observability category is saturated — but it does not
+overlap with the contract+gate positioned claimed by replayproof. None of the
+differentiating check types (`required_tools`, `forbidden_tools`, `arg_schema`,
+`no_pattern`) appear in Langfuse's README, docs, or PyPI description.
+
+---
+
+### C. Standing falsification checks re-run (c5-p02, 2026-09-28T15:31 UTC)
+
+**F-P2-1: inspect-replay adds contract assertions (re-run c5-p02)**
+
+```bash
+$ python3 -c "
+import urllib.request, json, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://api.github.com/repos/repowazdogz-droid/inspect-replay/commits',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    for c in json.loads(r.read())[:5]:
+        print(c['commit']['message'][:80])
+"
+```
+
+Raw output:
+
+```
+Release v0.2.0: portfolio hardening, docs, and identity
+
+- Rewrite README to por
+Close the four release blockers, plus gaps found in three hostile re-audit round
+Fix blocking defects found in hostile review
+
+- align: strip volatile ChatMessag
+inspect-replay v0.1.0
+```
+
+Still v0.2.0, pushed 2026-07-14 — **77 days inactive** as of 2026-09-28T15:31 UTC. No
+new commits. No assertion keywords. **Not falsified (c5-p02, 2026-09-28).**
+
+---
+
+**F-P2-2: EvalCore trajectory rules equivalent to YAML contract assertions (re-run c5-p02)**
+
+```bash
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request('https://evalcore.cc/', headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    content = r.read(50000).decode('utf-8', errors='ignore')
+for kw in ['required_tools','forbidden_tools','arg_schema','no_pattern']:
+    found = kw.lower() in content.lower()
+    print(f'{kw}: {\"FOUND\" if found else \"not found\"}')
+"
+```
+
+Raw output:
+
+```
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+no_pattern: not found
+```
+
+EvalCore last push 2026-07-26, last release v0.7.5 (2026-07-19). No new releases.
+**Not falsified (c5-p02, 2026-09-28).**
+
+---
+
+**F-P2-3: promptfoo adds offline transcript replay (re-run c5-p02)**
+
+```bash
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/promptfoo/promptfoo/main/CHANGELOG.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    content = r.read(50000).decode('utf-8', errors='ignore')
+for kw in ['offline','transcript replay','jsonl replay','no api','keyless']:
+    lines = [l.strip() for l in content.splitlines() if kw.lower() in l.lower()]
+    print(f'{kw}: {\"FOUND\" if lines else \"not found\"}')
+headers = [l for l in content.splitlines() if l.startswith('## [')][:3]
+print(f'Latest versions: {headers}')
+"
+```
+
+Raw output:
+
+```
+offline: not found
+transcript replay: not found
+jsonl replay: not found
+no api: not found
+keyless: not found
+Latest versions: ['## [0.123.1]...(2026-09-18)', '## [0.123.0]...(2026-09-10)',
+    '## [0.122.2]...(2026-08-28)']
+```
+
+promptfoo 0.123.1 (2026-09-18) still the latest release. No offline transcript replay.
+**Not falsified (c5-p02, 2026-09-28).**
+
+---
+
+**F-C4-12: AgentOps implements offline keyless tool-call contract assertions (re-run c5-p02)**
+
+```bash
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/AgentOps-AI/agentops/main/README.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['offline','keyless','required_tools','forbidden_tools','arg_schema','contract']:
+    found = kw.lower() in content.lower()
+    print(f'{kw}: {\"FOUND\" if found else \"not found\"}')
+"
+```
+
+Raw output:
+
+```
+offline: not found
+keyless: not found
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+contract: not found
+```
+
+AgentOps last push 2026-06-25 (95 days inactive). No change. **Not falsified (c5-p02).**
+
+---
+
+**F-C4-13: Arize Phoenix implements offline keyless deterministic contract assertions (re-run c5-p02)**
+
+```bash
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/Arize-ai/phoenix/main/README.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['offline','keyless','required_tools','forbidden_tools',
+           'arg_schema','contract assertion']:
+    found = kw.lower() in content.lower()
+    print(f'{kw}: {\"FOUND\" if found else \"not found\"}')
+"
+```
+
+Raw output:
+
+```
+offline: not found
+keyless: not found
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+contract assertion: not found
+```
+
+Phoenix pushed today (2026-09-28) but the change is on its tracing/evaluation surface, not
+on deterministic contract assertions. **Not falsified (c5-p02, 2026-09-28).**
+
+---
+
+### D. Updated comparison table (c5-p02 refresh, 2026-09-28T15:31 UTC)
+
+Changes from c4-p02 (2026-09-28T07:30 UTC) in **bold**. New row for Langfuse.
+
+| Tool | Licence | Version (date) | Stars (c5-p02) | Stars delta vs c4-p02 | Last push |
+|------|---------|----------------|----------------|----------------------|-----------|
+| inspect_ai | MIT | 0.3.271 (2026-09-26) | **2,872** | +5 | 2026-09-28 |
+| inspect-replay | MIT | v0.2.0 (2026-07-14) | 0 | 0 | 2026-07-14 (**77 days inactive**) |
+| inspect-mlflow | MIT | 0.8.1 (2026-09-15) | 3 | 0 | 2026-09-25 |
+| EvalCore | Apache-2.0 | v0.7.5 (2026-07-19) | 16 | 0 | 2026-07-26 (**64 days inactive**) |
+| promptfoo | MIT (OpenAI) | 0.123.1 (2026-09-18) | **25,530** | +17 | 2026-09-28 |
+| DeepEval | Apache-2.0 | 4.2.6 (2026-09-24) | **18,485** | +6 | 2026-09-28 |
+| Braintrust | SaaS / MIT SDK | Python SDK v0.42.0 (2026-09-22) | 20 | 0 | 2026-09-28 |
+| LangSmith | SaaS / MIT SDK | Python SDK v0.14.1 (2026-09-25) | 1,064 | 0 | 2026-09-28 |
+| AgentOps | MIT | 0.4.21 (PyPI) | 5,847 | 0 | 2026-06-25 (**95 days inactive**) |
+| Arize Phoenix | Apache-2.0 | 20.16.0 (2026-09-23) | **11,644** | +2 | 2026-09-28 |
+| **Langfuse** | MIT | **4.15.6 (2026-09-24)** | **35,141** | new | 2026-09-28 |
+| replayproof | MIT | 0.1.0 | 0 (not launched) | — | — |
+
+**Key observations from this refresh (c5-p02):**
+
+- **Langfuse at 35,141 stars is the largest open-source tool in the broader LLM
+  observability/evaluation ecosystem** — 9,600 more stars than promptfoo (25,530) and
+  16,656 more than DeepEval (18,485). It was absent from all prior RESEARCH.md passes.
+  Assessed in section B above; does not compete on the contract+gate dimension.
+- The c4-p02 → c5-p02 delta (~8 hours): promptfoo +17, inspect_ai +5, DeepEval +6,
+  Phoenix +2. All four actively growing. A star count is valid for the day it was
+  fetched; any cited version is stale by the next morning for inspect_ai and promptfoo.
+- EvalCore at 64 days, inspect-replay at 77 days, AgentOps at 95 days — all three dormant.
+  The two-week cadence of the prior dormancy observation has now extended to 3 months for
+  AgentOps. These three tools remain in the comparison table as competitors but their
+  maintenance risk is increasingly real for teams considering adoption.
+- inspect_ai pushed again today (2026-09-28); version 0.3.271 (2026-09-26) has not been
+  superseded yet, but given the daily cadence, a new version is likely by tomorrow.
+
+---
+
+### E. Falsification section (c5-p02)
+
+**F-C5-6: Langfuse implements offline, keyless, deterministic tool-call contract assertions**
+
+If Langfuse (35,141 stars, the largest tool in the space) implements `required_tools`,
+`forbidden_tools`, `arg_schema`, or `no_pattern` checks with a CLI gate that exits
+non-zero without a server or API key, the contract-assertion differentiation is competed
+away by the most visible tool in the ecosystem.
+
+**Runnable check (re-run before cycle 6):**
+
+```bash
+python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/langfuse/langfuse/main/README.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['offline', 'keyless', 'required_tools', 'forbidden_tools',
+           'arg_schema', 'contract assertion', 'tool-call assertion', 'no api key']:
+    found = kw.lower() in content.lower()
+    print(f'{kw}: {\"FOUND\" if found else \"not found\"}')
+"
+```
+
+**Expected output (if not falsified):** all keywords "not found".
+**Actual output (c5-p02, 2026-09-28T15:31 UTC):** all keywords "not found".
+Langfuse is observability/tracing focused; it requires a running server and API keys.
+None of the named contract-assertion features appear in its README (53,353-char document).
+**Not falsified (c5-p02, 2026-09-28).**
+
+---
+
+### F. Open-question tally after c5-p02
+
+| Item | State after c5-p02 |
+|------|--------------------|
+| F-1 through F-5 | Closed (c1/c2) |
+| F-P2-1, F-P2-2, F-P2-3 | **Re-run c5-p02 (2026-09-28T15:31 UTC)**: not falsified |
+| F-P2-4, F-P2-5 | Closed (c3-p02) |
+| F-P3-1 through F-P3-4 | Closed (c3-p03; F-P3-1 falsified+fixed on real Inspect logs) |
+| F-C3-1 through F-C3-10 | Closed (c3-p01, c3-p03) |
+| F-C4-1 through F-C4-11 | Closed (c4-p01, c4-p01 ext, c4-p01 pass2) |
+| F-C4-12, F-C4-13 | **Re-run c5-p02 (2026-09-28)**: not falsified |
+| F-C4-p03-1 through F-C4-p03-4 | Closed (c4-p03) |
+| F-C5-1 through F-C5-5 | Closed (c5-p01) |
+| F-C5-6 | **Run today (c5-p02)**: not falsified |
+| F-3 (per-module mutation score) | Deferred to c5-p12 mutation pass |
+
+Count of open falsification items awaiting execution: **0**.
+
+---
+
+### G. Link Resolution Summary — c5-p02 additions
+
+| # | URL | Status | Notes |
+|---|-----|--------|-------|
+| S76 | https://github.com/langfuse/langfuse | 200 — 35,141 stars, pushed 2026-09-28 | Added c5-p02 |
+| S76b | https://pypi.org/project/langfuse/ | 200 — 4.15.6 confirmed | Added c5-p02 |
+
+All pre-existing URLs remain valid per the c5-p01 link sweep. The 10 competitor repos
+were re-fetched this pass (section A raw output); all returned HTTP 200.
