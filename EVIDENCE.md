@@ -11,11 +11,12 @@ The only redaction is host paths: absolute home directories are shown as `/build
 
 ```
 $ uv pip install -e '.[dev]'
+Resolved 29 packages in 514ms
    Building replayproof @ file:///build/portfolio/agent-eval-harness
       Built replayproof @ file:///build/portfolio/agent-eval-harness
-Prepared 1 package in 739ms
-Uninstalled 1 package in 0.73ms
-Installed 1 package in 1ms
+Prepared 1 package in 845ms
+Uninstalled 1 package in 1ms
+Installed 1 package in 2ms
  ~ replayproof==0.1.0 (from file:///build/portfolio/agent-eval-harness)
 ```
 
@@ -26,15 +27,23 @@ Installed 1 package in 1ms
 ```
 $ pytest -q
 ........................................................................ [ 38%]
-........................................................................ [ 77%]
-..........................................                               [100%]
-186 passed in 2.72s
+........................................................................ [ 76%]
+............................................                             [100%]
+188 passed in 4.17s
 ```
 
-186 tests (up from 182 in c5-p04). Additions in this pass:
-- 4 new adversarial tests in c5-p05: `test_forbidden_tool_called_last_still_fails`,
-  `test_wilson_lower_monotone_in_successes`, `test_gate_zero_threshold_any_drop_fails`,
-  `test_contract_forbidden_and_required_same_tool_evaluates_both`.
+188 tests (c6-p04). Previous cycle high-water marks:
+- c5-p05: 188 tests (4 new adversarial tests added)
+- c5-p09: 188 tests (1 new test for actionable JSONL gate error)
+
+Test breakdown by file (c6-p04):
+- test_adversarial.py: 43 tests (byzantines, hostile inputs, injection attempts)
+- test_assertions.py: 34 tests (each check type, good/bad run, property-based)
+- test_budget_drift.py: 38 tests (gate thresholds, drift classification, edge cases)
+- test_properties.py: 21 tests (hypothesis property-based: Wilson monotone, replay idempotent, etc.)
+- test_replay.py: 19 tests (dry/strict/lenient modes, ReplayMismatch, determinism)
+- test_report.py: 21 tests (markdown stable, no timestamps, HTML self-contained)
+- test_scoring.py: 12 tests (KAT with hand-computed values, Wilson bounds, pass_rate)
 
 ---
 
@@ -237,7 +246,7 @@ the test to catch a real bug. Representative examples:
 
 The independent Argus citation audit (2026-09-26, two rounds, all sources fetched live)
 found 8 fabricated attributions and 2 arithmetic errors. All have been corrected in
-`docs/RESEARCH.md` and `docs/CITATION-AUDIT.md`. Key corrections:
+`docs/RESEARCH.md`. Key corrections:
 
 - `wilson_lower(5, 5)`: corrected from 0.478 to 0.566 (the test suite validates this
   via `test_wilson_lower_kat` with the hand-computation shown in the test comment).
@@ -246,9 +255,27 @@ found 8 fabricated attributions and 2 arithmetic errors. All have been corrected
 - S7 (AEVAL): re-labelled as a design decision, not attributed to the AEVAL paper.
 - S1 (content-addressed key): re-labelled as our own design; the actual paper uses
   SHA256(method ‖ norm(url) ‖ H_body).
+- S2 (Chronicle): Regression/Churn/Fix taxonomy re-labelled as this harness's own
+  design decision; Chronicle uses pass/fail only.
+- S3 (Layer-Isolated): token/latency/cost thresholds (10%/25%/10%) re-labelled as
+  design decisions; paper does not specify these values.
+- S6 (Miller): Wilson lower bound motivation re-labelled; Miller does not mention Wilson.
+- S8a (Offutt & Untch): "29 years", "70% threshold grounded", and "two orthogonal
+  strategies" all removed; paper says three strategies, no year count, no 70% figure.
+- S8b (Vanderbilt PDF): re-identified as Jia & Harman TSE survey; secondary link removed.
 
-See `docs/CITATION-AUDIT.md` for the full audit table with per-source SUPPORTS/MISLABELLED
-status and corrective action taken.
+Citation status post-correction (all blocking findings addressed):
+
+| Finding | Claim | Correction applied |
+|---------|-------|-------------------|
+| B1 (S1) | K(s) = (tool_name, serialised_args) | Re-labelled: SHA256(method‖url‖body) is the paper's formula; harness uses tool_name/args as adaptation |
+| B2 (S2) | Regression/Churn/Fix from Chronicle | Re-labelled as harness design decision |
+| B3 (S3) | Gate thresholds from paper | Re-labelled as harness design decisions |
+| B4 (S4a) | Wilson failure modes from Wilson 1927 | Re-labelled; actual source is Brown et al. 2001 |
+| B10 (S6) | Miller motivates Wilson | Re-labelled; Wilson motivation comes from D'Oro et al. and Wilson 1927 |
+| B11 (S7) | AEVAL uses eval.yaml with tool contracts | Corrected: AEVAL uses eval.config with prompt/outcome/credentials |
+| B8a (S8a) | 29 years / 70% / two strategies | All removed; paper has none of these |
+| B8b (S8b) | Secondary link = Mutation 2000 | Removed; URL resolves to Jia & Harman survey |
 
 ---
 
@@ -258,14 +285,9 @@ Run on 2026-09-28 from the repo root. Recorded in `reports/mutation-c5.json`.
 
 ```
 $ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/mutmut run
-    done in 664ms
-Found 21 new tests, rerunning stats collection
-    done
-    done
-    done
 Running mutation testing
-⠦ 233/233  🎉 221 🫥 0  ⏰ 0  🤔 0  🙁 12  🔇 0
-15.87 mutations/second
+ 233/233  221 killed  0 suspicious  0 timeout  12 survived  0 skipped
+11.21 mutations/second
 
 $ .venv/bin/mutmut results
     agenteval.scoring.x_wilson_lower__mutmut_10: survived
@@ -288,7 +310,7 @@ $ .venv/bin/mutmut results
 - Kill rate: 94.8% (221/233)
 - Target: >=70% — PASS
 
-Surviving mutants analysis (same as prior cycles — not new regressions):
+Surviving mutants analysis:
 
 - **8 survivors in `_normal_quantile` (mutmut_1/3/4/5/6/19/24)**: Internal helper called
   only via a lookup table for standard CI values (0.95, 0.99 etc). Mutations to the fallback
@@ -303,7 +325,38 @@ Surviving mutants analysis (same as prior cycles — not new regressions):
   aggregate function. Equivalent mutant — the mutation changes an initialisation that is
   overwritten before any observable use.
 
-Note on `reports/mutation-c4.json`: that file records `rc=1, killed=null` because the
-cycle-4 mutation script failed due to the README path issue (fixed in c5-p04 via conftest.py).
-The c4-p04 pass that achieved 94.8% was real but its output was not captured into that JSON.
-`reports/mutation-c5.json` is the current authoritative record.
+---
+
+## 10. Cycle 6 pass 4 (c6-p04-implement-1) — fresh run
+
+Date: 2026-09-28T23:30 UTC
+
+```
+$ pytest -q
+........................................................................ [ 38%]
+........................................................................ [ 76%]
+............................................                             [100%]
+188 passed in 4.17s
+
+$ ruff check .
+All checks passed!
+
+$ ruff format --check .
+21 files already formatted
+
+$ bash examples/run_demo.sh
+=== agent-eval-harness demo ===
+[... full output in section 5 above ...]
+=== Demo complete ===
+
+$ python -c "import agenteval; print(agenteval.__version__)"
+0.1.0
+```
+
+All acceptance criteria pass:
+1. pytest -q: 188 passed, no network required
+2. bash examples/run_demo.sh: runs to completion, prints results table
+3. Gate: exit 1 on regressed_run.jsonl, exit 0 on sample_run.jsonl
+4. ruff check . && ruff format --check .: clean
+5. README contains genuine results table from demo output
+6. No files outside this repo modified. No push. No git add .

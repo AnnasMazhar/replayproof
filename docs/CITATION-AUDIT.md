@@ -158,3 +158,27 @@ different paper. (Status claim reproduces; content does not.)
   matching the document.
 
 CITATION_AUDIT COMPLETE: 11 verified, 9 blocking
+
+
+---
+
+## Correction tracking (c6-p04, 2026-09-28)
+
+Builder corrections applied to `docs/RESEARCH.md` for each blocking finding.
+The audit document above is preserved verbatim; corrections are tracked here.
+
+| finding | original claim | correction applied in RESEARCH.md | status |
+|---------|---------------|-----------------------------------|--------|
+| B1 (S1) | K(s) = (tool_name, serialised_args) presented as the paper's formula | Re-labelled: "SHA256(method‖url‖body) is the paper's K(s). The harness uses (tool_name, serialised_args) as an adaptation of the concept to higher-level tool calls; this is our design decision, not the paper's." | CORRECTED |
+| B2 (S2) | Regression/Churn/Fix verdict taxonomy attributed to Chronicle | Added correction note: "Our design decision (not from this paper)" with explicit statement that Chronicle uses only pass/fail | CORRECTED |
+| B3 (S3) | Gate thresholds (10%/25%/10%) and zero tolerance attributed to paper | Added correction note: "Our design decision (not from this paper)" for all three threshold values; "six local regressions" (not seven) confirmed | CORRECTED |
+| B4 (S4a) | Wilson failure modes (n<5 undercoverage, n≥30 conservatism) attributed to Wilson 1927 | Re-sourced to Brown et al. 2001 and Agresti & Coull 1998 (the actual sources); Wilson 1927 attribution removed from failure-modes bullets | CORRECTED |
+| B7 (S4d) | Agresti & Coull 1998 confirms Wilson undercovers for n<5 | Removed the specific claim; marked as UNRESOLVABLE (full text unreachable via Cloudflare); description changed to "consistent with binomial interval coverage literature" without naming direction | CORRECTED |
+| B10 (S6) | Miller "motivates the Wilson lower bound as the gate threshold" | Added correction note: "Miller does not mention Wilson, the Wilson interval, or lower bounds. The Wilson lower bound motivation comes from D'Oro et al. (S5) and Wilson 1927 (S4a)." | CORRECTED |
+| B11 (S7) | AEVAL uses eval.yaml specifying required tool sequences, arg schemas, forbidden outputs | Corrected: "AEVAL's contract is eval.config (not eval.yaml) declaring a natural-language prompt, expected outcome, and required credentials — not tool-call sequences. The specific check types in this harness are our own design." | CORRECTED |
+| B8a (S8a) | "29 years", "70% threshold grounded", "two orthogonal strategies" attributed to Offutt & Untch | All three removed; "three strategies" (fewer/smarter/faster) noted; 70% target re-labelled as community practice, not from this paper | CORRECTED |
+| B8b (S8b) | Secondary link presented as Mutation 2000 | Secondary link removed entirely; only the Springer DOI is authoritative for this citation | CORRECTED |
+
+Post-correction status: 11 verified (unchanged) + 8 corrected + 1 unresolvable = 20 citations.
+All blocking findings have been addressed in RESEARCH.md. The audit document above is the
+original independent record and has not been modified.
