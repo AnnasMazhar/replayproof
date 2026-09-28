@@ -29,6 +29,15 @@ TestGateCLIRejectsJSONL:
   documented as a JSONL file; the CLI must return a non-zero exit code and print an
   actionable error message when given a JSONL file (multiple JSON objects) instead of
   the expected single-object JSON produced by agenteval run.
+
+TestCLIErrorHandlingMissingFiles:
+- test_drift_cli_missing_a: catches drift CLI emitting a raw FileNotFoundError
+  traceback when --a file is missing; must return rc=1 with an actionable message.
+- test_drift_cli_missing_b: same for --b argument.
+- test_replay_cli_missing_run: catches replay CLI emitting a raw FileNotFoundError
+  traceback when --run file is missing; must return rc=1 with an actionable message.
+- test_report_cli_missing_suite: catches report CLI emitting a raw FileNotFoundError
+  traceback when --suite file is missing; must return rc=1 with an actionable message.
 """
 
 import os
@@ -509,4 +518,93 @@ class TestGateCLIRejectsJSONL:
         assert rc == 1, (
             "gate CLI must return exit code 1 when --current is a JSONL file "
             "(multi-line, not a single JSON object); got rc=" + str(rc)
+        )
+
+
+class TestCLIErrorHandlingMissingFiles:
+    """Tests for actionable error messages when CLI commands receive missing files.
+
+    Faults detected:
+
+    - test_drift_cli_missing_a: catches a drift command that raises a raw
+      FileNotFoundError traceback instead of an actionable error message when --a
+      does not exist. A stranger following the docs sees the error and knows what to do.
+
+    - test_drift_cli_missing_b: same for --b.
+
+    - test_replay_cli_missing_run: catches a replay command that raises a raw
+      FileNotFoundError traceback instead of an actionable error message when
+      --run does not exist.
+
+    - test_report_cli_missing_suite: catches a report command that raises a raw
+      FileNotFoundError traceback instead of an actionable message when --suite
+      does not exist.
+    """
+
+    def test_drift_cli_missing_a(self, tmp_path: "pytest.TempDir") -> None:
+        """Fault: drift --a <missing> emits a raw Python traceback (FileNotFoundError)
+        instead of an actionable 'error: suite file not found' message.
+        A stranger sees the traceback and has no clear recovery action.
+        """
+        import json as _json
+
+        from agenteval.cli import _cmd_drift, build_parser
+
+        good_file = tmp_path / "b.json"
+        good_file.write_text(_json.dumps({"cases": [], "pass_rate": 1.0}))
+
+        parser = build_parser()
+        args = parser.parse_args(
+            ["drift", "--a", str(tmp_path / "missing_a.json"), "--b", str(good_file)]
+        )
+        rc = _cmd_drift(args)
+        assert rc == 1, "drift CLI must return exit code 1 when --a file is missing; got rc=" + str(
+            rc
+        )
+
+    def test_drift_cli_missing_b(self, tmp_path: "pytest.TempDir") -> None:
+        """Fault: drift --b <missing> emits a raw Python traceback instead of
+        an actionable error message. Same fault as test_drift_cli_missing_a but
+        for the --b argument, which is a separate code path.
+        """
+        import json as _json
+
+        from agenteval.cli import _cmd_drift, build_parser
+
+        good_file = tmp_path / "a.json"
+        good_file.write_text(_json.dumps({"cases": [], "pass_rate": 1.0}))
+
+        parser = build_parser()
+        args = parser.parse_args(
+            ["drift", "--a", str(good_file), "--b", str(tmp_path / "missing_b.json")]
+        )
+        rc = _cmd_drift(args)
+        assert rc == 1, "drift CLI must return exit code 1 when --b file is missing; got rc=" + str(
+            rc
+        )
+
+    def test_replay_cli_missing_run(self, tmp_path: "pytest.TempDir") -> None:
+        """Fault: replay --run <missing> emits a raw Python traceback instead of
+        an actionable 'error: run file not found' message.
+        """
+        from agenteval.cli import _cmd_replay, build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["replay", "--run", str(tmp_path / "nonexistent.jsonl")])
+        rc = _cmd_replay(args)
+        assert rc == 1, (
+            "replay CLI must return exit code 1 when --run file is missing; got rc=" + str(rc)
+        )
+
+    def test_report_cli_missing_suite(self, tmp_path: "pytest.TempDir") -> None:
+        """Fault: report --suite <missing> emits a raw Python traceback instead of
+        an actionable 'error: suite file not found' message.
+        """
+        from agenteval.cli import _cmd_report, build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["report", "--suite", str(tmp_path / "nonexistent.json")])
+        rc = _cmd_report(args)
+        assert rc == 1, (
+            "report CLI must return exit code 1 when --suite file is missing; got rc=" + str(rc)
         )

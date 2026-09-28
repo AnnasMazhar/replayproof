@@ -113,7 +113,7 @@ If this is useful, star the repo — it is how others find it.
 
 ## Real results
 
-Generated from `bash examples/run_demo.sh` on 2026-09-27:
+Generated from `bash examples/run_demo.sh` on 2026-09-28:
 
 **Good run (sample_run.jsonl):**
 
@@ -259,6 +259,34 @@ agenteval gate --baseline baseline.json --current current.json
 
 See [docs/ADOPTION.md](docs/ADOPTION.md) for a full step-by-step integration guide, including
 CI YAML and a concrete failure mode walkthrough.
+
+## Integration with EvalCore
+
+[EvalCore](https://github.com/eval-core/evalcore) handles record-and-replay with a
+content-addressed cassette; `--cache replay` never calls a live model and fails the case
+on a cache miss. replayproof sits on top: assert a named YAML contract over the traces
+EvalCore already recorded, and gate CI on cost regression.
+
+```bash
+# 1. Run EvalCore in replay mode — no model calls, no keys
+evalcore run --suite suite.yaml --cache replay --format jsonl --output /tmp/traces.jsonl
+
+# 2. Evaluate the traces against a replayproof contract
+agenteval run \
+    --contract contracts/my_agent.yaml \
+    --runs /tmp/traces.jsonl \
+    --output /tmp/current.json
+
+# 3. Gate: exit 1 if pass_rate dropped, tokens +10%, cost +10%, or p95 latency +25%
+agenteval gate \
+    --baseline baselines/my_agent.json \
+    --current /tmp/current.json
+```
+
+What EvalCore's `trajectory` rules add: `must_call`, `must_not_call`, ordering, step budget.
+What replayproof adds on top: JSON-Schema argument validation (`arg_schema`), PII-pattern
+detection (`no_pattern`), a Wilson lower bound on every pass rate, and a cost delta gate
+against a committed baseline. The two tools do not overlap; they compose.
 
 ## Recording your own agent
 

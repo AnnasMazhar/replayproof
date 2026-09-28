@@ -1,5 +1,140 @@
 # Improvement Log — agent-eval-harness
 
+## c4-p09: Fix error messages (drift/replay/report), update README date, add EvalCore integration example (2026-09-28)
+
+### Finding source
+
+Systematic audit of all CLI commands against the "actionable for strangers" bar.
+Three commands (`replay`, `drift`, `report`) still emitted raw Python tracebacks on
+missing-file input — the most common mistake a first-time user makes. The `run` and
+`gate` commands were fixed in c1-p09 but the remaining three were missed.
+
+Secondary fixes: README "Real results" date was `2026-09-27` (stale by one day after
+the c4-p03 recipe was executed on 2026-09-28); EvalCore was named in "Where this fits"
+with no code snippet — a skeptical reviewer has no way to verify the composability claim
+without running the commands themselves.
+
+### Root causes
+
+**Raw tracebacks in drift/replay/report:** The c1-p09 improve pass wired actionable
+error handling into `run` and `gate` but did not audit the remaining three subcommands
+(`replay`, `drift`, `report`). Each of the three opened files with a bare `open()` call
+and no `try/except FileNotFoundError` guard.
+
+**README date stale:** The "Real results" section date was copied from c4-p08 and not
+updated when c4-p03 ran the demo on 2026-09-28.
+
+**EvalCore no code example:** MARKET-VERDICTS and COMPARISONS.md both name EvalCore as
+the composable partner ("not a runner — reads recordings other tools make"), but the
+README "Where this fits" section only gestured at EvalCore in prose. No command snippet
+existed. ADOPTION.md has the full recipe (with EvalCore in the c2 deepening section)
+but the README is the first surface a reviewer reads.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 176 passed |
+| `agenteval drift --a missing.json ...` error | raw `FileNotFoundError` Python traceback |
+| `agenteval replay --run missing.jsonl` error | raw `FileNotFoundError` Python traceback |
+| `agenteval report --suite missing.json` error | raw `FileNotFoundError` Python traceback |
+| README "Real results" date | `2026-09-27` (stale) |
+| README EvalCore integration example | prose only, no code snippet |
+| Tests for drift/replay/report missing-file handling | NONE |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 180 passed (+4) |
+| `agenteval drift --a missing.json ...` error | `error: suite file not found for --a: 'missing.json'\nRun 'agenteval run --output <file>'...` |
+| `agenteval replay --run missing.jsonl` error | `error: run file not found: 'missing.jsonl'\nCheck the path, or see examples/recordings/...` |
+| `agenteval report --suite missing.json` error | `error: suite file not found: 'missing.json'\nRun 'agenteval run --output <file>'...` |
+| README "Real results" date | `2026-09-28` (current) |
+| README EvalCore integration example | YES — `## Integration with EvalCore` section with 3-command snippet |
+| Tests for drift/replay/report missing-file handling | YES — `TestCLIErrorHandlingMissingFiles` (4 tests) |
+
+### Evidence
+
+Full test run:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest -q
+........................................................................ [ 40%]
+........................................................................ [ 80%]
+....................................                                     [100%]
+180 passed in 4.48s
+```
+
+Ruff clean:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+20 files already formatted
+RUFF CLEAN
+```
+
+New error messages (before: raw traceback; after: actionable):
+
+```
+$ .venv/bin/agenteval drift --a nonexistent.json --b nonexistent2.json 2>&1; echo "Exit: $?"
+error: suite file not found for --a: 'nonexistent.json'
+Run 'agenteval run --output <file>' to generate a suite result first.
+Exit: 1
+
+$ .venv/bin/agenteval replay --run nonexistent.jsonl 2>&1; echo "Exit: $?"
+error: run file not found: 'nonexistent.jsonl'
+Check the path, or see examples/recordings/sample_run.jsonl for an example.
+Exit: 1
+
+$ .venv/bin/agenteval report --suite nonexistent.json 2>&1; echo "Exit: $?"
+error: suite file not found: 'nonexistent.json'
+Run 'agenteval run --output <file>' to generate a suite result first.
+Exit: 1
+```
+
+New tests pass:
+
+```
+$ .venv/bin/python -m pytest tests/test_budget_drift.py::TestCLIErrorHandlingMissingFiles -v
+tests/test_budget_drift.py::TestCLIErrorHandlingMissingFiles::test_drift_cli_missing_a PASSED
+tests/test_budget_drift.py::TestCLIErrorHandlingMissingFiles::test_drift_cli_missing_b PASSED
+tests/test_budget_drift.py::TestCLIErrorHandlingMissingFiles::test_replay_cli_missing_run PASSED
+tests/test_budget_drift.py::TestCLIErrorHandlingMissingFiles::test_report_cli_missing_suite PASSED
+4 passed in 0.32s
+```
+
+Demo still passes:
+
+```
+$ bash examples/run_demo.sh | grep -E "=== Demo complete|PASS: gate exits"
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+### Files changed
+
+- `src/agenteval/cli.py` — `_cmd_replay`: wrapped `open(args.run)` in `try/except
+  FileNotFoundError`; wrapped `Run.from_jsonl()` in `try/except (KeyError, ValueError)`;
+  both print actionable error messages and return 1. `_cmd_drift`: wrapped `open(args.a)`
+  and `open(args.b)` in separate pre-checks with actionable messages; wrapped `json.load()`
+  in `try/except JSONDecodeError` for both. `_cmd_report`: wrapped `open(args.suite)` in
+  `try/except FileNotFoundError` and `json.load()` in `try/except JSONDecodeError`.
+- `README.md` — (1) "Real results" date: `2026-09-27` → `2026-09-28`. (2) Added
+  `## Integration with EvalCore` section after the Inspect AI section: 3-command
+  concrete snippet showing `evalcore run --cache replay` → `agenteval run` → `agenteval gate`,
+  with a one-paragraph explanation of what each tool contributes.
+- `tests/test_budget_drift.py` — updated module docstring to document the 4 new tests;
+  added `TestCLIErrorHandlingMissingFiles` class (4 tests):
+  `test_drift_cli_missing_a`, `test_drift_cli_missing_b`,
+  `test_replay_cli_missing_run`, `test_report_cli_missing_suite`.
+- `reports/improvements.md` — this entry
+
+---
+
+
+
 ## c4-p08: Fix ADV2-3 (install URL unreproducible) — README source-install primary, git+ URL qualified (2026-09-28)
 
 ### Finding source
