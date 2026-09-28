@@ -4,20 +4,17 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Your eval framework tells you the score moved.
-This tells you **which tool-call contract broke**, with a 95% confidence bound,
-and **fails the build** when token cost regressed against your stored baseline.
+Assert tool-call contracts over recorded LLM agent runs and fail CI when token cost or pass rate regresses — no API keys, no live model, no non-determinism.
 
-For AI engineers who already record agent runs and want deterministic CI gates
-without paying for a live LLM on every run.
+For AI engineers who already record agent runs and want deterministic CI gates without paying for a live LLM on every run.
 
 ```bash
 git clone https://github.com/AnnasMazhar/replayproof && cd replayproof
 python3 -m venv .venv && . .venv/bin/activate && pip install .
-agenteval run --contract examples/contracts/research.yaml --runs examples/recordings/sample_run.jsonl --output /tmp/good.json
-agenteval run --contract examples/contracts/research.yaml --runs examples/recordings/regressed_run.jsonl --output /tmp/bad.json
-agenteval gate --baseline /tmp/good.json --current /tmp/bad.json   # exit 1 — the seeded regression trips the gate
+bash examples/run_demo.sh   # no keys needed — output below is from this command
 ```
+
+If this is useful, star the repo — it is how others find it.
 
 Note: `pip install agent-eval-harness` installs a **different, unrelated package** on PyPI
 (Franck Ndzomga, 2026-02-09). Install from source as shown above — the PyPI name

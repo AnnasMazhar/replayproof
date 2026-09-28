@@ -1347,3 +1347,205 @@ def test_gate_latency_regression_not_suppressed_by_zero_tokens() -> None:
         "Gate must trip on 50% latency increase (> 25% threshold) even when tokens=0 — "
         "latency gate must not be suppressed by absent token counts"
     )
+
+
+# ---------------------------------------------------------------------------
+# New in c5-p05 — cycle 5 pass 2 adversarial cases
+# ---------------------------------------------------------------------------
+# test_forbidden_tool_called_last_still_fails:
+#     Catches a forbidden_tools check that short-circuits after the first turn
+#     (e.g. checking only turns[0]) and misses a forbidden tool called at the end.
+#     Fault injection: only check turns[:1] instead of all turns => forbidden tool
+#     in the last turn is missed.
+#
+# test_wilson_lower_monotone_in_successes:
+#     Catches a wilson_lower implementation that is not monotone — i.e. adding one
+#     more success decreases the lower bound. The bound must weakly increase as
+#     successes increase for fixed n.
+#     Fault injection: arithmetic error in the numerator (subtract z^2/2n instead of
+#     add) => numerator can decrease when p_hat increases near 1.
+#
+# test_gate_zero_threshold_any_drop_fails:
+#     Catches a gate that treats max_pass_rate_drop=0.0 as "disabled" rather than
+#     "any drop at all fails". A 0.0 tolerance is the most conservative setting;
+#     it must fire on a drop of 0.001.
+#     Fault injection: guard comparison with 'if threshold > 0' => 0.0 threshold
+#     is silently skipped, regression passes.
+#
+# test_contract_forbidden_and_required_same_tool_both_fire:
+#     Catches a contract that silently suppresses one of two conflicting checks
+#     (required_tools and forbidden_tools naming the same tool). Both checks must
+#     be evaluated independently; the forbidden check must fail, the required check
+#     must pass. A combined "smart" check that resolves the contradiction would
+#     produce different results.
+#     Fault injection: skip forbidden check when tool also appears in required_tools.
+
+
+def _make_run(turns: list[Turn]) -> Run:
+    """Build a minimal Run with the given turns for adversarial testing."""
+    total_tokens_in = sum(t.tokens_in for t in turns)
+    total_tokens_out = sum(t.tokens_out for t in turns)
+    total_latency = sum(t.latency_ms for t in turns)
+    return Run(
+        name="adv-test",
+        agent_id="test-agent",
+        model="test-model",
+        provider="test",
+        started_at="2026-01-01T00:00:00Z",
+        turns=tuple(turns),
+        total_tokens_in=total_tokens_in,
+        total_tokens_out=total_tokens_out,
+        total_latency_ms=total_latency,
+        metadata={},
+    )
+
+
+def test_forbidden_tool_called_last_still_fails() -> None:
+    """ForbiddenToolsCheck must scan ALL turns, not just the first.
+
+    A forbidden tool called at the end of a run (after several allowed tool calls)
+    must still trip the check. A naive implementation that stops after the first
+    tool call misses late-run violations.
+
+    Fault: check only the first turn => forbidden tool in the final turn is missed.
+    """
+    from agenteval.assertions import ForbiddenToolsCheck
+
+    run = _make_run(
+        turns=[
+            Turn(
+                role="assistant",
+                content="Using allowed tool",
+                tool_calls=(
+                    ToolCall(name="search_docs", args={}, result="ok", error=None, duration_ms=1.0),
+                ),
+                tokens_in=10,
+                tokens_out=5,
+                latency_ms=10.0,
+            ),
+            Turn(
+                role="assistant",
+                content="Using another allowed tool",
+                tool_calls=(
+                    ToolCall(name="read_file", args={}, result="ok", error=None, duration_ms=1.0),
+                ),
+                tokens_in=10,
+                tokens_out=5,
+                latency_ms=10.0,
+            ),
+            Turn(
+                role="assistant",
+                content="Calling forbidden tool last",
+                tool_calls=(
+                    ToolCall(
+                        name="send_email",
+                        args={"to": "user@example.com"},
+                        result="sent",
+                        error=None,
+                        duration_ms=1.0,
+                    ),
+                ),
+                tokens_in=10,
+                tokens_out=5,
+                latency_ms=10.0,
+            ),
+        ]
+    )
+    check = ForbiddenToolsCheck(names=["send_email"])
+    result = check.evaluate(run)
+    assert not result.passed, (
+        "ForbiddenToolsCheck must fail when 'send_email' appears in the last turn — "
+        "a naive check that only scans turns[:1] would miss it"
+    )
+
+
+def test_wilson_lower_monotone_in_successes() -> None:
+    """Wilson lower bound must weakly increase as successes increase for fixed n.
+
+    Property: for fixed n, wilson_lower(s, n) <= wilson_lower(s+1, n) for all
+    0 <= s < n. This is a mathematical requirement of the confidence interval
+    (the interval shifts right as the observed fraction increases).
+
+    Fault: arithmetic error in the numerator causes the bound to non-monotonically
+    dip near p_hat = 0.8-0.9 for small n (e.g. an implementation that subtracts
+    z^2/(2n) instead of adds it).
+    """
+    n = 10
+    bounds = [wilson_lower(s, n) for s in range(n + 1)]
+    for i in range(len(bounds) - 1):
+        assert bounds[i] <= bounds[i + 1] + 1e-12, (
+            f"Wilson lower is not monotone at n={n}: "
+            f"wilson_lower({i}, {n})={bounds[i]:.6f} > "
+            f"wilson_lower({i + 1}, {n})={bounds[i + 1]:.6f}"
+        )
+
+
+def test_gate_zero_threshold_any_drop_fails() -> None:
+    """max_pass_rate_drop=0.0 must fire on even the smallest pass-rate drop.
+
+    A threshold of 0.0 means "no regression tolerated at all" — it is the most
+    conservative setting. An implementation that treats 0.0 as "disabled" (e.g.
+    guarding with 'if threshold > 0') silently allows regressions.
+
+    Fault: guard 'if threshold > 0' before the pass-rate comparison =>
+    a 0.001 drop passes even with zero-tolerance configured.
+    """
+    from agenteval.budget import Tolerances
+
+    baseline = _suite(passed=100, total=100, tokens=0)
+    # One case out of 100 regresses: pass_rate drops from 1.0 to 0.99
+    current = _suite(passed=99, total=100, tokens=0)
+    report = compare(
+        current.to_dict(),
+        Baseline(baseline.to_dict()),
+        Tolerances(max_pass_rate_drop=0.0),
+    )
+    assert not report.ok, (
+        "Gate with max_pass_rate_drop=0.0 must fail on a drop from 1.0 to 0.99 — "
+        "a threshold of 0.0 means no regression is tolerated, not that the gate is disabled"
+    )
+
+
+def test_contract_forbidden_and_required_same_tool_evaluates_both() -> None:
+    """ForbiddenToolsCheck and RequiredToolsCheck on the same tool must both fire.
+
+    A contract that declares a tool both required and forbidden is contradictory, but
+    the harness must evaluate each check independently rather than resolving the
+    contradiction silently. The required check passes; the forbidden check fails.
+
+    Fault: a "smart" resolver that sees the tool is required and skips the forbidden
+    check produces a false-pass on the forbidden assertion.
+    """
+    from agenteval.assertions import ForbiddenToolsCheck, RequiredToolsCheck
+
+    run = _make_run(
+        turns=[
+            Turn(
+                role="assistant",
+                content="Using the tool",
+                tool_calls=(
+                    ToolCall(
+                        name="dangerous_search",
+                        args={},
+                        result="result",
+                        error=None,
+                        duration_ms=1.0,
+                    ),
+                ),
+                tokens_in=10,
+                tokens_out=5,
+                latency_ms=10.0,
+            ),
+        ]
+    )
+    req_check = RequiredToolsCheck(names=["dangerous_search"])
+    forb_check = ForbiddenToolsCheck(names=["dangerous_search"])
+
+    req_result = req_check.evaluate(run)
+    forb_result = forb_check.evaluate(run)
+
+    assert req_result.passed, "RequiredToolsCheck must pass when 'dangerous_search' is in the run"
+    assert not forb_result.passed, (
+        "ForbiddenToolsCheck must fail when 'dangerous_search' is in the run — "
+        "both checks must be evaluated independently, not resolved as a conflict"
+    )
