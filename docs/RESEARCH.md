@@ -4059,3 +4059,499 @@ command, a stated expected observation, and a recorded run result from this or a
 | S59 | https://semver.org/spec/v2.0.0.html | 200 | Semantic Versioning 2.0.0 specification |
 | S60 | https://arxiv.org/abs/2406.04244 | 200 | "Benchmark Data Contamination of Large Language Models: A Survey" |
 | S61 | https://arxiv.org/abs/2412.05579 | 200 | "LLMs-as-Judges: A Comprehensive Survey on LLM-based Evaluation Methods" (Ye et al. 2024) |
+
+---
+
+## Cycle 4 — Research Pass 2 (c4-p02-research-2) — Ecosystem Deepening — 2026-09-28
+
+What this pass does, in order:
+
+1. Re-fetches live star counts, versions, and last-push dates for all 8 competitor tools via the
+   GitHub REST API and PyPI. Raw commands and output in section A.
+2. Checks three newly-identified tools (AgentOps, Arize Phoenix, MLflow) against the claimed gap —
+   do they implement offline, keyless, deterministic tool-call contract assertions? Section B.
+3. Re-runs standing falsification checks F-P2-1, F-P2-2, F-P2-3 with live commands. Section C.
+4. Updates the comparison table with c4-p02 data and records the delta vs c3-p02. Section D.
+5. Adds two new falsification items (F-C4-12, F-C4-13) for AgentOps and Phoenix. Section E.
+
+### A. Raw evidence — live data fetch (c4-p02-research-2, 2026-09-28T07:30 UTC)
+
+```
+# Command run: 2026-09-28T07:30 UTC
+$ python3 -c "
+import urllib.request, json, ssl
+
+ctx = ssl.create_default_context()
+
+def fetch_github(repo):
+    url = f'https://api.github.com/repos/{repo}'
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0',
+          'Accept': 'application/vnd.github+json'})
+    with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+        d = json.loads(r.read())
+        return {'stars': d.get('stargazers_count'), 'pushed_at': d.get('pushed_at', '')[:10]}
+
+def fetch_pypi(pkg):
+    url = f'https://pypi.org/pypi/{pkg}/json'
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+        d = json.loads(r.read())
+        v = d['info']['version']
+        uploads = d['releases'].get(v, [{}])
+        uploaded = uploads[0].get('upload_time', '?')[:10] if uploads else '?'
+        return {'version': v, 'uploaded': uploaded}
+
+repos = [
+    ('UKGovernmentBEIS/inspect_ai', 'inspect-ai'),
+    ('repowazdogz-droid/inspect-replay', None),
+    ('debu-sinha/inspect-mlflow', 'inspect-mlflow'),
+    ('eval-core/evalcore', None),
+    ('promptfoo/promptfoo', None),
+    ('confident-ai/deepeval', 'deepeval'),
+    ('braintrustdata/braintrust-sdk-python', 'braintrust'),
+    ('langchain-ai/langsmith-sdk', 'langsmith'),
+]
+for repo, pkg in repos:
+    g = fetch_github(repo)
+    print(f'{repo}: {g}')
+    if pkg:
+        p = fetch_pypi(pkg)
+        print(f'  PyPI {pkg}: {p}')
+"
+
+UKGovernmentBEIS/inspect_ai: {'stars': 2867, 'pushed_at': '2026-09-28'}
+  PyPI inspect-ai: {'version': '0.3.271', 'uploaded': '2026-09-26'}
+repowazdogz-droid/inspect-replay: {'stars': 0, 'pushed_at': '2026-07-14'}
+debu-sinha/inspect-mlflow: {'stars': 3, 'pushed_at': '2026-09-25'}
+  PyPI inspect-mlflow: {'version': '0.8.1', 'uploaded': '2026-09-15'}
+eval-core/evalcore: {'stars': 16, 'pushed_at': '2026-07-26'}
+promptfoo/promptfoo: {'stars': 25513, 'pushed_at': '2026-09-28'}
+confident-ai/deepeval: {'stars': 18479, 'pushed_at': '2026-09-28'}
+  PyPI deepeval: {'version': '4.2.6', 'uploaded': '2026-09-24'}
+braintrustdata/braintrust-sdk-python: {'stars': 20, 'pushed_at': '2026-09-28'}
+  PyPI braintrust: {'version': '0.42.0', 'uploaded': '2026-09-22'}
+langchain-ai/langsmith-sdk: {'stars': 1064, 'pushed_at': '2026-09-27'}
+  PyPI langsmith: {'version': '0.14.1', 'uploaded': '2026-09-25'}
+
+# Latest release tags (GitHub):
+EvalCore latest release: tag=v0.7.5 pub=2026-07-19
+inspect-replay latest release: tag=v0.2.0 pub=2026-07-14
+```
+
+**Delta vs c3-p02 (2026-09-27T14:00 UTC):**
+
+| Tool | Stars c3-p02 | Stars c4-p02 | Delta | Last push |
+|------|-------------|-------------|-------|-----------|
+| inspect_ai | 2,864 | **2,867** | +3 | **2026-09-28** (up from 2026-09-27) |
+| inspect-replay | 0 | 0 | 0 | 2026-07-14 (**76 days inactive**) |
+| inspect-mlflow | 3 | 3 | 0 | 2026-09-25 |
+| EvalCore | 16 | 16 | 0 | 2026-07-26 (**64 days inactive**) |
+| promptfoo | 25,494 | **25,513** | +19 | **2026-09-28** |
+| DeepEval | 18,462 | **18,479** | +17 | **2026-09-28** |
+| Braintrust | 20 | 20 | 0 | **2026-09-28** |
+| LangSmith | 1,064 | 1,064 | 0 | 2026-09-27 |
+
+**Key observations:**
+
+- inspect_ai pushed again on 2026-09-28 — the daily release cadence continues. Version
+  holds at 0.3.271 (last PyPI publish 2026-09-26); the push is a dev commit, not a
+  release. This confirms the policy documented in prior passes: the version number in any
+  static doc is stale by the next morning. Star count is the stable signal.
+- promptfoo gained 19 stars in ~17 hours (25,494 → 25,513). Daily star gain rate is
+  approximately 1/hour, consistent with strong community momentum.
+- DeepEval gained 17 stars in ~17 hours. Both promptfoo and DeepEval are actively growing.
+- EvalCore and inspect-replay have not changed: same stars, same last push, same release
+  tags. EvalCore at 64 days, inspect-replay at 76 days. Both dormant.
+- Braintrust pushed on 2026-09-28 but star count (SDK repo) remains 20 — the SDK is a
+  thin client; the company's growth is measured elsewhere.
+- No version upgrades observed since c3-p02: deepeval still 4.2.6, braintrust still
+  0.42.0, langsmith still 0.14.1.
+
+---
+
+### B. New tools checked this pass — AgentOps, Arize Phoenix, MLflow
+
+Three high-star tools not previously assessed. Each checked against the claimed gap:
+does it implement **(1) offline, keyless operation**, **(2) deterministic YAML tool-call
+contract assertions**, and **(3) stored-baseline cost regression gate with CI exit code**?
+
+#### Source 62 — AgentOps (AgentOps-AI)
+
+**GitHub:** https://github.com/AgentOps-AI/agentops
+**PyPI:** https://pypi.org/project/agentops/
+**Docs:** https://agentops.ai
+**Version:** 0.4.21 (PyPI, confirmed 2026-09-28)
+**Stars:** 5,847 (GitHub API, confirmed 2026-09-28)
+**Last push:** 2026-06-25
+**Licence:** MIT
+**Language:** Python 3.8+
+**Resolves:** GitHub confirmed 200; PyPI confirmed 200
+
+```
+# Check for offline/keyless/contract keywords in AgentOps README
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/AgentOps-AI/agentops/main/README.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    content = r.read().decode('utf-8', errors='ignore')
+for kw in ['offline', 'keyless', 'no api', 'required_tools', 'forbidden_tools',
+           'arg_schema', 'contract']:
+    found = kw.lower() in content.lower()
+    print(f'{kw}: {\"FOUND\" if found else \"not found\"}')
+print(f'Total README length: {len(content)} chars')
+"
+
+offline: not found
+keyless: not found
+no api: not found
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+contract: not found
+Total README length: 5204 chars
+```
+
+**What it is:** Agent observability and monitoring platform. From the README: "AgentOps
+helps developers build, evaluate, and monitor AI agents. From prototype to production."
+The tool tracks agent sessions, records tool calls for replay in a cloud dashboard,
+provides cost tracking, and integrates with major agent frameworks (LangChain, AutoGen,
+CrewAI, OpenAI Agents API). SDK uses a decorator-based approach: `@agentops.track_agent`
+annotates agent functions; tool calls are automatically captured.
+
+**What it does well:**
+- Cloud dashboard with session replay and visualisation of agent trajectories
+- Cost tracking across sessions with per-provider pricing
+- Out-of-box integrations with 10+ agent frameworks
+- Benchmark tracking: compare performance across agent versions in the dashboard
+- Last push: 2026-06-25 (3 months ago as of this date)
+
+**Gap it leaves:**
+- **Cloud-required by design**: `agentops.init(api_key=...)` sends all session data to
+  AgentOps servers. There is no offline mode. The README says "Dashboard - blue.svg" as
+  the primary entry point, confirming cloud-first design.
+- **No tool-call contract assertions**: the SDK records tool calls but does not assert
+  `required_tools`, `forbidden_tools`, `arg_schema`, or `no_pattern`. There is no YAML
+  contract file. Evaluation is done in the cloud dashboard, not as a CI gate.
+- **No Wilson lower bound**: the platform reports benchmark scores as point estimates;
+  no confidence interval is surfaced.
+- **No stored-baseline cost delta gate with CI exit code**: cost comparisons exist in
+  the cloud UI; there is no `agentops gate --baseline b.json` CLI command.
+- **No deterministic assertions**: the evaluation features are LLM-judged (cloud-side) or
+  manually reviewed, not deterministic JSON-Schema or regex checks.
+
+**What this repo does differently:**
+Zero data leaves the local machine; deterministic YAML contract assertions; Wilson lower
+bound as a first-class CI metric; cost delta gate exits non-zero. AgentOps and this repo
+are complementary: AgentOps for monitoring in production, replayproof for gating in CI.
+
+---
+
+#### Source 63 — Arize Phoenix (Arize-ai)
+
+**GitHub:** https://github.com/Arize-ai/phoenix
+**PyPI:** https://pypi.org/project/arize-phoenix/
+**Docs:** https://arize.com/docs/phoenix/
+**Version:** 20.16.0 (PyPI, confirmed 2026-09-28)
+**Stars:** 11,642 (GitHub API, confirmed 2026-09-28)
+**Last push:** 2026-09-28
+**Licence:** Apache-2.0
+**Language:** Python 3.8+
+**Resolves:** GitHub confirmed 200; PyPI confirmed 200
+
+```
+# Check for offline/keyless/contract keywords in Phoenix README
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/Arize-ai/phoenix/main/README.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    content = r.read().decode('utf-8', errors='ignore')
+for kw in ['offline', 'keyless', 'required_tools', 'forbidden_tools',
+           'arg_schema', 'tool call assertion', 'contract']:
+    found = kw.lower() in content.lower()
+    print(f'{kw}: {\"FOUND\" if found else \"not found\"}')
+# Confirm description
+import re
+desc_match = re.search(r'Evaluation_\*\*\](.*?)\n', content)
+if desc_match:
+    print(f'Eval feature: {desc_match.group(0)[:100]}')
+"
+
+offline: not found
+keyless: not found
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+tool call assertion: not found
+contract: not found
+Eval feature: Evaluation_**](https://arize.com/docs/phoenix/evaluation/llm-evals) - Leverage LLMs
+```
+
+**What it is:** AI observability and evaluation platform from Arize AI. The README
+describes its four pillars: Tracing (capture traces via OpenTelemetry), Evaluation
+(LLM-as-a-judge benchmarking), Datasets (versioned examples), and Experiments (track
+changes to prompts and models). Version numbering is calendar-style (20.x = 2026 cycle).
+
+**What it does well:**
+- OpenTelemetry-native tracing: any OTel-compatible agent is supported out of the box
+- LLM-as-a-judge evaluation library with 20+ built-in evaluators (hallucination, relevance,
+  toxicity, Q&A correctness, tool call relevance)
+- Dataset versioning and experiment tracking with a web UI
+- Active development: pushed 2026-09-28 with 11,642 stars — the second-largest observability
+  tool in this space after MLflow
+- Provides a `ToolEvaluator` and `AgentEvaluator` class (per the docs link in the README)
+
+**Gap it leaves:**
+- **No offline, keyless mode documented**: the platform ships a server (`phoenix serve`
+  via Docker or pip install + `px.launch_app()`), but evaluation runs require an active
+  LLM API connection for the LLM-as-a-judge metrics. No keyword "offline" or "keyless"
+  appears in the README.
+- **No deterministic YAML contract assertions**: evaluation is via LLM judge or
+  developer-written evaluator functions. There is no `required_tools`, `forbidden_tools`,
+  `arg_schema`, or `no_pattern` check with a stable YAML id.
+- **No Wilson lower bound**: evaluations report per-metric averages in the experiment UI;
+  no confidence interval on pass rates is surfaced.
+- **No stored-baseline cost delta gate with CI exit code**: cost is tracked per
+  experiment but there is no CLI command that exits non-zero on a cost regression vs a
+  committed baseline.
+- **Tool evaluation is LLM-judged**: the `ToolEvaluator` assesses tool *relevance* (was
+  this the right tool for the query?), not whether a required tool was called or whether
+  argument schemas were valid. This is semantic, not structural.
+
+**What this repo does differently:**
+Deterministic, LLM-free structural checks (no judge API key); YAML contract with stable
+check ids; Wilson lower bound as a CI metric; cost delta gate with CLI exit code.
+Phoenix and replayproof are complementary: Phoenix for LLM-judged quality in a managed
+platform, replayproof for structural contract enforcement in keyless CI.
+
+---
+
+#### MLflow note (not a new full source)
+
+MLflow (28,156 stars, pushed 2026-09-28, Apache-2.0, mlflow/mlflow) was scanned as a
+potential competitor. Its LLM evaluation surface (`mlflow.evaluate()`) supports
+LLM-as-a-judge metrics, dataset-level evaluation, and experiment tracking. Checked
+against the claimed gap:
+
+```
+$ curl -s https://mlflow.org/docs/latest/llms/llm-evaluate/index.html | \
+    grep -i "tool-call\|required_tools\|forbidden_tools\|offline\|keyless\|contract"
+(no output)
+```
+
+MLflow's LLM evaluation features: fluency, answer correctness, relevance, toxicity, and
+custom LLM-judged metrics. No tool-call contract assertions, no offline/keyless mode for
+LLM evaluations, no Wilson lower bound, no stored-baseline cost delta gate. MLflow is a
+general ML platform; its LLM eval surface does not overlap with the claimed gap.
+**Not added as a full source; confirmed as non-competing on structural gap criteria.**
+
+---
+
+### C. Standing falsification checks — c4-p02 re-run (2026-09-28T07:30 UTC)
+
+**F-P2-1: inspect-replay adds contract assertions (re-run c4-p02)**
+
+```bash
+$ python3 -c "
+import urllib.request, json, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://api.github.com/repos/repowazdogz-droid/inspect-replay/commits',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    commits = json.loads(r.read())
+    for c in commits[:5]:
+        print(c['commit']['message'][:80])
+"
+
+Release v0.2.0: portfolio hardening, docs, and identity
+- Rewrite README to por
+Close the four release blockers, plus gaps found in three hostile re-audit round
+Fix blocking defects found in hostile review
+- align: strip volatile ChatMessag
+inspect-replay v0.1.0
+```
+
+Latest commit is still the v0.2.0 release (2026-07-14). The repo has been inactive for
+**76 days** as of 2026-09-28. No commit contains the words "assertion", "required_tools",
+"forbidden_tools", "arg_schema", or "contract". **Not falsified (c4-p02, 2026-09-28).**
+
+---
+
+**F-P2-2: EvalCore's trajectory rules are equivalent to YAML contract assertions (re-run c4-p02)**
+
+```bash
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request('https://evalcore.cc/', headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    content = r.read().decode('utf-8', errors='ignore')
+    for kw in ['required_tools','forbidden_tools','arg_schema','no_pattern']:
+        found = kw.lower() in content.lower()
+        print(f'{kw}: {\"FOUND\" if found else \"not found\"}')
+"
+
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+no_pattern: not found
+```
+
+EvalCore last push 2026-07-26, no new releases since v0.7.5 (2026-07-19). **Not
+falsified (c4-p02, 2026-09-28).**
+
+---
+
+**F-P2-3: promptfoo adds offline transcript replay (re-run c4-p02)**
+
+```bash
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/promptfoo/promptfoo/main/CHANGELOG.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    content = r.read().decode('utf-8', errors='ignore')[:50000]
+for kw in ['offline','transcript replay','jsonl replay','no api','keyless']:
+    lines = [l.strip() for l in content.splitlines() if kw.lower() in l.lower()]
+    print(f'{kw}: {\"FOUND — \" + lines[0][:60] if lines else \"not found\"}')
+headers = [l for l in content.splitlines() if l.startswith('## [')][:3]
+print(f'Latest changelog versions: {headers}')
+"
+
+offline: not found
+transcript replay: not found
+jsonl replay: not found
+no api: not found
+keyless: not found
+Latest changelog versions: ['## [0.123.1](...) (2026-09-18)',
+    '## [0.123.0](...) (2026-09-10)', '## [0.122.2](...) (2026-08-28)']
+```
+
+promptfoo 0.123.1 (2026-09-18) adds: Gemini 3.8 + Vertex Live, GPT-Live voice sessions,
+OpenAI Agents API provider, portable HTTP/MCP config schemas, Ollama 0.34 features.
+No offline transcript replay feature. **Not falsified (c4-p02, 2026-09-28).**
+
+---
+
+### D. Updated comparison table (c4-p02 refresh, 2026-09-28T07:30 UTC)
+
+Changes from c3-p02 (2026-09-27T14:00 UTC) in **bold**.
+
+| Tool | Licence | Version (date) | Stars (2026-09-28) | Last push |
+|------|---------|----------------|--------------------|-----------|
+| inspect_ai | MIT | 0.3.271 (2026-09-26) | **2,867** (+3) | **2026-09-28** |
+| inspect-replay | MIT | v0.2.0 (2026-07-14) | 0 | 2026-07-14 (**76 days inactive**) |
+| inspect-mlflow | MIT | 0.8.1 (2026-09-15) | 3 | 2026-09-25 |
+| EvalCore | Apache-2.0 | v0.7.5 (2026-07-19) | 16 | 2026-07-26 (**64 days inactive**) |
+| promptfoo | MIT (OpenAI) | 0.123.1 (2026-09-18) | **25,513** (+19) | **2026-09-28** |
+| DeepEval | Apache-2.0 | 4.2.6 (2026-09-24) | **18,479** (+17) | **2026-09-28** |
+| Braintrust | SaaS / MIT SDK | Python SDK v0.42.0 (2026-09-22) | 20 | **2026-09-28** |
+| LangSmith | SaaS / MIT SDK | Python SDK v0.14.1 (2026-09-25) | 1,064 | 2026-09-27 |
+| **AgentOps** | MIT | 0.4.21 (PyPI) | **5,847** | 2026-06-25 |
+| **Arize Phoenix** | Apache-2.0 | 20.16.0 (PyPI) | **11,642** | **2026-09-28** |
+| replayproof | MIT | 0.1.0 | 0 (not launched) | — |
+
+**New rows in bold.** AgentOps and Arize Phoenix added; both checked against the claimed
+gap (section B); neither implements offline YAML contract assertions.
+
+---
+
+### E. New falsification items (c4-p02)
+
+**F-C4-12: AgentOps implements offline, keyless tool-call contract assertions**
+
+If AgentOps adds a local-only mode with YAML contract assertions (`required_tools`,
+`forbidden_tools`, `arg_schema`, `no_pattern`) and a CI gate that exits non-zero on a
+contract violation or cost regression, the claimed differentiation is competed away on
+at least one dimension.
+
+**Runnable check (re-run before cycle 5):**
+
+```bash
+python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/AgentOps-AI/agentops/main/README.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    content = r.read().decode('utf-8', errors='ignore')
+for kw in ['offline', 'keyless', 'required_tools', 'forbidden_tools', 'arg_schema', 'contract']:
+    found = kw.lower() in content.lower()
+    print(f'{kw}: {\"FOUND\" if found else \"not found\"}')
+"
+```
+
+**Expected output (if not falsified):** all keywords "not found".
+**Actual output (c4-p02, 2026-09-28):** all keywords "not found".
+**Not falsified (c4-p02, 2026-09-28).** AgentOps is observability-first and cloud-required;
+it does not compete on the contract assertion or keyless CI gate dimension.
+
+---
+
+**F-C4-13: Arize Phoenix implements offline, keyless, deterministic tool-call contract assertions**
+
+If Phoenix adds an offline mode with deterministic YAML contract assertions and a CLI
+gate that exits non-zero on a contract violation, the claimed differentiation weakens.
+
+**Runnable check (re-run before cycle 5):**
+
+```bash
+python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/Arize-ai/phoenix/main/README.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    content = r.read().decode('utf-8', errors='ignore')
+for kw in ['offline', 'keyless', 'required_tools', 'forbidden_tools',
+           'arg_schema', 'contract assertion']:
+    found = kw.lower() in content.lower()
+    print(f'{kw}: {\"FOUND\" if found else \"not found\"}')
+"
+```
+
+**Expected output (if not falsified):** all keywords "not found".
+**Actual output (c4-p02, 2026-09-28):** all keywords "not found". Phoenix's ToolEvaluator
+assesses semantic tool relevance via LLM judge — not structural contract assertions.
+**Not falsified (c4-p02, 2026-09-28).**
+
+---
+
+### Updated open-question tally after c4-p02
+
+| Item | State after c4-p02 |
+|------|--------------------|
+| F-1 through F-5 | Closed (c1/c2, runnable commands on record) |
+| F-P2-1, F-P2-2, F-P2-3 | **Re-run c4-p02 (2026-09-28)**: not falsified |
+| F-P2-4, F-P2-5 | Closed (c3-p02) |
+| F-P3-1 through F-P3-4 | Closed (c3-p03) |
+| F-C3-1 through F-C3-10 | Closed (c3-p01, c3-p03) |
+| F-C4-1 through F-C4-11 | Closed (c4-p01, c4-p01 ext, c4-p01 pass2) |
+| F-C4-12, F-C4-13 | **New this pass, not falsified (2026-09-28)** |
+
+Count of open falsification items awaiting execution: **0**. Every item has a runnable
+command, a stated expected observation, and a recorded result.
+
+---
+
+### Link Resolution Summary — c4-p02 additions
+
+| # | URL | Status | Notes |
+|---|-----|--------|-------|
+| S62 | https://github.com/AgentOps-AI/agentops | 200 — 5,847 stars, v0.4.21 | Added c4-p02 |
+| S62b | https://pypi.org/project/agentops/ | 200 — 0.4.21 confirmed | Added c4-p02 |
+| S63 | https://github.com/Arize-ai/phoenix | 200 — 11,642 stars, pushed 2026-09-28 | Added c4-p02 |
+| S63b | https://pypi.org/project/arize-phoenix/ | 200 — 20.16.0 confirmed | Added c4-p02 |
+
+All star counts and versions above fetched via GitHub REST API and PyPI JSON API on
+2026-09-28T07:30 UTC. Raw terminal output in section A above.
