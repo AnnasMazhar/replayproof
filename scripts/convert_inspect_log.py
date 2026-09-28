@@ -1,27 +1,19 @@
 """Convert an Inspect AI .eval log to replayproof JSONL.
 
+Inspect .eval files are zip archives. Two layouts exist in the wild:
+  - current (verified against inspect_ai main, 2026-09-27): header.json plus
+    one samples/<id>.json member per sample;
+  - legacy: a single log.json with an inline "samples" array.
+
+Both layouts are handled. Each sample's model events are normalised to
+replayproof's OpenAI-style message format, then one Run per sample is written.
+
 Usage:
-    python scripts/convert_inspect_log.py <path/to/eval.eval> <path/to/output.jsonl>
+    python scripts/convert_inspect_log.py <path/to/eval.eval> <output_dir/>
 
-An Inspect .eval file is a ZIP archive containing log.json.  Each sample in
-log.json is converted to one replayproof Run and written as a JSONL line.
-
-The converter reads only the fields replayproof uses:
-  - sample["id"]             -> Run.name
-  - eval["model"]            -> Run.model
-  - each model event's output.choices[*].message -> turns
-
-This is a best-effort converter.  Samples that produce no messages are skipped
-with a warning.
-
-Example:
-    python scripts/convert_inspect_log.py logs/my_eval.eval recordings/my_eval.jsonl
-    agenteval run --contract contracts/research.yaml \\
-                  --runs recordings/my_eval.jsonl \\
-                  --output baseline.json
+The output JSONL file is placed in <output_dir/> with the same stem as the
+.eval file plus a .jsonl extension.
 """
-
-from __future__ import annotations
 
 import json
 import sys
@@ -32,28 +24,53 @@ from agenteval.record import from_messages
 from agenteval.transcript import Run
 
 
-def convert(eval_path: str, out_path: str) -> None:
-    """Convert an Inspect AI .eval archive to a replayproof JSONL file.
+def _load(eval_path: str) -> tuple[dict, list[dict]]:
+    """Return (header, samples) for either archive layout.
 
-    Args:
-        eval_path: Path to the Inspect .eval ZIP archive.
-        out_path: Destination path for the replayproof JSONL file.
+    Legacy layout: single log.json with {"samples": [...], "eval": {...}}.
+    Current layout: header.json + samples/<id>.json per sample.
     """
-    runs: list[Run] = []
     with zipfile.ZipFile(eval_path) as z:
-        with z.open("log.json") as f:
-            log = json.load(f)
+        names = z.namelist()
+        if "log.json" in names:
+            with z.open("log.json") as f:
+                log = json.load(f)
+            return log, log.get("samples", [])
+        header = json.loads(z.read("header.json")) if "header.json" in names else {}
+        samples = [json.loads(z.read(n)) for n in sorted(names) if n.startswith("samples/")]
+        return header, samples
 
-    model = log.get("eval", {}).get("model", "unknown")
 
-    for sample in log.get("samples", []):
+def convert(eval_path: str, out_dir: str) -> None:
+    """Convert a single .eval archive to a replayproof JSONL file.
+
+    Parameters
+    ----------
+    eval_path:
+        Path to an Inspect AI .eval archive (a zip file).
+    out_dir:
+        Directory to write the resulting JSONL file into.
+        Created if it does not exist.
+    """
+    out = Path(out_dir)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.mkdir(exist_ok=True)
+
+    header, samples = _load(eval_path)
+    runs: list[Run] = []
+    for sample in samples:
         messages: list[dict] = []
         for event in sample.get("events", []):
-            if event.get("event") == "model":
-                for choice in event.get("output", {}).get("choices", [{}]):
-                    msg = choice.get("message", {})
-                    if msg:
-                        messages.append(msg)
+            if event.get("event") != "model":
+                continue
+            usage = event.get("output", {}).get("usage") or {}
+            for msg in event.get("output", {}).get("choices", [{}]):
+                content = dict(msg.get("message", {}))
+                # Propagate token counts from the usage block when not already present.
+                if usage and "tokens_in" not in content:
+                    content["tokens_in"] = usage.get("input_tokens", 0)
+                    content["tokens_out"] = usage.get("output_tokens", 0)
+                messages.append(content)
         if not messages:
             sample_id = sample.get("id", "?")
             print(
@@ -61,27 +78,26 @@ def convert(eval_path: str, out_path: str) -> None:
                 file=sys.stderr,
             )
             continue
-        runs.append(
-            from_messages(
-                messages,
-                name=str(sample.get("id", "unknown")),
-                model=model,
-            )
+        run = from_messages(
+            messages,
+            name=str(sample.get("id", "unknown")),
+            agent_id="inspect-agent",
+            model=header.get("eval", {}).get("model", "unknown"),
+            provider="inspect",
         )
+        runs.append(run)
 
-    out = Path(out_path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with out.open("w", encoding="utf-8") as fh:
+    out_file = (out / Path(eval_path).stem).with_suffix(".jsonl")
+    with open(out_file, "w") as f:
         for run in runs:
-            fh.write(run.to_jsonl() + "\n")
-
-    print(f"Wrote {len(runs)} runs to {out_path}")
+            f.write(run.to_jsonl() + "\n")
+    print(f"Wrote {len(runs)} runs to {out_file}")
 
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
         print(
-            "Usage: python scripts/convert_inspect_log.py <eval_path> <out_path>",
+            "Usage: python scripts/convert_inspect_log.py <eval_path> <out_dir>",
             file=sys.stderr,
         )
         sys.exit(1)

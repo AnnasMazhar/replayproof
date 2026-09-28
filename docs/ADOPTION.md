@@ -1,7 +1,7 @@
 # docs/ADOPTION.md — Real-World Adoption Guide
 
-**Pass:** c1-p03-research-3 (real-world applicability) · c2-p03-research-3 (deepening: EvalCore integration, onboarding validation, F-P3 closures)
-**Dates:** 2026-09-26 (c1) · 2026-09-27 (c2)
+**Pass:** c1-p03-research-3 (real-world applicability) · c2-p03-research-3 (deepening: EvalCore integration, onboarding validation, F-P3 closures) · c3-p04-implement-1 (bridge script shipped as `scripts/convert_inspect_log.py`)
+**Dates:** 2026-09-26 (c1) · 2026-09-27 (c2) · 2026-09-27 (c3)
 
 This document is for the engineer who has 90 minutes on a Tuesday and wants replayproof
 in CI by end of day. It covers the concrete integration path against a named real-world
