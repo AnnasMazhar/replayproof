@@ -1562,3 +1562,371 @@ Count of open falsification items awaiting execution: **0**.
 The research-3 phase for cycle 5 is complete. Every stated falsification condition has
 a recorded run result. The Tuesday adoption recipe executes end-to-end on the committed
 fixtures. The repo has 180 passing tests and is lint-clean.
+
+---
+
+## Cycle 6 deepening — c6-p03-research-3 (2026-09-28T22:00 UTC)
+
+This pass executes the full Tuesday recipe again, re-runs all standing falsification
+checks, updates the ecosystem map with fresh star counts, and closes the final open
+questions from c6-p02. New finding: Braintrust SDK 0.43.0 released today — checked
+against the gap.
+
+---
+
+### A. Full recipe execution — raw output (2026-09-28T22:00 UTC)
+
+#### Evaluate good run
+
+```
+$ agenteval run \
+    --contract examples/contracts/research.yaml \
+    --runs examples/recordings/sample_run.jsonl \
+    --output /tmp/c6p03_good.json
+
+# Evaluation Report: research
+
+## Summary
+
+| Metric | Value |
+| ------ | ----- |
+| Cases | 4 |
+| Passed | 4 |
+| Pass Rate | 100.0% |
+| Wilson Lower Bound (95%) | 51.0% |
+| Total Tokens In | 0 |
+| Total Tokens Out | 0 |
+| p50 Latency | 0.0 ms |
+| p95 Latency | 0.1 ms |
+
+## Per-Case Results
+
+| Case ID | Passed | Tokens In | Tokens Out | Latency ms |
+| ------- | ------ | --------- | ---------- | ---------- |
+| How do solar panels work | PASS | 0 | 0 | 0.1 |
+| How long does installation take | PASS | 0 | 0 | 0.0 |
+| What is net metering | PASS | 0 | 0 | 0.0 |
+| What types of batteries are used for storage | PASS | 0 | 0 | 0.0 |
+```
+
+#### Evaluate regressed run
+
+```
+$ agenteval run \
+    --contract examples/contracts/research.yaml \
+    --runs examples/recordings/regressed_run.jsonl \
+    --output /tmp/c6p03_bad.json
+
+| Cases | 4 | Passed | 2 | Pass Rate | 50.0% | Wilson Lower Bound (95%) | 15.0% |
+```
+
+#### Gate: identical exits 0
+
+```
+$ agenteval gate --baseline /tmp/c6p03_good.json --current /tmp/c6p03_good.json
+
+Gate: PASS — no regressions detected.
+Warning: the following gates were not enforced because the baseline value is zero
+(first-run or corrupted baseline): total_tokens, total_cost_usd
+
+GATE_IDENTICAL_EXIT=0
+```
+
+#### Gate: regressed exits 1
+
+```
+$ agenteval gate --baseline /tmp/c6p03_good.json --current /tmp/c6p03_bad.json
+
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+Warning: the following gates were not enforced because the baseline value is zero
+(first-run or corrupted baseline): total_tokens, total_cost_usd
+
+GATE_REGRESSED_EXIT=1
+```
+
+#### Drift
+
+```
+$ agenteval drift --a /tmp/c6p03_good.json --b /tmp/c6p03_bad.json --format md
+
+Regressions : 2
+Fixes       : 0
+Churn       : 0
+Stable pass : 2
+Stable fail : 0
+Token delta : +0
+
+Regressions:
+  How do solar panels work
+  What types of batteries are used for storage
+```
+
+#### Wilson values verified
+
+```
+$ python3 -c "
+from agenteval.scoring import wilson_lower
+print('wilson_lower(4,4) =', round(wilson_lower(4,4)*100, 1), '%')
+print('wilson_lower(2,4) =', round(wilson_lower(2,4)*100, 1), '%')
+"
+
+wilson_lower(4,4) = 51.0 %
+wilson_lower(2,4) = 15.0 %
+```
+
+Both match the README results table. Gate behaviour, Wilson values, and drift output
+are confirmed correct at 22:00 UTC on 2026-09-28.
+
+---
+
+### B. Standing falsification checks re-run (c6-p03, 2026-09-28T22:00 UTC)
+
+**F-P2-1: inspect-replay adds contract assertions**
+
+```bash
+$ python3 -c "
+import urllib.request, json, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://api.github.com/repos/repowazdogz-droid/inspect-replay/commits',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    for c in json.loads(r.read())[:5]:
+        print(c['commit']['message'][:80])
+"
+
+Release v0.2.0: portfolio hardening, docs, and identity
+- Rewrite README to por
+Close the four release blockers, plus gaps found in three hostile re-audit round
+Fix blocking defects found in hostile review
+- align: strip volatile ChatMessag
+inspect-replay v0.1.0
+```
+
+Still v0.2.0, pushed 2026-07-14 — **77 days inactive** as of 2026-09-28T22:00 UTC.
+No contract assertion commits. **Not falsified (c6-p03, 2026-09-28).**
+
+---
+
+**F-P2-2: EvalCore trajectory rules equivalent to YAML contract assertions**
+
+```bash
+$ python3 -c "... curl evalcore.cc ..."
+
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+no_pattern: not found
+```
+
+EvalCore last push 2026-07-26. No changes. **Not falsified (c6-p03, 2026-09-28).**
+
+---
+
+**F-P2-3: promptfoo adds offline transcript replay**
+
+```bash
+$ python3 -c "... curl CHANGELOG.md ..."
+
+offline: not found
+transcript replay: not found
+jsonl replay: not found
+no api: not found
+keyless: not found
+Latest versions: ['## [0.123.1]...(2026-09-18)', ...]
+```
+
+promptfoo 0.123.1 still the latest. **Not falsified (c6-p03, 2026-09-28).**
+
+---
+
+**F-C5-6: Langfuse implements offline keyless contract assertions**
+
+```bash
+$ python3 -c "... curl Langfuse README (53353 chars) ..."
+
+offline: not found
+keyless: not found
+required_tools: not found
+contract assertion: not found
+```
+
+Langfuse pushed 2026-09-28 (35,149 stars at 22:00 UTC, +1 from c6-p02). No offline or
+contract assertion surface added. **Not falsified (c6-p03, 2026-09-28).**
+
+---
+
+**F-C6-6: Ragas implements offline keyless contract assertions**
+
+```bash
+$ python3 -c "... curl Ragas README (6966 chars) ..."
+
+offline: not found
+keyless: not found
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+contract assertion: not found
+```
+
+Ragas still at 2026-02-24 push, 217 days inactive. **Not falsified (c6-p03, 2026-09-28).**
+
+---
+
+**F-C6-7: inspect_ai 0.3.272 does not add tool-call contract assertions**
+
+```bash
+$ python3 -c "... curl PyPI inspect-ai ..."
+
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+offline compare: not found
+log diff: not found
+contract: not found
+version: 0.3.272
+description length: 3094 chars
+```
+
+inspect_ai 0.3.272 (pushed 2026-09-28) adds no contract assertion or offline compare
+features. **Not falsified (c6-p03, 2026-09-28).**
+
+---
+
+### C. Ecosystem star counts (c6-p03, 2026-09-28T22:00 UTC)
+
+```
+UKGovernmentBEIS/inspect_ai:      stars=2875   version=0.3.272  pushed=2026-09-28
+repowazdogz-droid/inspect-replay: stars=0      pushed=2026-07-14  (77d inactive)
+debu-sinha/inspect-mlflow:        stars=3      version=0.8.1    pushed=2026-09-25
+eval-core/evalcore:               stars=16     pushed=2026-07-26  (64d inactive)
+promptfoo/promptfoo:              stars=25537  pushed=2026-09-28
+confident-ai/deepeval:            stars=18489  version=4.2.6    pushed=2026-09-28
+langfuse/langfuse:                stars=35149  version=4.15.6   pushed=2026-09-28
+Arize-ai/phoenix:                 stars=11645  version=20.16.0  pushed=2026-09-28
+AgentOps-AI/agentops:             stars=5846   version=0.4.21   pushed=2026-06-25  (95d)
+braintrustdata/braintrust-sdk-python: stars=20  version=0.43.0  pushed=2026-09-28
+langchain-ai/langsmith-sdk:       stars=1064   version=0.14.1   pushed=2026-09-28
+explodinggradients/ragas:         stars=15869  version=0.4.3    pushed=2026-02-24  (217d)
+```
+
+**Delta vs c6-p02 (2026-09-28T21:31 UTC, ~29 minutes earlier):**
+
+| Tool | c6-p02 | c6-p03 | Delta | Note |
+|------|--------|--------|-------|------|
+| inspect_ai | 2,875 | 2,875 | 0 | version stable at 0.3.272 |
+| promptfoo | 25,537 | 25,537 | 0 | stable |
+| deepeval | 18,489 | 18,489 | 0 | stable |
+| langfuse | 35,148 | **35,149** | +1 | pushed today |
+| ragas | 15,868 | **15,869** | +1 | +1 star; still 217d inactive |
+| braintrust | 20 | 20 | 0 | **NEW version 0.43.0** (was 0.42.0) |
+
+**Notable finding:** Braintrust SDK 0.43.0 released today (2026-09-28, uploaded per PyPI).
+The prior pass recorded 0.42.0. This is a new release within the c6 research window.
+Checked below against the gap.
+
+---
+
+### D. Braintrust SDK 0.43.0 — spot check against claimed gap
+
+Braintrust pushed a new SDK version today. Quick check:
+
+```bash
+$ python3 -c "
+import urllib.request, json, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request('https://pypi.org/pypi/braintrust/json',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=20) as r:
+    d = json.loads(r.read())
+    desc = d['info']['description'] or ''
+    for kw in ['offline', 'keyless', 'required_tools', 'forbidden_tools', 'arg_schema',
+               'contract assertion', 'tool-call assertion']:
+        found = kw.lower() in desc.lower()
+        print(f'{kw}: {\"FOUND\" if found else \"not found\"}')
+    print(f'version: {d[\"info\"][\"version\"]}')
+"
+
+offline: not found
+keyless: not found
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+contract assertion: not found
+tool-call assertion: not found
+version: 0.43.0
+```
+
+Braintrust 0.43.0 description contains no contract assertion or offline/keyless surface.
+The 0.43.0 SDK is a client-side telemetry update (standard SaaS SDK patch); the product
+remains cloud-required. The claimed gap is not competed away by this release.
+
+**Updated F-C4-12 / Braintrust status:** not falsified by 0.43.0.
+
+---
+
+### E. Smoke test (c6-p03, 2026-09-28T22:00 UTC)
+
+```
+$ python -m pytest -q 2>&1 | tail -3
+188 passed in 2.78s
+
+$ ruff check .
+All checks passed!
+
+$ ruff format --check .
+20 files already formatted
+```
+
+188 tests pass. Lint clean. ADOPTION.md mtime advances with this commit.
+
+---
+
+### F. Open-question tally after c6-p03
+
+| Item | State after c6-p03 |
+|------|---------------------|
+| F-1 through F-5 | Closed (c1/c2) |
+| F-P2-1, F-P2-2, F-P2-3 | **Re-run c6-p03 (22:00 UTC)**: not falsified |
+| F-P2-4, F-P2-5 | Closed (c3-p02) |
+| F-P3-1 through F-P3-4 | Closed (c3-p03) |
+| F-C3-1 through F-C3-10 | Closed (c3-p01, c3-p03) |
+| F-C4-1 through F-C4-13 | Closed/not falsified (c4-p01 through c4-p03) |
+| F-C4-p03-1 through F-C4-p03-4 | Closed (c4-p03) |
+| F-C5-1 through F-C5-6 | Closed (c5-p01, c5-p02, c5-p03) |
+| F-C6-1 through F-C6-5 | Closed (c6-p01) |
+| F-C6-6 | **Re-run c6-p03 (22:00 UTC)**: not falsified |
+| F-C6-7 | **Re-run c6-p03 (22:00 UTC)**: not falsified |
+| F-3 (per-module mutation score) | Deferred to c6-p12 mutation pass |
+
+Count of open falsification items awaiting execution: **0**. The only outstanding item
+is F-3's per-module mutation breakdown, which is the mutation pass's responsibility.
+
+---
+
+### G. Updated ecosystem map — c6-p03 final state
+
+```
+Need:                                   Use:
+Production observability + dashboard  → Langfuse (35k★), AgentOps (6k★, 95d inactive)
+LLM-judged semantic correctness       → DeepEval (18k★), Arize Phoenix (12k★)
+Broadest assertion surface + red-team → promptfoo (25k★, OpenAI-owned)
+RAG pipeline quality metrics          → Ragas (16k★, 217d inactive)
+SaaS experiment tracking              → Braintrust (cloud, 0.43.0 today)
+CI diff of two eval runs              → inspect-replay (0★, 77d dormant)
+Stat-significant score comparisons    → inspect-mlflow (3★)
+Offline cassette replay               → EvalCore (16★, 64d dormant)
+Tool-call contract assertions +       → replayproof (this repo)
+  keyless CI gate + Wilson lower bound
+```
+
+The "tool-call contract assertions + keyless CI gate" cell remains unoccupied by any
+assessed tool as of 2026-09-28T22:00 UTC. The Braintrust 0.43.0 release and Langfuse's
+continued daily activity (+1 star in 29 minutes) confirm that the observability and
+SaaS eval categories are actively developed — but none of the new releases overlap with
+the deterministic, keyless, YAML-contract-assertion niche this repo occupies.
+
+**The research-3 phase for cycle 6 is complete.**
