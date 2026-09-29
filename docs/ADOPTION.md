@@ -30,11 +30,23 @@ Requirements:
 - No API keys required after this setup
 
 ```bash
-cd your-project/
-uv pip install 'agent-eval-harness>=0.1.0'
-# or, from source:
-uv pip install 'git+https://github.com/openclaw/agent-eval-harness.git@feat/v0.1'
+# Install from source (works today, no network dependency beyond git):
+git clone https://github.com/AnnasMazhar/replayproof
+cd replayproof
+uv pip install -e '.[dev]'
+cd ../your-project/
 ```
+
+Or, once the repo is public, directly from the git URL (no local clone needed):
+
+```bash
+# Requires the repo to be publicly accessible:
+pip install git+https://github.com/AnnasMazhar/replayproof
+```
+
+Note: `pip install agent-eval-harness` installs a **different, unrelated package** on PyPI
+(Franck Ndzomga, 2026-02-09). The PyPI name `replayproof` is reserved for the v0.2 release.
+Install from source as shown above.
 
 Verify:
 
@@ -277,7 +289,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install 'agent-eval-harness>=0.1.0'
+      - run: |
+          git clone https://github.com/AnnasMazhar/replayproof
+          cd replayproof && pip install -e . && cd ..
+          # Note: 'pip install agent-eval-harness' installs a different package.
+          # Install from source as shown, or from the git URL once the repo is public.
 
       # 1. Evaluate the current recordings
       - name: Evaluate runs against contract

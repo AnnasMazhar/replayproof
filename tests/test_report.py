@@ -36,6 +36,14 @@ Faults detected:
   but that file had rc=1 and null values from a runner failure. Fault injection: write
   a mutation report JSON with rc=1 and killed=null => this test fails because the most
   recent successful mutation report is expected to have rc=0 and numeric killed/total.
+
+- test_adoption_install_uses_correct_package_name (TestAdoptionInstallContract): catches
+  ADOPTION.md using the wrong PyPI package name 'agent-eval-harness>=0.1.0'. The PyPI
+  slot is occupied by a different, unrelated package (Franck Ndzomga, 2026-02-09). Any
+  stranger following the adoption guide would install the wrong package and then be
+  confused when `import agenteval` fails. Root cause (c6-p09): the ADOPTION.md install
+  step was written before the PyPI name collision was discovered in c2-p08. Fault
+  injection: restore 'pip install agent-eval-harness' in ADOPTION.md => this test fails.
 """
 
 import os
@@ -358,4 +366,86 @@ class TestMutationReportIntegrity:
         assert abs(kill_rate - expected_rate) < 0.01, (
             f"kill_rate={kill_rate:.4f} inconsistent with killed/total={expected_rate:.4f}. "
             "The JSON may have been hand-edited rather than generated from a real run."
+        )
+
+
+class TestAdoptionInstallContract:
+    """Fault: ADOPTION.md uses the wrong PyPI package name 'agent-eval-harness>=0.1.0'.
+
+    Root cause (c6-p09-improve-2): ADOPTION.md was written before the PyPI name
+    collision was discovered in c2-p08. The PyPI slot 'agent-eval-harness' is occupied
+    by a different, unrelated package (Franck Ndzomga, 2026-02-09). Any engineer
+    following the adoption guide would install the wrong package and then see
+    'ImportError: No module named agenteval' with no clear explanation.
+
+    The correct install is from source (git clone + pip install .) or from the git URL
+    once the repo is public. The README already shows this correctly (fixed in c2-p08).
+
+    Fault injection: restore 'pip install agent-eval-harness' in docs/ADOPTION.md =>
+    this test fails because the bad package name is detected without a PyPI disclaimer.
+    """
+
+    _BAD_NAMES = (
+        "pip install agent-eval-harness",
+        "pip install 'agent-eval-harness",
+        'pip install "agent-eval-harness',
+        "uv pip install agent-eval-harness",
+        "uv pip install 'agent-eval-harness",
+    )
+
+    def _find_repo_root(self) -> str:
+        import os
+
+        env_root = os.environ.get("REPO_ROOT")
+        if env_root:
+            return env_root
+        import pathlib
+
+        candidate = pathlib.Path(__file__).resolve().parent
+        while not (candidate / "docs").is_dir() and candidate.parent != candidate:
+            candidate = candidate.parent
+        return str(candidate)
+
+    def test_adoption_install_uses_correct_package_name(self) -> None:
+        """ADOPTION.md must not install from the occupied PyPI name 'agent-eval-harness'.
+
+        The PyPI slot 'agent-eval-harness' is occupied by a different package. Any
+        line containing 'pip install agent-eval-harness' in ADOPTION.md (without a
+        clear disclaimer that this installs the wrong thing) will mislead engineers.
+
+        Fault injection: add 'pip install agent-eval-harness>=0.1.0' to ADOPTION.md
+        without a disclaimer => assertion fails because the bad name is detected.
+        """
+        import pathlib
+
+        adoption_path = pathlib.Path(self._find_repo_root()) / "docs" / "ADOPTION.md"
+        assert adoption_path.exists(), (
+            f"docs/ADOPTION.md not found at {adoption_path}. " "The adoption guide must exist."
+        )
+        lines = adoption_path.read_text(encoding="utf-8").splitlines()
+
+        violations: list[int] = []
+        for i, line in enumerate(lines):
+            lower = line.lower()
+            if any(bad in lower for bad in self._BAD_NAMES):
+                # Allow the line if it is inside a note/warning explaining the collision.
+                # Check whether the line itself or the 3 preceding lines contain a disclaimer.
+                window = lines[max(0, i - 3) : i + 1]
+                combined = " ".join(ln.lower() for ln in window)
+                disclaimer_phrases = (
+                    "different, unrelated package",
+                    "different package",
+                    "occupied by",
+                    "wrong package",
+                    "installs the wrong",
+                )
+                if not any(p in combined for p in disclaimer_phrases):
+                    violations.append(i + 1)  # 1-indexed
+
+        assert not violations, (
+            "docs/ADOPTION.md references the occupied PyPI name 'agent-eval-harness' "
+            "on line(s) " + str(violations) + " without a disclaimer. "
+            "The PyPI name 'agent-eval-harness' is occupied by a different, unrelated "
+            "package (Franck Ndzomga, 2026-02-09). Use source install instead: "
+            "'git clone https://github.com/AnnasMazhar/replayproof && pip install -e .'."
         )
