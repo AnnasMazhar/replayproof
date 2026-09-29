@@ -47,6 +47,22 @@ Faults detected by this module:
 - test_compute_suite_name_preserved: catches mutations to the suite_name default or
   string concatenation in metadata. The suite name must round-trip through to_dict().
 
+- test_compute_suite_default_name_is_empty: catches mutmut_1 (compute_suite default
+  param 'suite_name=""' mutated to 'suite_name="XXXX"'). The existing name-preserved
+  test passes an explicit value, so it cannot detect mutations to the default itself.
+  Fault injection: change default to any non-empty string => SuiteResult.suite_name
+  is non-empty when called without suite_name => test fails.
+
+- test_wilson_lower_successes_gt_n_error_message_body: catches mutmut_10/11/12
+  (string mutations to the second clause of the successes>n error message:
+  'received more successes than total trials' → 'XXreceived...XX', 'RECEIVED...', or
+  'Received...'). The existing test_wilson_lower_rejects_successes_gt_n uses a
+  combined match pattern 'successes.*<=.*n|more successes than total' — the first
+  alternative matches the first clause ('successes (10) must be <= n (5)'), so the
+  second clause can be mutated without killing the test. This dedicated test uses a
+  match pattern anchored only to the second clause, so any mutation to that text
+  causes the test to fail.
+
 TestNormalQuantile (boundary guard tests, c6-p08):
 - test_normal_quantile_boundary_zero: kills mutmut_1/3/5/6 by matching the guard
   error message "p must be in (0, 1)". Without the match, all those mutants also raise
@@ -395,6 +411,26 @@ class TestComputeSuite:
             suite.to_dict()["suite_name"] == "cycle2-test-suite"
         ), f"suite_name not preserved: {suite.to_dict()['suite_name']}"
 
+    def test_compute_suite_default_name_is_empty(self) -> None:
+        """Fault detected: mutmut_1 — default suite_name="" mutated to "XXXX".
+
+        When compute_suite is called without a suite_name argument, the default
+        value must be the empty string "".  mutmut_1 changes the default from ""
+        to "XXXX", making the SuiteResult.suite_name non-empty on defaulted calls.
+
+        test_compute_suite_name_preserved cannot detect this because it always
+        passes an explicit suite_name.  This test calls compute_suite with no
+        suite_name and verifies the default is "".
+
+        Fault injection: change suite_name default from "" to any non-empty string
+        => suite.to_dict()["suite_name"] != "" => assertion fails.
+        """
+        cases = [_make_case("default_name_case", True)]
+        suite = compute_suite(cases)  # no suite_name kwarg — uses default
+        assert (
+            suite.to_dict()["suite_name"] == ""
+        ), f"Default suite_name must be empty string, got: {suite.to_dict()['suite_name']!r}"
+
 
 class TestWilsonLowerInputValidation:
     """Tests for AR2-MIN-2 fix: wilson_lower rejects invalid inputs.
@@ -415,6 +451,32 @@ class TestWilsonLowerInputValidation:
         After fix: must raise ValueError.
         """
         with pytest.raises(ValueError, match="successes.*<=.*n|more successes than total"):
+            wilson_lower(10, 5, 0.95)
+
+    def test_wilson_lower_successes_gt_n_error_message_body(self) -> None:
+        """Fault: error message second clause mutated (mutmut_10/11/12).
+
+        The ValueError for successes > n has two parts:
+          Part 1: 'successes ({s}) must be <= n ({n})'
+          Part 2: 'received more successes than total trials'
+
+        test_wilson_lower_rejects_successes_gt_n uses the pattern
+        'successes.*<=.*n|more successes than total'. The first alternative
+        matches Part 1 regardless of Part 2 — so mutants that change only
+        Part 2 ('XXreceived...XX', 'RECEIVED...', 'Received...') pass the
+        combined test. This test matches Part 2 exclusively, killing those mutants.
+
+        The pattern 'received more successes than total trials$' anchors to the
+        end of the message string.  Each mutant changes the second clause:
+          mutmut_10: 'XXreceived more successes than total trialsXX' — '$' fails (trailing XX)
+          mutmut_11: 'RECEIVED MORE SUCCESSES THAN TOTAL TRIALS'  — case mismatch fails
+          mutmut_12: 'Received more successes than total trials'   — capital R fails
+
+        Fault injection: mutate Part 2 of the error message to any case-changed or
+        prefix/suffix-padded string => the '$'-anchored pattern finds no match =>
+        ExceptionInfo.match() raises AssertionError => pytest reports FAILED.
+        """
+        with pytest.raises(ValueError, match=r"received more successes than total trials$"):
             wilson_lower(10, 5, 0.95)
 
     def test_wilson_lower_rejects_negative_successes(self) -> None:

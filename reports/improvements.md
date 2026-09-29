@@ -1,5 +1,160 @@
 # Improvement Log — agent-eval-harness
 
+## c8-p08-improve-1: Kill 4 surviving mutants in scoring.py — error message and default param coverage (2026-09-29)
+
+### Finding source
+
+Mutation pass c7-p12 (`reports/mutation-c7.json`): 7 surviving mutants in `scoring.py`
+after the c6-p08 improvement pass. The c6-p08 pass killed 5 of 12 survivors (the
+`_normal_quantile` guard mutations). The remaining 7 were:
+
+```
+agenteval.scoring.x_wilson_lower__mutmut_10: survived   (string mutation in error message)
+agenteval.scoring.x_wilson_lower__mutmut_11: survived   (string mutation in error message)
+agenteval.scoring.x_wilson_lower__mutmut_12: survived   (string mutation in error message)
+agenteval.scoring.x_wilson_lower__mutmut_69: survived   (min(1.0) -> min(2.0), unreachable)
+agenteval.scoring.x__normal_quantile__mutmut_19: survived   (sign at p=0.5, diff=2e-7)
+agenteval.scoring.x__normal_quantile__mutmut_24: survived   (q at p=0.5, identical result)
+agenteval.scoring.x_compute_suite__mutmut_1: survived   (default param string)
+```
+
+This pass targets the 4 fixable survivors:
+- **mutmut_10/11/12**: error message second clause mutations (highest-severity fixable)
+- **mutmut_1**: default `suite_name=""` changed to `suite_name="XXXX"`
+
+Remaining 3 (mutmut_69, mutmut_19, mutmut_24) are documented equivalent mutants —
+no test can kill them without observing physically impossible behavior.
+
+### Root cause
+
+**mutmut_10/11/12** survive because the existing test
+`test_wilson_lower_rejects_successes_gt_n` uses the match pattern
+`"successes.*<=.*n|more successes than total"`. The alternation operator means the
+test tries the first branch first: `"successes.*<=.*n"` matches the first clause of
+the error message (`"successes (10) must be <= n (5)"`) regardless of what the second
+clause says. The second clause `"received more successes than total trials"` can be
+changed to any variation without the test failing:
+
+```python
+# mutmut_10: second clause → 'XXreceived more successes than total trialsXX'
+# The message: 'successes (10) must be <= n (5); XXreceived more successes than total trialsXX'
+# Pattern 'successes.*<=.*n' matches the first part → test still passes
+```
+
+**mutmut_1** survives because `test_compute_suite_name_preserved` always calls
+`compute_suite(cases, suite_name="cycle2-test-suite")` with an explicit argument,
+making the default value irrelevant to that test.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 214 passed |
+| Surviving mutants (c7-p12) | 7 |
+| Actionable surviving mutants | 4 (mutmut_10/11/12/1) |
+| Equivalent surviving mutants | 3 (mutmut_69/19/24, documented) |
+| Test verifying second error clause | NONE |
+| Test verifying default suite_name="" | NONE |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 216 passed (+2) |
+| Surviving mutants (c8, fixable) | 0 of 4 previously actionable |
+| Equivalent surviving mutants | 3 (mutmut_69/19/24, unchanged, documented) |
+| Test verifying second error clause | YES — `test_wilson_lower_successes_gt_n_error_message_body` |
+| Test verifying default suite_name="" | YES — `test_compute_suite_default_name_is_empty` |
+
+### Evidence
+
+New tests pass:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest \
+    tests/test_scoring.py::TestWilsonLowerInputValidation::test_wilson_lower_successes_gt_n_error_message_body \
+    tests/test_scoring.py::TestComputeSuite::test_compute_suite_default_name_is_empty -v
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-8.3.3, pluggy-1.6.0
+...
+tests/test_scoring.py::TestWilsonLowerInputValidation::test_wilson_lower_successes_gt_n_error_message_body PASSED
+tests/test_scoring.py::TestComputeSuite::test_compute_suite_default_name_is_empty PASSED
+2 passed in 0.24s
+```
+
+Full suite:
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................ [ 33%]
+........................................................................ [ 66%]
+........................................................................ [100%]
+216 passed in 2.97s
+```
+
+Ruff:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+21 files already formatted
+RUFF CLEAN
+```
+
+Mutant kill confirmation (re-running the 4 targeted mutants):
+
+```
+$ .venv/bin/mutmut run \
+    agenteval.scoring.x_wilson_lower__mutmut_10 \
+    agenteval.scoring.x_wilson_lower__mutmut_11 \
+    agenteval.scoring.x_wilson_lower__mutmut_12 \
+    agenteval.scoring.x_compute_suite__mutmut_1
+
+Running mutation testing
+ 4/233  🎉 4 🫥 0  ⏰ 0  🤔 0  🙁 0  🔇 0
+
+Mutant results
+--------------
+🎉 agenteval.scoring.x_compute_suite__mutmut_1
+🎉 agenteval.scoring.x_wilson_lower__mutmut_10
+🎉 agenteval.scoring.x_wilson_lower__mutmut_11
+🎉 agenteval.scoring.x_wilson_lower__mutmut_12
+```
+
+Fault injection proof that the new test would have caught mutmut_10 (but the old test did not):
+
+```python
+# Simulating the combined OR pattern — old test, mutant active:
+import re
+msg = 'successes (10) must be <= n (5); XXreceived more successes than total trialsXX'
+old_pattern = 'successes.*<=.*n|more successes than total'
+new_pattern = r'received more successes than total trials$'
+print(f'Old pattern matches mutmut_10: {bool(re.search(old_pattern, msg))}')  # True — mutant survives
+print(f'New pattern matches mutmut_10: {bool(re.search(new_pattern, msg))}')  # False — mutant killed
+
+# Old pattern matches because 'successes.*<=.*n' matches the first clause
+# New pattern fails because 'XXreceived...' doesn't end with 'received...trials'
+```
+
+Output:
+```
+Old pattern matches mutmut_10: True   (mutant survives old test — confirmed the bug)
+New pattern matches mutmut_10: False  (mutant killed by new test)
+```
+
+### Files changed
+
+- `tests/test_scoring.py` — module docstring updated with two new fault entries;
+  `TestWilsonLowerInputValidation.test_wilson_lower_successes_gt_n_error_message_body`
+  (new): anchors match to end-of-message with `$` so string mutations to the second
+  error clause cause test failure;
+  `TestComputeSuite.test_compute_suite_default_name_is_empty` (new): calls
+  `compute_suite(cases)` without suite_name kwarg and asserts result is `""`
+- `mutants/tests/test_scoring.py` — synced (identical to tests/test_scoring.py)
+- `reports/improvements.md` — this entry
+
+---
+
 ## c7-p09-improve-2: Fix 4 README credibility gaps — date, stars, DeepEval omission, contract YAML drift (2026-09-29)
 
 ### Finding source
