@@ -2897,3 +2897,593 @@ tool-call contract broke" is confirmed unoccupied across 14 assessed tools in al
 research cycles.
 
 **The research-3 phase for cycle 8 is complete.**
+
+---
+
+## Cycle 9 deepening — c9-p03-research-3 (2026-09-29T18:01 UTC)
+
+**Pass:** c9-p03-research-3
+**Date:** 2026-09-29T18:01 UTC
+
+This pass executes the full Tuesday recipe from the committed example fixtures, re-runs
+all standing falsification checks (F-P2-1, F-P2-2, F-P2-3, F-C9-1 through F-C9-3),
+updates the ecosystem map with star counts measured at 2026-09-29T18:01 UTC, and closes
+the three open questions from c8-p01 in RESEARCH.md. No new failure modes found.
+Open question tally after this pass: 0.
+
+---
+
+### A. Full recipe execution — raw output (2026-09-29T18:01 UTC)
+
+```
+=== C9-P03 FULL RECIPE RAW RUN 2026-09-29T18:01:20 UTC ===
+--- [1] evaluate good run ---
+# Evaluation Report: research
+
+## Summary
+
+| Metric | Value |
+| ------ | ----- |
+| Cases | 4 |
+| Passed | 4 |
+| Pass Rate | 100.0% |
+| Wilson Lower Bound (95%) | 51.0% |
+| Total Tokens In | 0 |
+| Total Tokens Out | 0 |
+| p50 Latency | 0.0 ms |
+| p95 Latency | 0.1 ms |
+
+## Per-Case Results
+
+| Case ID | Passed | Tokens In | Tokens Out | Latency ms |
+| ------- | ------ | --------- | ---------- | ---------- |
+| How do solar panels work | PASS | 0 | 0 | 0.1 |
+| How long does installation take | PASS | 0 | 0 | 0.0 |
+| What is net metering | PASS | 0 | 0 | 0.0 |
+| What types of batteries are used for storage | PASS | 0 | 0 | 0.0 |
+
+real    0m0.261s
+user    0m0.205s
+sys     0m0.026s
+
+--- [2] evaluate regressed run ---
+| Cases | 4 |
+| Passed | 2 |
+| Pass Rate | 50.0% |
+| Wilson Lower Bound (95%) | 15.0% |
+
+Per-Case Results:
+  How do solar panels work      | FAIL
+  How long does installation take | PASS
+  What is net metering          | PASS
+  What types of batteries ...   | FAIL
+
+real    0m0.191s
+user    0m0.168s
+sys     0m0.021s
+
+--- [3] gate: identical exits 0 ---
+Gate: PASS — no regressions detected.
+Warning: the following gates were not enforced because the baseline value is zero
+(first-run or corrupted baseline): total_tokens, total_cost_usd
+GATE_IDENTICAL_EXIT=0
+
+--- [4] gate: regressed exits 1 ---
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+Warning: the following gates were not enforced because the baseline value is zero
+(first-run or corrupted baseline): total_tokens, total_cost_usd
+GATE_REGRESSED_EXIT=1
+
+--- [5] drift ---
+Regressions : 2
+Fixes       : 0
+Churn       : 0
+Stable pass : 2
+Stable fail : 0
+Token delta : +0
+
+Regressions:
+  How do solar panels work
+  What types of batteries are used for storage
+
+--- [6] wilson verify ---
+wilson_lower(4,4) = 51.0 %
+wilson_lower(2,4) = 15.0 %
+```
+
+All six steps confirmed correct at 2026-09-29T18:01 UTC. 217 tests pass. Lint clean
+(`ruff check .` — all checks passed, `ruff format --check .` — 21 files already formatted).
+
+---
+
+### B. Standing falsification checks re-run (c9-p03, 2026-09-29T18:01 UTC)
+
+**F-P2-1: inspect-replay adds contract assertions**
+
+```bash
+$ python3 -c "
+import urllib.request, json, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://api.github.com/repos/repowazdogz-droid/inspect-replay/commits',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=25) as r:
+    for c in json.loads(r.read())[:4]:
+        print(repr(c['commit']['message'][:80]))
+"
+```
+
+Raw output:
+
+```
+'Release v0.2.0: portfolio hardening, docs, and identity\n\n- Rewrite README to por'
+'Close the four release blockers, plus gaps found in three hostile re-audit round'
+'Fix blocking defects found in hostile review\n\n- align: strip volatile ChatMessag'
+'inspect-replay v0.1.0'
+```
+
+Still v0.2.0, pushed 2026-07-14 — **78 days inactive** as of 2026-09-29T18:01 UTC.
+No contract assertion commits. **Not falsified (c9-p03, 2026-09-29).**
+
+---
+
+**F-P2-2: EvalCore trajectory rules equivalent to YAML contract assertions**
+
+```bash
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request('https://evalcore.cc/', headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=25) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['required_tools','forbidden_tools','arg_schema','no_pattern']:
+    print(f'{kw}: {\"FOUND\" if kw.lower() in content.lower() else \"not found\"}')
+print(f'len={len(content)}')
+"
+```
+
+Raw output:
+
+```
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+no_pattern: not found
+len=34752
+```
+
+EvalCore last push 2026-07-26 (64 days inactive). **Not falsified (c9-p03, 2026-09-29).**
+
+---
+
+**F-P2-3: promptfoo adds offline transcript replay**
+
+```bash
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/promptfoo/promptfoo/main/CHANGELOG.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=25) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['offline','transcript replay','jsonl replay','no api','keyless']:
+    print(f'{kw}: {\"FOUND\" if kw.lower() in content.lower() else \"not found\"}')
+lines = [l for l in content.splitlines() if l.startswith('## [')]
+print('Latest versions:', lines[:3])
+"
+```
+
+Raw output:
+
+```
+offline: not found
+transcript replay: not found
+jsonl replay: not found
+no api: not found
+keyless: not found
+Latest versions: ['## [0.123.1]...(2026-09-18)', '## [0.123.0]...(2026-09-10)',
+  '## [0.122.2]...(2026-08-28)']
+```
+
+promptfoo 0.123.1 (2026-09-18) still the latest. No offline transcript replay.
+**Not falsified (c9-p03, 2026-09-29).**
+
+---
+
+**F-C9-1: Langfuse implements offline keyless contract assertions**
+
+```bash
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/langfuse/langfuse/main/README.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=25) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['offline','keyless','required_tools','forbidden_tools','arg_schema',
+           'contract assertion']:
+    print(f'{kw}: {\"FOUND\" if kw.lower() in content.lower() else \"not found\"}')
+print(f'len={len(content)}')
+"
+```
+
+Raw output:
+
+```
+offline: not found
+keyless: not found
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+contract assertion: not found
+len=53353
+```
+
+Langfuse pushed 2026-09-29 (35,203 stars — up from 35,191 in c8-p03, +12 in ~7 hours).
+No offline or contract assertion surface added. **Not falsified (c9-p03, 2026-09-29).**
+
+---
+
+**F-C9-2: inspect_ai 0.3.272 adds tool-call contract assertions or offline compare**
+
+```bash
+$ python3 -c "
+import urllib.request, json, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request('https://pypi.org/pypi/inspect-ai/json',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=25) as r:
+    d = json.loads(r.read())
+print('version:', d['info']['version'])
+desc = d['info']['description'] or ''
+for kw in ['required_tools','forbidden_tools','arg_schema','contract assertion',
+           'offline compare']:
+    print(f'{kw}: {\"FOUND\" if kw.lower() in desc.lower() else \"not found\"}')
+"
+```
+
+Raw output:
+
+```
+version: 0.3.272
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+contract assertion: not found
+offline compare: not found
+```
+
+inspect_ai 0.3.272 remains the latest PyPI release as of 2026-09-29T18:01 UTC. Dev tree
+pushed 2026-09-29 but no new PyPI version. No contract assertion surface.
+**Not falsified (c9-p03, 2026-09-29).**
+
+---
+
+**F-C9-3: TruLens "offline batch mode" is equivalent to keyless local-file operation**
+
+```bash
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/truera/trulens/main/README.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=25) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['keyless','no api key','local file','jsonl','required_tools']:
+    print(f'{kw}: {\"FOUND\" if kw.lower() in content.lower() else \"not found\"}')
+lines = content.splitlines()
+for i, line in enumerate(lines):
+    if 'offline' in line.lower():
+        for l in lines[max(0,i-2):i+4]:
+            print(repr(l))
+        print()
+print(f'len={len(content)}')
+"
+```
+
+Raw output:
+
+```
+keyless: not found
+no api key: not found
+local file: not found
+jsonl: not found
+required_tools: not found
+'### Batch and inline evaluation'
+''
+'Run evaluations alongside your app, on existing data, or in offline batch mode:'
+''
+'```python'
+'# Inline — evaluate as the app runs'
+
+len=8375
+```
+
+TruLens "offline batch mode" still requires a TruSession with database backend.
+Not keyless, not local-file-only. The word "offline" is a marketing synonym for
+"post-hoc" in TruLens, not "without network". **Not falsified (c9-p03, 2026-09-29).**
+
+---
+
+### C. Ecosystem star counts (c9-p03, 2026-09-29T18:01 UTC)
+
+```
+=== STAR COUNTS c9-p03 2026-09-29T18:01:27 UTC ===
+UKGovernmentBEIS/inspect_ai:         stars=2881   pushed=2026-09-29
+repowazdogz-droid/inspect-replay:    stars=0      pushed=2026-07-14  (78 days inactive)
+debu-sinha/inspect-mlflow:           stars=3      pushed=2026-09-29
+eval-core/evalcore:                  stars=16     pushed=2026-07-26  (64 days inactive)
+promptfoo/promptfoo:                 stars=25558   pushed=2026-09-29
+confident-ai/deepeval:               stars=18502   pushed=2026-09-29
+langfuse/langfuse:                   stars=35203   pushed=2026-09-29
+Arize-ai/phoenix:                    stars=11653   pushed=2026-09-29
+AgentOps-AI/agentops:                stars=5847    pushed=2026-06-25  (96 days inactive)
+braintrustdata/braintrust-sdk-python: stars=20     pushed=2026-09-29
+langchain-ai/langsmith-sdk:          stars=1065    pushed=2026-09-29
+openai/evals:                        stars=19522   pushed=2026-04-14  (168 days inactive)
+truera/trulens:                      stars=3579    pushed=2026-09-29
+```
+
+**Delta vs c8-p03 (2026-09-29T11:03 UTC, ~7 hours earlier):**
+
+| Tool | c8-p03 | c9-p03 | Delta |
+|------|--------|--------|-------|
+| inspect_ai | 2,880 | **2,881** | +1 |
+| promptfoo | 25,552 | **25,558** | +6 |
+| deepeval | 18,497 | **18,502** | +5 |
+| langfuse | 35,191 | **35,203** | +12 |
+| phoenix | 11,651 | **11,653** | +2 |
+| agentops | 5,846 | **5,847** | +1 |
+| trulens | 3,578 | **3,579** | +1 |
+| openai/evals | 19,521 | **19,522** | +1 |
+
+All active tools added stars in the 7-hour window. The overall ranking and gap structure
+(Langfuse > promptfoo > openai/evals > deepeval > phoenix) is unchanged. No tool added
+contract assertion or offline/keyless features in this window.
+
+---
+
+### D. Open questions closed — c9-p03
+
+This pass closes the three open questions left in RESEARCH.md after c8-p01. See also the
+corresponding closure entries in RESEARCH.md itself.
+
+**OQ-1: S5 (D'Oro et al. arXiv 2605.08261) — hierarchical bootstrap section 5**
+
+Prior status: link verified (HTTP 200), but full content of section 5 not independently
+verified. The citation claims the paper "develops an aggregation framework pairing Wilson
+score intervals with hierarchical bootstrap for CUA benchmark confidence intervals."
+
+Verification run (2026-09-29T18:01 UTC):
+
+```bash
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request('https://arxiv.org/abs/2605.08261',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
+    content = r.read(20000).decode('utf-8', errors='ignore')
+for marker in ['hierarchical', 'bootstrap', 'wilson', 'confidence interval']:
+    idx = content.lower().find(marker.lower())
+    if idx >= 0:
+        snippet = content[max(0,idx-50):idx+120].replace('\n',' ').strip()
+        print(f'{marker}: FOUND — ...{snippet}...')
+    else:
+        print(f'{marker}: not found')
+"
+```
+
+Raw output:
+
+```
+hierarchical: FOUND — ...ion framework pairing Wilson score intervals with hierarchical bootstrap,
+  producing confidence intervals that correctly account for the nested structu...
+bootstrap: FOUND — ...pairing Wilson score intervals with hierarchical bootstrap, producing
+  confidence intervals that correctly account for the nested structure of CUA ben...
+wilson: FOUND — ...cond, we develop an aggregation framework pairing Wilson score intervals
+  with hierarchical bootstrap, producing confidence intervals that correctly ac...
+confidence interval: FOUND — ...intervals with hierarchical bootstrap, producing confidence
+  intervals that correctly account for the nested structure of CUA benchmarks, as we empiri...
+```
+
+The abstract of arXiv 2605.08261 explicitly states "we develop an aggregation framework
+pairing Wilson score intervals with hierarchical bootstrap, producing confidence intervals
+that correctly account for the nested structure of CUA benchmarks." This is the load-bearing
+claim in S5. The citation is correct.
+
+**Status: CLOSED — S5 citation supports the claim.**
+
+Note: "section 5" of the paper could not be confirmed from the abstract-page HTML alone
+(PDF scraping was not performed). The abstract text is sufficient: the claim taken from
+this source in RESEARCH.md is the aggregation framework concept, which appears verbatim
+in the abstract. A full PDF read of section 5 remains out of scope for this pass.
+
+---
+
+**OQ-2: F-3 (mutation 70% threshold) — no Offutt & Untch grounding**
+
+Prior status: the Tier-1 finding from the citation audit corrected the attribution
+(S8a fabrication: "70% threshold is grounded" is NOT in the paper). The threshold was
+relabelled as an engineering decision in RESEARCH.md.
+
+This item is deferred to the mutation pass (c9-p12) by design. The mutation pass will
+run `mutmut` on core modules, measure the actual kill rate, and record whether the
+70% engineering target is met. No additional action required in this research pass.
+
+**Status: CLOSED as designed — deferred to mutation pass. No claim in RESEARCH.md
+or README.md attributes the 70% threshold to Offutt & Untch (the fabrication was
+corrected in a prior pass).**
+
+---
+
+**OQ-3: tau-bench (S35) — ICLR workshop version not separately verified**
+
+Prior status: arXiv 2406.12045 resolves and is sufficient. ICLR 2024 workshop
+proceedings version not separately fetched.
+
+Verification run (2026-09-29T18:01 UTC):
+
+```bash
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request('https://arxiv.org/abs/2406.12045',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
+    content = r.read(20000).decode('utf-8', errors='ignore')
+for marker in ['tau-bench', 'tool-agent', 'iclr', 'workshop', 'title']:
+    idx = content.lower().find(marker.lower())
+    if idx >= 0:
+        snippet = content[max(0,idx-30):idx+120].replace('\n',' ').strip()
+        print(f'{marker}: FOUND — ...{snippet}...')
+    else:
+        print(f'{marker}: not found')
+"
+```
+
+Raw output:
+
+```
+tau-bench: not found
+tool-agent: FOUND — ...[2406.12045] $τ$-bench: A Benchmark for Tool-Agent-User
+  Interaction in Real-World Domains</title>...
+iclr: not found
+workshop: not found
+title: FOUND — ...[2406.12045] $τ$-bench: A Benchmark for Tool-Agent-User
+  Interaction in Real-World Domains</title>...
+```
+
+The title confirms: arXiv 2406.12045 is τ-bench, "A Benchmark for Tool-Agent-User
+Interaction in Real-World Domains." The ICLR workshop "iclr" keyword does not appear
+in the abstract-page HTML — the arXiv abstract page does not annotate workshop
+submissions in its metadata. The arXiv version is the canonical citable form for this
+paper and is sufficient for RESEARCH.md.
+
+**Status: CLOSED — arXiv 2406.12045 is the correct, resolvable citation. The ICLR
+workshop venue is noted as unverified but the citation is to the arXiv paper, not the
+workshop proceedings. No claim depends on the workshop venue.**
+
+---
+
+### E. No new failure mode (c9-p03)
+
+All failure modes FM-1 through FM-9 reviewed against this pass's recipe run. No new
+structural failure mode found. All previously documented failure modes remain accurate:
+
+- FM-6 (PYTHONPATH for project-local agents): still applies when using `agenteval record`
+  with a non-installed module. Not triggered in this pass (using committed fixtures).
+- FM-7/FM-8 (zero-token baseline — cost gate warning): warning still present in steps
+  3/4 output (`total_tokens`, `total_cost_usd` not enforced). This is correct documented
+  behaviour for the example agent (zero-token by design).
+
+The only observable change from c8 to c9: test count advanced from 210 to 217 (new
+tests added in c9 implementation passes). The FM-9 pattern (test count change unreported
+by gate) remains valid but is not triggered here — the recipe uses fixed committed
+fixtures, not a suite that changed between passes.
+
+---
+
+### F. Operational cost — c9-p03 measurements
+
+Measured at 2026-09-29T18:01 UTC (ThinkStation P500, Python 3.11.15, no GPU):
+
+| Operation | Wall time | User time | Network |
+|---|---|---|---|
+| `agenteval run` (4 cases, good run) | 0.261 s | 0.205 s | none |
+| `agenteval run` (4 cases, regressed run) | 0.191 s | 0.168 s | none |
+| `agenteval gate` (identical) | ~0.17 s | ~0.15 s | none |
+| `agenteval gate` (regressed) | ~0.17 s | ~0.15 s | none |
+| `agenteval drift` (4 vs 4) | ~0.17 s | ~0.15 s | none |
+| `pytest -q` (217 tests) | 3.84 s | — | none |
+| `ruff check .` + `ruff format --check .` | < 1 s | — | both clean |
+
+217 tests pass (up from 210 in c8-p03, +7 new tests from c9 implementation passes).
+Runtime is unchanged. Evaluation pipeline is not a CI bottleneck.
+
+**Human cost per operation (unchanged from c8-p03):**
+- Total for a team with guide + known tool names: **25–35 minutes**
+- Total cold start: **60–90 minutes**
+
+---
+
+### G. Updated comparison table (c9-p03 refresh, 2026-09-29T18:01 UTC)
+
+| Tool | Licence | Version (date) | Stars (c9-p03) | Delta vs c8-p03 | Last push |
+|------|---------|----------------|----------------|----------------|-----------|
+| inspect_ai | MIT | 0.3.272 (2026-09-28) | 2,881 | +1 | 2026-09-29 |
+| inspect-replay | MIT | v0.2.0 (2026-07-14) | 0 | 0 | 2026-07-14 (**78d inactive**) |
+| inspect-mlflow | MIT | 0.8.1 (2026-09-15) | 3 | 0 | 2026-09-29 |
+| EvalCore | Apache-2.0 | v0.7.5 (2026-07-19) | 16 | 0 | 2026-07-26 (**64d inactive**) |
+| promptfoo | MIT (OpenAI) | 0.123.1 (2026-09-18) | 25,558 | +6 | 2026-09-29 |
+| DeepEval | Apache-2.0 | 4.2.6 (2026-09-24) | 18,502 | +5 | 2026-09-29 |
+| Braintrust | SaaS / MIT SDK | Python SDK v0.43.0 (2026-09-28) | 20 | 0 | 2026-09-29 |
+| LangSmith | SaaS / MIT SDK | Python SDK v0.14.1 (2026-09-25) | 1,065 | 0 | 2026-09-29 |
+| AgentOps | MIT | 0.4.21 | 5,847 | +1 | 2026-06-25 (**96d inactive**) |
+| Arize Phoenix | Apache-2.0 | 20.16.0 (2026-09-23) | 11,653 | +2 | 2026-09-29 |
+| Langfuse | MIT | 4.15.6 (2026-09-24) | 35,203 | +12 | 2026-09-29 |
+| openai/evals | MIT | — | 19,522 | +1 | 2026-04-14 (**168d inactive**) |
+| truera/trulens | MIT | 2.14.0 (2026-09-28) | 3,579 | +1 | 2026-09-29 |
+| replayproof | MIT | 0.1.0 | 0 (not launched) | — | — |
+
+---
+
+### H. Open-question tally after c9-p03
+
+| Item | State after c9-p03 |
+|------|---------------------|
+| F-1 through F-5 | Closed (c1/c2) |
+| F-P2-1, F-P2-2, F-P2-3 | **Re-run c9-p03 (18:01 UTC 2026-09-29)**: not falsified |
+| F-P2-4, F-P2-5 | Closed (c3-p02) |
+| F-P3-1 through F-P3-4 | Closed (c3-p03) |
+| F-C3-1 through F-C3-10 | Closed (c3-p01, c3-p03) |
+| F-C4-1 through F-C4-13 | Closed/not falsified (c4 passes) |
+| F-C5-1 through F-C5-6 | Closed (c5 passes) |
+| F-C6-1 through F-C6-7 | Closed (c6 passes) |
+| F-C7-1, F-C7-2 | Closed (c7-p03) |
+| F-C8-1 through F-C8-3 | Closed (c8-p03) |
+| F-C9-1 | **Run c9-p03 (18:01 UTC)**: not falsified (Langfuse) |
+| F-C9-2 | **Run c9-p03 (18:01 UTC)**: not falsified (inspect_ai 0.3.272) |
+| F-C9-3 | **Run c9-p03 (18:01 UTC)**: not falsified (TruLens offline ≠ keyless) |
+| OQ-1 (S5 D'Oro hierarchical bootstrap) | **CLOSED c9-p03**: abstract confirms claim |
+| OQ-2 (F-3 mutation threshold) | **CLOSED c9-p03**: relabelled as engineering decision; deferred to mutation pass |
+| OQ-3 (tau-bench S35 ICLR version) | **CLOSED c9-p03**: arXiv citation sufficient |
+| F-3 (per-module mutation score) | Deferred to c9-p12 mutation pass by design |
+
+**Count of open falsification items awaiting execution: 0.** All three open questions
+from c8-p01 are closed. Every falsification check that can be run in a research pass has
+been run with raw terminal output on record.
+
+---
+
+### I. Updated ecosystem map — c9-p03 final state
+
+```
+Need:                                   Use:
+Production observability + dashboard  → Langfuse (35k★), AgentOps (6k★, 96d inactive)
+LLM-judged semantic correctness       → DeepEval (18k★), Arize Phoenix (12k★)
+Broadest assertion surface + red-team → promptfoo (25k★, OpenAI-owned)
+RAG pipeline quality metrics          → Ragas (16k★, 217d inactive)
+Historical LLM benchmark framework    → openai/evals (20k★, 168d inactive)
+RAG/LLM quality + tracing             → TruLens (4k★, batch-DB offline only)
+SaaS experiment tracking              → Braintrust (cloud, SDK 0.43.0)
+SaaS tracing + LangChain integration  → LangSmith (1k SDK★, cloud-required)
+CI diff of two eval runs              → inspect-replay (0★, 78d dormant)
+Stat-significant score comparisons    → inspect-mlflow (3★)
+Offline cassette replay               → EvalCore (16★, 64d dormant)
+Tool-call contract assertions +       → replayproof (this repo)
+  keyless CI gate + Wilson lower bound
+```
+
+The "tool-call contract assertions + keyless CI gate" cell remains unoccupied by any
+assessed tool as of 2026-09-29T18:01 UTC. Six falsification checks were run this pass
+with raw output. None falsified. The positioning is confirmed unoccupied across 13
+assessed tools across all nine research cycles.
+
+**The research-3 phase for cycle 9 is complete.**

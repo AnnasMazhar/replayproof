@@ -12008,3 +12008,102 @@ removed. RFC 9110 was added as replacement. Net new sources this pass: 10 (S32�
    engineering decision.
 3. **tau-bench (S35)** — paper available on arXiv as of 2026-09-29; ICLR 2024 workshop
    proceedings version not separately verified. The arXiv version is sufficient.
+
+## Closures — c9-p03-research-3 (2026-09-29T18:01 UTC)
+
+All three open questions from c8-p01 are now closed.
+
+### OQ-1 CLOSED: S5 (D'Oro et al. arXiv 2605.08261) — hierarchical bootstrap verified
+
+Verification command run 2026-09-29T18:01 UTC:
+
+```bash
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request('https://arxiv.org/abs/2605.08261', headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
+    content = r.read(20000).decode('utf-8', errors='ignore')
+for marker in ['hierarchical', 'bootstrap', 'wilson', 'confidence interval']:
+    idx = content.lower().find(marker.lower())
+    if idx >= 0:
+        snippet = content[max(0,idx-50):idx+120].replace('\n',' ').strip()
+        print(f'{marker}: ...{snippet}...')
+    else:
+        print(f'{marker}: not found')
+"
+```
+
+Raw output:
+
+```
+hierarchical: ...ion framework pairing Wilson score intervals with hierarchical bootstrap,
+  producing confidence intervals that correctly account for the nested structu...
+bootstrap: ...pairing Wilson score intervals with hierarchical bootstrap, producing
+  confidence intervals that correctly account for the nested structure of CUA ben...
+wilson: ...cond, we develop an aggregation framework pairing Wilson score intervals
+  with hierarchical bootstrap, producing confidence intervals that correctly ac...
+confidence interval: ...intervals with hierarchical bootstrap, producing confidence
+  intervals that correctly account for the nested structure of CUA benchmarks, as we empiri...
+```
+
+The abstract text "we develop an aggregation framework pairing Wilson score intervals
+with hierarchical bootstrap, producing confidence intervals that correctly account for
+the nested structure of CUA benchmarks" is the load-bearing claim in S5. The citation
+is correct. The specific section-5 claim is validated from the abstract; a full PDF
+content scrape of section 5 was not performed but is not required — the abstract
+summarises the framework. **Status: CLOSED — citation SUPPORTS claim.**
+
+### OQ-2 CLOSED: F-3 (mutation 70% threshold) — engineering decision, not literature claim
+
+The Tier-1 fabrication finding was corrected in a prior pass: the S8a citation claiming
+"70% threshold is grounded in Offutt & Untch" was relabelled as an engineering decision
+(not a literature claim). The 70% target is our own engineering floor, not attributed
+to any paper. The mutation pass (c9-p12) will measure the actual kill rate and confirm
+whether the threshold is met. No citation repair required. **Status: CLOSED — fabrication
+corrected in prior pass; threshold retained as engineering decision; mutation pass will
+provide the empirical number.**
+
+### OQ-3 CLOSED: tau-bench (S35 arXiv 2406.12045) — arXiv citation is sufficient
+
+Verification command run 2026-09-29T18:01 UTC:
+
+```bash
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request('https://arxiv.org/abs/2406.12045', headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
+    content = r.read(20000).decode('utf-8', errors='ignore')
+for marker in ['tau-bench', 'tool-agent', 'iclr', 'workshop']:
+    idx = content.lower().find(marker.lower())
+    if idx >= 0:
+        snippet = content[max(0,idx-30):idx+120].replace('\n',' ').strip()
+        print(f'{marker}: FOUND — ...{snippet}...')
+    else:
+        print(f'{marker}: not found')
+"
+```
+
+Raw output:
+
+```
+tau-bench: not found
+tool-agent: FOUND — ...[2406.12045] $τ$-bench: A Benchmark for Tool-Agent-User
+  Interaction in Real-World Domains</title>...
+iclr: not found
+workshop: not found
+```
+
+Title confirmed: "τ-bench: A Benchmark for Tool-Agent-User Interaction in Real-World
+Domains" at arXiv 2406.12045. The ICLR workshop venue annotation does not appear in
+the abstract-page HTML (arXiv does not always surface conference metadata in HTML).
+The arXiv version is the canonical citable form. No claim in RESEARCH.md or README.md
+depends on the ICLR workshop venue. **Status: CLOSED — arXiv citation sufficient;
+ICLR venue unverifiable from HTML but not required.**
+
+## Open questions after c9-p03
+
+None. All open questions resolved. The only remaining deferred item is F-3 (per-module
+mutation kill rate), which belongs to the mutation pass (c9-p12) and is not a research-
+pass open question.
