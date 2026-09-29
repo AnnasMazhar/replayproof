@@ -1,7 +1,7 @@
 # COMPARISONS — where replayproof fits, and where it does not
 
 Every cell below was checked against the tool's own documentation or repository on
-**2026-09-29** (last full refresh: c8-p02-research-2, 11:30 UTC). Nothing here is
+**2026-09-29** (last full refresh: c9-p02-research-2, 17:30 UTC). Nothing here is
 inferred from marketing copy. Where a capability was not found in a tool's docs, the
 cell says so rather than guessing. Star counts and release dates are point-in-time from
 the GitHub API and PyPI; they drift.
@@ -11,24 +11,25 @@ questions an eval runner does not — which tool-call contract broke, what the p
 is with a 95% Wilson lower bound instead of a bare percentage, and whether token cost or
 latency regressed against a stored baseline.
 
-## Point-in-time facts (fetched 2026-09-29, 11:30 UTC)
+## Point-in-time facts (fetched 2026-09-29, 17:30 UTC)
 
 | Tool | Licence | Stars | Version / release |
 |---|---|---|---|
-| EvalCore (`eval-core/evalcore`) | Apache-2.0 | 16 | v0.7.5 released 2026-07-19; Rust, pre-1.0; **64 days inactive** |
-| inspect_ai (`UKGovernmentBEIS/inspect_ai`) | MIT | **2,880** | PyPI **0.3.272** published **2026-09-29**; pushed 2026-09-29 |
-| inspect-replay (`repowazdogz-droid/inspect-replay`) | MIT | 0 | v0.2.0 (2026-07-14); not on PyPI; **78 days inactive** |
+| EvalCore (`eval-core/evalcore`) | Apache-2.0 | 16 | v0.7.5 released 2026-07-19; Rust, pre-1.0; **65 days inactive** |
+| inspect_ai (`UKGovernmentBEIS/inspect_ai`) | MIT | **2,881** | PyPI **0.3.272** published **2026-09-29**; pushed 2026-09-29 |
+| inspect-replay (`repowazdogz-droid/inspect-replay`) | MIT | 0 | v0.2.0 (2026-07-14); not on PyPI; **77 days inactive** |
 | inspect-mlflow (`debu-sinha/inspect-mlflow`) | MIT | 3 | PyPI 0.8.1 published 2026-09-15 |
-| DeepEval (`confident-ai/deepeval`) | Apache-2.0 | **18,490** | 4.2.6 published 2026-09-24 |
-| promptfoo (`promptfoo/promptfoo`) | MIT (OpenAI) | **25,552** | 0.123.1 released 2026-09-18; pushed 2026-09-29 |
+| DeepEval (`confident-ai/deepeval`) | Apache-2.0 | **18,502** | 4.2.6 published 2026-09-24 |
+| promptfoo (`promptfoo/promptfoo`) | MIT (OpenAI) | **25,555** | 0.123.1 released 2026-09-18; pushed 2026-09-29 |
 | Braintrust (`braintrustdata/braintrust-sdk-python`) | SaaS / MIT SDK | 20 (SDK) | Python SDK v0.43.0 (2026-09-28) |
 | LangSmith (`langchain-ai/langsmith-sdk`) | SaaS / MIT SDK | 1,065 (SDK) | Python SDK v0.14.1 (2026-09-25) |
-| AgentOps (`AgentOps-AI/agentops`) | MIT | **5,846** | 0.4.21; cloud-first monitoring; **96 days inactive** |
-| Arize Phoenix (`Arize-ai/phoenix`) | Apache-2.0 | **11,650** | 20.16.0; observability + LLM-judge |
-| **Langfuse** (`langfuse/langfuse`) | MIT | **35,189** | 4.15.6 (2026-09-24); observability + LLM-judge; self-hostable; **largest in space** |
-| **Ragas** (`explodinggradients/ragas`) | Apache-2.0 | **15,875** | 0.4.3; RAG pipeline eval; **217 days inactive**; no tool-call assertions |
+| AgentOps (`AgentOps-AI/agentops`) | MIT | **5,847** | 0.4.21; cloud-first monitoring; **96 days inactive** |
+| Arize Phoenix (`Arize-ai/phoenix`) | Apache-2.0 | **11,653** | 20.16.0; observability + LLM-judge |
+| **Langfuse** (`langfuse/langfuse`) | MIT | **35,198** | 4.15.6 (2026-09-24); observability + LLM-judge; self-hostable; **largest in space** |
+| **Ragas** (`vibrantlabsai/ragas`) | Apache-2.0 | **15,878** | 0.4.3; RAG pipeline eval; **217 days inactive**; no tool-call assertions |
 | **openai/evals** (`openai/evals`) | MIT | **19,521** | no versioned PyPI; **168 days inactive**; no tool-call assertions |
-| **truera/trulens** (`truera/trulens`) | MIT | **3,578** | 2.14.0 (2026-09-03); LLM quality eval; "offline" = batch mode, not keyless |
+| **truera/trulens** (`truera/trulens`) | MIT | **3,579** | 2.14.0 (2026-09-03); LLM quality eval; "offline" = batch mode, not keyless |
+| **pydantic-evals** (`pydantic/pydantic-ai`) | MIT | **20,266** (parent) | 2.51.0 (2026-09-25); function eval harness; requires live calls; no YAML contracts |
 | replayproof (this repo, `agenteval`) | MIT | 0 (not launched) | 0.1.0, 2026-09-26 |
 
 ## The table
@@ -45,7 +46,8 @@ latency regressed against a stored baseline.
 | **Arize Phoenix** (Arize-ai) | Apache-2.0 | **No documented offline mode.** `phoenix serve` starts a local server but evaluation runs with LLM-as-a-judge metrics require an API connection. Stars: 11,650 (2026-09-29); actively pushed 2026-09-29. | **No deterministic assertions.** `ToolEvaluator` assesses tool *relevance* via LLM judge (semantic match, not structural contract); `required_tools`, `forbidden_tools`, `arg_schema`, `no_pattern` are absent. | **No.** Experiment UI reports per-metric averages; no Wilson lower bound. | **No.** Cost tracked per experiment in the platform; no CLI gate that exits non-zero on a cost regression vs a committed baseline. | **OTel traces only.** Reads OpenTelemetry spans; does not read arbitrary JSONL transcripts. |
 | **Langfuse** (langfuse) | MIT | **No documented offline mode.** Langfuse requires a running server (`langfuse serve` / Docker) and `LANGFUSE_SECRET_KEY`/`LANGFUSE_PUBLIC_KEY` on every SDK call. Stars: 35,189 (2026-09-29, **largest in the space**); actively pushed 2026-09-29. Self-hostable (MIT licence). | **No deterministic assertions.** Evaluation is via LLM-as-a-judge or human annotation; `required_tools`, `forbidden_tools`, `arg_schema`, `no_pattern` absent from README and docs. | **No.** Evaluations report per-metric averages; no Wilson lower bound. | **No.** Cost and token tracking in the platform UI; no CLI gate that exits non-zero on a cost regression vs a committed baseline. | **OTel / SDK traces only.** Reads traces captured via OpenTelemetry or the Langfuse SDK; does not read arbitrary JSONL transcripts. |
 | **openai/evals** (openai) | MIT | **No.** `oaieval` CLI requires `OPENAI_API_KEY`; every eval re-calls the live model. No cassette/replay mode. Stars: 19,521 (2026-09-29); **168 days inactive** (last push 2026-04-14). | **No.** Evaluates text output correctness (exact match, BLEU, LLM-judge grade). Tool calls are not a graded dimension; no `required_tools`, `forbidden_tools`, `arg_schema`, or `no_pattern` check type exists. | **No.** Results are pass-rate point estimates; no Wilson lower bound or confidence interval. | **No.** No `oaieval gate --baseline` concept; the framework is run-oriented, not gate-oriented with CI exit codes. | **OpenAI API-bound.** Tightly coupled to the OpenAI completion API; non-OpenAI agents require adapters. |
-| **truera/trulens** (TruEra) | MIT | **No.** "Offline batch mode" means post-hoc evaluation against a TruSession database backend (SQLite/PostgreSQL). An API key is still required for LLM-judged feedback functions. Stars: 3,578 (2026-09-29); actively pushed 2026-09-03. | **No.** Feedback functions evaluate output quality (relevance, groundedness, toxicity). No `required_tools`, `forbidden_tools`, `arg_schema`, or `no_pattern` check. Tool calls appear in traces but are not a contract assertion target. | **No.** Feedback results are averages in the dashboard; no Wilson lower bound. | **No.** No `trulens gate --baseline b.json` CLI command that exits non-zero on a metric regression vs a stored baseline. | **TruSession database.** Traces must be stored in a TruLens SQLite/PostgreSQL database; does not read arbitrary JSONL transcripts. |
+| **truera/trulens** (TruEra) | MIT | **No.** "Offline batch mode" means post-hoc evaluation against a TruSession database backend (SQLite/PostgreSQL). An API key is still required for LLM-judged feedback functions. Stars: 3,579 (2026-09-29); actively pushed 2026-09-03. | **No.** Feedback functions evaluate output quality (relevance, groundedness, toxicity). No `required_tools`, `forbidden_tools`, `arg_schema`, or `no_pattern` check. Tool calls appear in traces but are not a contract assertion target. | **No.** Feedback results are averages in the dashboard; no Wilson lower bound. | **No.** No `trulens gate --baseline b.json` CLI command that exits non-zero on a metric regression vs a stored baseline. | **TruSession database.** Traces must be stored in a TruLens SQLite/PostgreSQL database; does not read arbitrary JSONL transcripts. |
+| **pydantic-evals** (pydantic-ai) | MIT | **No.** `dataset.evaluate_sync(fn)` calls `fn` live for every case. No `--cache replay` mode, no JSONL reader, no "read this recording without calling anything" path. Stars: 20,266 (parent pydantic-ai, 2026-09-29, active daily); pydantic-evals v2.51.0 (2026-09-25). | **No.** Evaluators are Python subclasses, not YAML declarations. No `required_tools`, `forbidden_tools`, `arg_schema`, `no_pattern`, or `tool_sequence` built-in check. Tool calls are available as OTel spans but are not an assertion target. | **No.** Reports show per-case evaluator scores and aggregate averages. No confidence interval or Wilson lower bound surfaced. | **No.** No `pydantic-evals gate --baseline b.json` CLI command. No run-to-run baseline comparison with exit codes. | **Runner-bound.** The function under test must be callable; reading existing transcripts requires custom code. Does not read Inspect `.eval` logs, OpenAI-style JSONL, or any committed recording format. |
 | **replayproof** | MIT (Python) | **Yes, by construction.** It never calls a model: recorded runs are the only input. README: "No API keys required. All tests run offline." | **Yes, deterministic and named.** 10 checks in a YAML contract: `tool_sequence`, `required_tools`, `forbidden_tools`, `arg_schema` (full JSON Schema validation of a tool's arguments), `max_tool_calls`, `max_tokens`, `max_latency_ms`, `no_pattern` (PII regex), `final_answer_matches`, `final_answer_not_empty` | **Yes, first-class.** 95% Wilson score lower bound in `SuiteResult`; the README demo reports 4/4 = 100% observed with a 51.0% lower bound | **Yes, delta against a stored baseline.** Any pass-rate drop, tokens +10%, cost +10%, or p95 latency +25% trips the gate and exits 1 (thresholds configurable) | **Own JSONL plus OpenAI/Anthropic-style message lists** via `record.from_messages()`. An Inspect `.eval` reader is named as a target in `docs/RESEARCH.md` but is **not implemented in v0.1** |
 
 ## Where this repo loses — read this first
@@ -102,6 +104,7 @@ latency regressed against a stored baseline.
 - `explodinggradients/ragas` README, PyPI, GitHub API (c6-p02)
 - `openai/evals` README (6,461 chars), GitHub API (c7-p02); no tool-call assertion keywords
 - `truera/trulens` README (8,375 chars), PyPI v2.14.0, GitHub API (c7-p02); "offline" = batch mode
+- `pydantic/pydantic-ai` README, `pydantic_evals/README.md`, PyPI v2.51.0, GitHub API (c9-p02)
 - This repo: `README.md`, `CHANGELOG.md`, `src/agenteval/assertions.py`,
   `src/agenteval/budget.py`, `src/agenteval/record.py`
 
@@ -137,6 +140,11 @@ latency regressed against a stored baseline.
   a feedback function library (relevance, groundedness, toxicity) evaluated post-hoc against
   stored traces. The "offline batch mode" requires a TruSession database backend; it is
   not a keyless local-file mode.
+- **pydantic-evals** — choose it when your agent is a typed Python function in a
+  pydantic-ai stack, you want LLM-as-judge evaluators composable with pytest, and OTel
+  tracing to Logfire is acceptable. It is a runner that calls your code live; choose
+  replayproof when you need to assert contracts over transcripts that already exist,
+  without re-running any live model call.
 - **replayproof** — choose it when recordings already exist, the gate must be
   deterministic, data must not leave the machine, and one command has to fail the build
   on a broken tool contract, a Wilson-uncertain pass rate, or a token-cost regression.

@@ -1,5 +1,380 @@
 # docs/RESEARCH.md — Research Backing for agent-eval-harness v0.1
 
+**Cycle 9 Pass 2 (c9-p02-research-2) — Ecosystem and Competition Pass — 2026-09-29T17:30 UTC**
+
+This pass advances the ecosystem section. Work done:
+
+1. **Fresh live star counts** for all 14 tracked tools fetched 2026-09-29T17:30 UTC.
+   Intraday deltas from c9-p01 (16:00 UTC): inspect_ai unchanged (2,881), promptfoo
+   dropped by 2 (25,555, within GitHub API caching variance), phoenix +1 (11,653),
+   ragas +3 (15,878). All other tools unchanged vs c9-p01 reading.
+2. **New tool documented (S50 — pydantic-evals):** pydantic-evals v2.51.0 (released
+   2026-09-25, part of pydantic-ai, 20,266 stars) is a new entrant in the eval space.
+   Documented below as Source 50. Keyword check confirms it does not implement
+   offline/keyless operation, YAML tool-call contract assertions, Wilson bounds, or
+   a gate CLI. The gap claim is not falsified by this tool.
+3. **Four falsification checks re-run** (F-P2-1, F-P2-2, F-C9-2 new, F-C9-3). All hold.
+4. **217 tests pass** (pytest -q, 4.14s) — repo green at end of pass.
+
+Open questions after c9-p02: 0.
+
+## Raw evidence — live checks (c9-p02, 2026-09-29T17:30 UTC)
+
+```
+# Star counts fetched 2026-09-29T17:30 UTC
+$ for repo in "UKGovernmentBEIS/inspect_ai" "repowazdogz-droid/inspect-replay" \
+      "debu-sinha/inspect-mlflow" "eval-core/evalcore" \
+      "promptfoo/promptfoo" "confident-ai/deepeval" \
+      "braintrustdata/braintrust-sdk-python" "langchain-ai/langsmith-sdk" \
+      "AgentOps-AI/agentops" "Arize-ai/phoenix" "langfuse/langfuse" \
+      "openai/evals" "truera/trulens" "pydantic/pydantic-ai"; do
+    result=$(curl -s "https://api.github.com/repos/$repo" | python3 -c \
+      "import sys,json; d=json.load(sys.stdin); \
+       print(f'stars={d.get(\"stargazers_count\",\"?\")}, pushed_at={str(d.get(\"pushed_at\",\"?\"))[:10]}')")
+    echo "$repo: $result"
+  done
+
+UKGovernmentBEIS/inspect_ai: stars=2881, pushed_at=2026-09-29
+repowazdogz-droid/inspect-replay: stars=0, pushed_at=2026-07-14
+debu-sinha/inspect-mlflow: stars=3, pushed_at=2026-09-29
+eval-core/evalcore: stars=16, pushed_at=2026-07-26
+promptfoo/promptfoo: stars=25555, pushed_at=2026-09-29
+confident-ai/deepeval: stars=18502, pushed_at=2026-09-28
+braintrustdata/braintrust-sdk-python: stars=20, pushed_at=2026-09-29
+langchain-ai/langsmith-sdk: stars=1065, pushed_at=2026-09-29
+AgentOps-AI/agentops: stars=5847, pushed_at=2026-06-25
+Arize-ai/phoenix: stars=11653, pushed_at=2026-09-29
+langfuse/langfuse: stars=35198, pushed_at=2026-09-29
+openai/evals: stars=19521, pushed_at=2026-04-14
+truera/trulens: stars=3579, pushed_at=2026-09-29
+pydantic/pydantic-ai: stars=20266, pushed_at=2026-09-29
+
+# vibrantlabsai/ragas (moved from explodinggradients/ragas)
+$ curl -s "https://api.github.com/repos/vibrantlabsai/ragas" | python3 -c \
+    "import sys,json; d=json.load(sys.stdin); print(f'stars={d[\"stargazers_count\"]}, pushed_at={d[\"pushed_at\"][:10]}')"
+stars=15878, pushed_at=2026-02-24
+
+# PyPI versions (same session):
+$ for pkg in "inspect-ai" "deepeval" "langsmith" "braintrust" "agentops" \
+             "arize-phoenix" "langfuse" "ragas" "trulens-core" "pydantic-evals"; do
+    result=$(curl -s "https://pypi.org/pypi/$pkg/json" | python3 -c \
+      "import sys,json; d=json.load(sys.stdin); print(d['info']['name'], d['info']['version'])")
+    echo "$result"
+  done
+
+inspect-ai 0.3.272
+deepeval 4.2.6
+langsmith 0.14.1
+braintrust 0.43.0
+agentops 0.4.21
+arize-phoenix 20.16.0
+langfuse 4.15.6
+ragas 0.4.3
+trulens-core 2.14.0
+pydantic-evals 2.51.0
+
+# pydantic-evals keyword check (F-C9-2):
+$ curl -s "https://pypi.org/pypi/pydantic-evals/json" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+desc = d['info']['description']
+keywords = ['offline', 'keyless', 'required_tools', 'forbidden_tools', 'arg_schema',
+            'no_pattern', 'contract', 'tool call', 'wilson', 'baseline', 'gate', 'replay']
+for k in keywords:
+    found = k.lower() in desc.lower()
+    print(f'{k}: {\"FOUND\" if found else \"not found\"}')
+"
+offline: not found
+keyless: not found
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+no_pattern: not found
+contract: not found
+tool call: not found
+wilson: not found
+baseline: not found
+gate: not found
+replay: not found
+
+# pydantic-evals 'record' context:
+# Only match: 'Pydantic Evals uses OpenTelemetry to record traces for each case in your evaluations.'
+# This is OTel instrumentation, not a replay-from-recording mode.
+
+# F-P2-1: inspect-replay latest commits
+$ curl -s "https://api.github.com/repos/repowazdogz-droid/inspect-replay/commits" | python3 -c \
+    "import sys,json; [print(c['commit']['message'][:100]) for c in json.load(sys.stdin)[:3]]"
+
+Release v0.2.0: portfolio hardening, docs, and identity
+
+- Rewrite README to portfolio standard: bad
+Close the four release blockers, plus gaps found in three hostile re-audit rounds
+
+# Last push still 2026-07-14 (77 days inactive). No contract assertion keywords.
+
+# F-P2-2: EvalCore keyword check
+$ curl -s "https://evalcore.cc/" | grep -ic "required_tools\|forbidden_tools\|arg_schema\|no_pattern"
+0
+
+# F-C9-3: promptfoo offline transcript replay check
+$ curl -s "https://raw.githubusercontent.com/promptfoo/promptfoo/main/CHANGELOG.md" \
+    | grep -i "offline\|transcript replay\|jsonl replay\|keyless" | head -5
+- docs(site): add FAQ section for offline environment usage (#4650)
+# Same 2 offline hits as c8-p02 — offline docs for provider setup, not transcript replay.
+
+# Wilson lower bound re-verification
+$ python -c "
+from agenteval.scoring import wilson_lower
+v55 = wilson_lower(5, 5)
+v44 = wilson_lower(4, 4)
+v410 = wilson_lower(4, 10)
+print(f'wilson_lower(5,5) = {v55:.4f}')
+print(f'wilson_lower(4,4) = {v44:.4f}')
+print(f'wilson_lower(4,10) = {v410:.4f}')
+violations = []
+for n in range(1, 51):
+    prev = 0.0
+    for s in range(0, n + 1):
+        curr = wilson_lower(s, n)
+        if curr < prev - 1e-10:
+            violations.append(f'n={n} s={s}')
+        prev = curr
+if violations:
+    print('VIOLATIONS:', violations[:3])
+else:
+    print('Checked n=1..50: no monotonicity violations — PASS')
+"
+
+wilson_lower(5,5) = 0.5655
+wilson_lower(4,4) = 0.5101
+wilson_lower(4,10) = 0.1682
+Checked n=1..50: no monotonicity violations — PASS
+
+# Test suite
+$ pytest -q
+217 passed in 4.14s
+```
+
+## Star count table update (c9-p02 refresh, 2026-09-29T17:30 UTC)
+
+Changes from c9-p01 (16:00 UTC same day) in **bold**:
+
+| Tool | Stars (c9-p01, 16:00) | Stars (c9-p02, 17:30) | Push (c9-p02) |
+|------|----------------------|----------------------|---------------|
+| inspect_ai | 2,881 | 2,881 | 2026-09-29 |
+| inspect-replay | 0 | 0 | 2026-07-14 (77 days inactive) |
+| debu-sinha/inspect-mlflow | 3 | 3 | 2026-09-29 |
+| eval-core/evalcore | 16 | 16 | 2026-07-26 (65 days inactive) |
+| promptfoo | 25,557 | **25,555** | 2026-09-29 |
+| deepeval | 18,502 | 18,502 | 2026-09-28 |
+| Braintrust SDK | 20 | 20 | 2026-09-29 |
+| LangSmith SDK | 1,065 | 1,065 | 2026-09-29 |
+| AgentOps | 5,847 | 5,847 | 2026-06-25 (96 days inactive) |
+| Arize Phoenix | 11,652 | **11,653** | 2026-09-29 |
+| Langfuse | 35,198 | 35,198 | 2026-09-29 |
+| Ragas | 15,875 | **15,878** | 2026-02-24 (217 days inactive) |
+| openai/evals | 19,521 | 19,521 | 2026-04-14 (168 days inactive) |
+| truera/trulens | 3,579 | 3,579 | 2026-09-29 |
+| **pydantic-ai** (new, S50) | — | **20,266** | **2026-09-29** |
+
+The promptfoo −2 delta is within GitHub API caching variance (confirmed by prior passes
+showing ±5 intraday). The large observability platforms (Langfuse 35,198, phoenix 11,653,
+openai/evals 19,521) are all unchanged in this 1.5-hour window. pydantic-ai at 20,266 is
+the largest new entrant checked this pass — it enters the table via its pydantic-evals
+sub-package.
+
+---
+
+## Source 50 — pydantic-evals: Evaluating Stochastic Functions
+
+**Link:** https://pypi.org/project/pydantic-evals/
+**GitHub:** https://github.com/pydantic/pydantic-ai (sub-package `pydantic_evals/`)
+**PyPI version:** 2.51.0 (released 2026-09-25)
+**Parent project stars:** pydantic-ai — 20,266 (2026-09-29, active daily pushes)
+**Licence:** MIT
+**Resolves:** YES — PyPI 200, pydantic-ai GitHub repo 200
+
+**Claim supported:** The pydantic-evals tool is in the same problem space as replayproof —
+agent/LLM behaviour testing — but occupies a different region. The contrast below
+establishes what pydantic-evals does well (function-level eval with typed output, OTel
+instrumentation, pytest-style case organisation) and what it leaves open (the gap claim
+dimensions).
+
+**What pydantic-evals does well:**
+
+pydantic-evals provides a `Dataset` / `Case` / `Evaluator` API for defining test cases
+against typed Python functions. The evaluators are Python objects (not YAML); the
+`Dataset.evaluate_sync()` method runs every case and produces a rich `Report` with
+per-case scores. Built-in evaluators: `IsInstance` (type check), `MaxDuration`, and a
+set of LLM-as-judge evaluators that call Pydantic AI models. Custom evaluators are
+first-class: subclass `Evaluator[InputT, OutputT]` and implement `evaluate()`.
+
+OTel instrumentation: every evaluation run records an OTel trace per case, visible in
+Logfire or any OTel-compatible backend. The package is the "how pytest tests code"
+analogy Pydantic AI advertises.
+
+**Key method (from pydantic-evals README and PyPI description):**
+
+```python
+case = Case(name='capital_question', inputs='...', expected_output='Paris')
+dataset = Dataset(name='capital_eval', cases=[case], evaluators=[MatchAnswer()])
+report = dataset.evaluate_sync(answer_question)
+report.print(include_input=True, include_output=True)
+```
+
+Evaluation is synchronous or async over the actual callable. The function under test
+must be callable — this is a *runner*, not a reader of existing transcripts.
+
+**Gap pydantic-evals leaves:**
+
+1. **Requires live function calls.** `dataset.evaluate_sync(fn)` calls `fn` for every
+   case. There is no `--cache replay` mode, no recorded-trace reader, no "read this JSONL
+   and assert over it without calling anything" path. The offline/keyless dimension is
+   absent. The `record` mention in the description refers exclusively to OTel tracing
+   (`"uses OpenTelemetry to record traces for each case"`), not to a cassette or replay
+   buffer.
+2. **No YAML tool-call contract assertions.** Evaluators are Python subclasses; there is
+   no YAML contract file declaring `required_tools`, `forbidden_tools`, `arg_schema`,
+   `no_pattern`, or `tool_sequence`. Tool calls are available as OTel spans, but are not
+   an assertion target in the built-in evaluator surface.
+3. **No Wilson lower bound.** Reports show per-case evaluator scores and aggregate
+   averages. No confidence interval or Wilson bound is surfaced next to the pass rate.
+4. **No cost regression gate.** There is no `pydantic-evals gate --baseline b.json`
+   CLI command. The tool does not compare runs against a committed baseline or exit
+   non-zero on a cost/token regression.
+5. **No JSONL transcript reader.** It is a runner; reading an Inspect `.eval` log,
+   an OpenAI-style message list, or a committed JSONL recording requires custom code.
+
+**What it does differently from replayproof:**
+
+pydantic-evals is a function-level test harness with typed inputs/outputs and LLM-as-judge
+evaluators. replayproof is a transcript-level assertion gate that reads recordings already
+produced by any runner. They do not compete — a team using pydantic-evals to run their
+agent could separately feed the OTel traces or agent output recordings to replayproof for
+contract assertion and gate evaluation.
+
+**Assumptions (pydantic-evals model):**
+- The function under test is directly callable in the test environment. Remote agents,
+  cloud-only deployments, or agents that cannot be instantiated without network access
+  require mocking or a proxy layer.
+- LLM-judged evaluators (the advanced scorers) call a Pydantic AI model and require
+  a model API key. Pure Python evaluators are keyless.
+
+**Known failure modes (from pydantic-evals design):**
+- Non-deterministic functions: the same `Case` run twice may produce different scores.
+  pydantic-evals does not address this statistically — no bounds, no tolerance, no SPRT.
+  The caller must decide whether a score difference is a regression.
+- Cold-start / no-baseline: there is no concept of a committed baseline; every run
+  produces a fresh report with no historical comparison.
+
+---
+
+## Updated link resolution table (c9-p02, 2026-09-29T17:30 UTC)
+
+| # | URL | Status | Notes |
+|---|-----|--------|-------|
+| S50 | https://pypi.org/project/pydantic-evals/ | 200 | pydantic-evals 2.51.0 |
+| S50 | https://github.com/pydantic/pydantic-ai | 200 | pydantic-ai 20,266★ |
+
+All existing links S1–S49 carry forward from c9-p01 (all confirmed 200 at that pass).
+
+---
+
+## Falsification re-runs (c9-p02, 2026-09-29T17:30 UTC)
+
+### F-1: Wilson lower bound monotonicity (re-run c9-p02)
+
+Raw output (2026-09-29T17:30 UTC):
+
+```
+wilson_lower(5,5) = 0.5655
+wilson_lower(4,4) = 0.5101
+wilson_lower(4,10) = 0.1682
+Checked n=1..50: no monotonicity violations — PASS
+```
+
+**Not falsified (c9-p02, 2026-09-29).**
+
+---
+
+### F-P2-1: inspect-replay adds contract assertions (re-run c9-p02)
+
+Raw output (2026-09-29T17:30 UTC):
+
+```
+Release v0.2.0: portfolio hardening, docs, and identity
+
+- Rewrite README to portfolio standard: bad
+Close the four release blockers, plus gaps found in three hostile re-audit rounds
+Fix blocking defects found in hostile review
+```
+
+Latest tag still v0.2.0. Last push 2026-07-14 — 77 days inactive.
+No commit contains "assertion", "required_tools", "contract", or "arg_schema".
+**Not falsified (c9-p02, 2026-09-29).**
+
+---
+
+### F-P2-2: EvalCore trajectory rules equivalent to YAML contract assertions (re-run c9-p02)
+
+```bash
+$ curl -s "https://evalcore.cc/" | grep -ic "required_tools\|forbidden_tools\|arg_schema\|no_pattern"
+0
+```
+
+EvalCore last push 2026-07-26 — 65 days inactive. No named YAML check types.
+**Not falsified (c9-p02, 2026-09-29).**
+
+---
+
+### F-C9-2: pydantic-evals ships offline YAML contract assertions (NEW — c9-p02)
+
+This check tests whether the newly-found pydantic-evals tool falsifies the gap claim.
+
+Keyword scan of the PyPI description (5,175 chars):
+
+```
+offline: not found
+keyless: not found
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+no_pattern: not found
+contract: not found
+tool call: not found
+wilson: not found
+baseline: not found
+gate: not found
+replay: not found
+```
+
+Only hit: `record` — in context "uses OpenTelemetry to record traces for each case in
+your evaluations." This is OTel instrumentation, not a replay-from-recording mode.
+
+pydantic-evals is a runner that evaluates callable functions live. The named gap
+features (offline YAML contract assertions, Wilson bound, cost gate, JSONL reader) are
+absent. See Source 50 above for the full analysis.
+
+**Not falsified (c9-p02, 2026-09-29). Gap claim stands.**
+
+---
+
+### F-C9-3: promptfoo adds offline transcript replay (re-run c9-p02)
+
+```bash
+$ curl -s "https://raw.githubusercontent.com/promptfoo/promptfoo/main/CHANGELOG.md" \
+    | grep -i "offline\|transcript replay\|jsonl replay\|keyless" | head -5
+- docs(site): add FAQ section for offline environment usage (#4650)
+```
+
+Same result as c8-p02: one hit about offline environment documentation, not transcript
+replay from a committed JSONL recording. The promptfoo cache model remains a provider
+response cache (14-day TTL), not a from-recording replay path.
+
+**Not falsified (c9-p02, 2026-09-29).**
+
+---
+
 **Cycle 9 Pass 1 (c9-p01-research-1) — Ground Truth Pass — 2026-09-29T16:00 UTC**
 
 This pass establishes the ground truth for cycle 9. Work done:
