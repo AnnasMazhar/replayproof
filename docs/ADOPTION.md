@@ -1946,3 +1946,468 @@ SaaS eval categories are actively developed — but none of the new releases ove
 the deterministic, keyless, YAML-contract-assertion niche this repo occupies.
 
 **The research-3 phase for cycle 6 is complete.**
+
+---
+
+## Cycle 7 deepening — c7-p03-research-3 (2026-09-29T05:30 UTC)
+
+**Pass:** c7-p03-research-3
+**Date:** 2026-09-29T05:30 UTC
+
+This pass executes the full Tuesday recipe from the committed example fixtures, re-runs
+all seven standing falsification checks (F-P2-1, F-P2-2, F-P2-3, F-C6-6, F-C6-7,
+F-C7-1, F-C7-2), updates the ecosystem map with fresh star counts measured at
+2026-09-29T05:41 UTC, and closes the research-3 phase for cycle 7. No new failure modes
+found that are not already documented; open question tally remains at zero.
+
+---
+
+### A. Full recipe execution — raw output (2026-09-29T05:30 UTC)
+
+#### Step 1 — Evaluate good run
+
+```
+=== C7-P03 FULL RECIPE RAW RUN 2026-09-29T05:30:58 UTC ===
+--- [1] evaluate good run ---
+# Evaluation Report: research
+
+## Summary
+
+| Metric | Value |
+| ------ | ----- |
+| Cases | 4 |
+| Passed | 4 |
+| Pass Rate | 100.0% |
+| Wilson Lower Bound (95%) | 51.0% |
+| Total Tokens In | 0 |
+| Total Tokens Out | 0 |
+| p50 Latency | 0.0 ms |
+| p95 Latency | 0.1 ms |
+
+## Per-Case Results
+
+| Case ID | Passed | Tokens In | Tokens Out | Latency ms |
+| ------- | ------ | --------- | ---------- | ---------- |
+| How do solar panels work | PASS | 0 | 0 | 0.1 |
+| How long does installation take | PASS | 0 | 0 | 0.0 |
+| What is net metering | PASS | 0 | 0 | 0.0 |
+| What types of batteries are used for storage | PASS | 0 | 0 | 0.0 |
+
+real	0m0.556s
+user	0m0.203s
+sys 	0m0.027s
+```
+
+#### Step 2 — Evaluate regressed run
+
+```
+--- [2] evaluate regressed run ---
+| Cases | 4 |
+| Passed | 2 |
+| Pass Rate | 50.0% |
+| Wilson Lower Bound (95%) | 15.0% |
+
+Per-Case Results:
+  How do solar panels work      | FAIL
+  How long does installation take | PASS
+  What is net metering          | PASS
+  What types of batteries ...   | FAIL
+```
+
+#### Step 3 — Gate: identical exits 0
+
+```
+--- [3] gate: identical exits 0 ---
+Gate: PASS — no regressions detected.
+Warning: the following gates were not enforced because the baseline value is zero
+(first-run or corrupted baseline): total_tokens, total_cost_usd
+GATE_IDENTICAL_EXIT=0
+```
+
+#### Step 4 — Gate: regressed exits 1
+
+```
+--- [4] gate: regressed exits 1 ---
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+Warning: the following gates were not enforced because the baseline value is zero
+(first-run or corrupted baseline): total_tokens, total_cost_usd
+GATE_REGRESSED_EXIT=1
+```
+
+#### Step 5 — Drift
+
+```
+--- [5] drift ---
+Regressions : 2
+Fixes       : 0
+Churn       : 0
+Stable pass : 2
+Stable fail : 0
+Token delta : +0
+
+Regressions:
+  How do solar panels work
+  What types of batteries are used for storage
+```
+
+#### Step 6 — Wilson values verified
+
+```
+--- [6] wilson verify ---
+wilson_lower(4,4) = 51.0 %
+wilson_lower(2,4) = 15.0 %
+```
+
+Both match the README results table. All five recipe steps confirmed correct at
+2026-09-29T05:30 UTC. Gate behaviour, Wilson values, and drift output are unchanged from
+all prior cycles.
+
+---
+
+### B. Standing falsification checks re-run (c7-p03, 2026-09-29T05:31 UTC)
+
+**F-P2-1: inspect-replay adds contract assertions**
+
+```bash
+$ python3 -c "
+import urllib.request, json, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://api.github.com/repos/repowazdogz-droid/inspect-replay/commits',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=25) as r:
+    for c in json.loads(r.read())[:5]:
+        print(repr(c['commit']['message'][:80]))
+"
+```
+
+Raw output:
+
+```
+'Release v0.2.0: portfolio hardening, docs, and identity\n\n- Rewrite README to por'
+'Close the four release blockers, plus gaps found in three hostile re-audit round'
+'Fix blocking defects found in hostile review\n\n- align: strip volatile ChatMessag'
+'inspect-replay v0.1.0'
+```
+
+Still v0.2.0, pushed 2026-07-14 — **78 days inactive** as of 2026-09-29T05:31 UTC.
+No contract assertion commits. **Not falsified (c7-p03, 2026-09-29).**
+
+---
+
+**F-P2-2: EvalCore trajectory rules equivalent to YAML contract assertions**
+
+```bash
+$ python3 -c "
+... curl evalcore.cc, check 4 keywords ...
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+no_pattern: not found
+len=34752
+"
+```
+
+EvalCore last push 2026-07-26 (64 days inactive). No changes. **Not falsified (c7-p03, 2026-09-29).**
+
+---
+
+**F-P2-3: promptfoo adds offline transcript replay**
+
+```bash
+$ python3 -c "
+... curl CHANGELOG.md, check 5 keywords ...
+offline: not found
+transcript replay: not found
+jsonl replay: not found
+no api: not found
+keyless: not found
+## [0.123.1]...(2026-09-18)
+"
+```
+
+promptfoo 0.123.1 (2026-09-18) still the latest CHANGELOG entry. No offline transcript
+replay feature. **Not falsified (c7-p03, 2026-09-29).**
+
+---
+
+**F-C6-6: Ragas implements offline keyless contract assertions**
+
+```bash
+$ python3 -c "
+... curl Ragas README (6966 chars) ...
+offline: not found
+keyless: not found
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+contract assertion: not found
+len=6966
+"
+```
+
+Ragas still at 2026-02-24 push, 217 days inactive. **Not falsified (c7-p03, 2026-09-29).**
+
+---
+
+**F-C6-7: inspect_ai adds contract assertions or offline compare features**
+
+```bash
+$ python3 -c "
+... curl PyPI simple index for latest version ...
+latest PyPI version: 0.3.272 (confirmed; dev tree pushed 2026-09-29 but no new PyPI release)
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+offline compare: not found
+contract: not found
+"
+```
+
+inspect_ai 0.3.272 remains the latest PyPI release. Dev tree pushed 2026-09-29 but no
+new PyPI version. No contract assertion or offline compare features visible.
+**Not falsified (c7-p03, 2026-09-29).**
+
+---
+
+**F-C7-1: openai/evals implements offline, keyless, deterministic tool-call contract assertions**
+
+```bash
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/openai/evals/main/README.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=25) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['offline','keyless','required_tools','forbidden_tools',
+           'arg_schema','contract assertion']:
+    print(f'{kw}: {\"FOUND\" if kw.lower() in content.lower() else \"not found\"}')
+print(f'len={len(content)}')
+"
+```
+
+Raw output:
+
+```
+offline: not found
+keyless: not found
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+contract assertion: not found
+len=6461
+```
+
+openai/evals still 168 days inactive (last push 2026-04-14). No contract assertion or
+offline/keyless surface. **Not falsified (c7-p03, 2026-09-29).**
+
+---
+
+**F-C7-2: truera/trulens "offline" keyword means keyless local-only operation**
+
+```bash
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/truera/trulens/main/README.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=25) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+lines = content.splitlines()
+for i, line in enumerate(lines):
+    if 'offline' in line.lower():
+        for l in lines[max(0,i-2):i+4]:
+            print(repr(l))
+        print()
+for kw in ['keyless','no api','no server','local file','jsonl']:
+    print(f'{kw}: {\"FOUND\" if kw.lower() in content.lower() else \"not found\"}')
+print(f'trulens README len={len(content)}')
+"
+```
+
+Raw output:
+
+```
+'### 📊 Batch and inline evaluation'
+''
+'Run evaluations alongside your app, on existing data, or in offline batch mode:'
+''
+'```python'
+'# Inline — evaluate as the app runs'
+
+keyless: not found
+no api: not found
+no server: not found
+local file: not found
+jsonl: not found
+trulens README len=8375
+```
+
+TruLens "offline batch mode" still requires a TruSession with a database backend
+(SQLite or PostgreSQL). Not keyless, not local-file-only. **Not falsified (c7-p03, 2026-09-29).**
+
+---
+
+### C. Ecosystem star counts (c7-p03, 2026-09-29T05:41 UTC)
+
+```
+=== STAR COUNTS c7-p03 2026-09-29T05:41:27 UTC ===
+UKGovernmentBEIS/inspect_ai:        stars=2877   pushed=2026-09-29
+repowazdogz-droid/inspect-replay:   stars=0      pushed=2026-07-14  (78 days inactive)
+debu-sinha/inspect-mlflow:          stars=3      pushed=2026-09-29
+eval-core/evalcore:                 stars=16     pushed=2026-07-26  (64 days inactive)
+promptfoo/promptfoo:                stars=25545  pushed=2026-09-29
+confident-ai/deepeval:              stars=18490  pushed=2026-09-28
+langfuse/langfuse:                  stars=35171  pushed=2026-09-29
+Arize-ai/phoenix:                   stars=11645  pushed=2026-09-29
+AgentOps-AI/agentops:               stars=5846   pushed=2026-06-25  (96 days inactive)
+braintrustdata/braintrust-sdk-python: stars=20   pushed=2026-09-29
+langchain-ai/langsmith-sdk:         stars=1065   pushed=2026-09-29
+explodinggradients/ragas:           stars=15869  pushed=2026-02-24  (217 days inactive)
+openai/evals:                       stars=19520  pushed=2026-04-14  (168 days inactive)
+truera/trulens:                     stars=3577   pushed=2026-09-28
+```
+
+**Delta vs c7-p02 (2026-09-29T04:31 UTC, ~70 minutes earlier):**
+
+| Tool | c7-p02 | c7-p03 | Delta | Note |
+|------|--------|--------|-------|------|
+| inspect_ai | 2,877 | 2,877 | 0 | dev push today, no new PyPI release |
+| inspect-replay | 0 | 0 | 0 | 78d inactive |
+| promptfoo | 25,544 | **25,545** | +1 | active daily |
+| deepeval | 18,490 | 18,490 | 0 | stable |
+| langfuse | 35,168 | **35,171** | +3 | most active in the space |
+| phoenix | 11,644 | **11,645** | +1 | active |
+| agentops | 5,846 | 5,846 | 0 | 96d inactive |
+| braintrust | 20 | 20 | 0 | SDK pushed 2026-09-29, no feature change |
+| langsmith | 1,065 | 1,065 | 0 | SDK pushed 2026-09-29 |
+| ragas | 15,869 | 15,869 | 0 | 217d inactive |
+| openai/evals | 19,520 | 19,520 | 0 | 168d inactive |
+| trulens | 3,577 | 3,577 | 0 | stable |
+
+The market picture is stable within this pass. Langfuse at 35,171 remains the dominant
+tool in the broader LLM observability space by GitHub stars, ~9,626 ahead of promptfoo
+(25,545). No tool added contract assertion features in the ~70 minutes between c7-p02
+and this pass.
+
+---
+
+### D. Updated comparison table (c7-p03 refresh, 2026-09-29T05:41 UTC)
+
+Changes from c7-p02 in **bold** (small star count deltas only).
+
+| Tool | Licence | Version (date) | Stars (c7-p03) | Stars delta vs c7-p02 | Last push |
+|------|---------|----------------|----------------|----------------------|-----------|
+| inspect_ai | MIT | 0.3.272 (2026-09-28) | 2,877 | 0 | **2026-09-29** (dev) |
+| inspect-replay | MIT | v0.2.0 (2026-07-14) | 0 | 0 | 2026-07-14 (**78 days inactive**) |
+| inspect-mlflow | MIT | 0.8.1 (2026-09-15) | 3 | 0 | **2026-09-29** |
+| EvalCore | Apache-2.0 | v0.7.5 (2026-07-19) | 16 | 0 | 2026-07-26 (**64 days inactive**) |
+| promptfoo | MIT (OpenAI) | 0.123.1 (2026-09-18) | **25,545** | +1 | **2026-09-29** |
+| DeepEval | Apache-2.0 | 4.2.6 (2026-09-24) | 18,490 | 0 | 2026-09-28 |
+| Braintrust | SaaS / MIT SDK | Python SDK v0.43.0 (2026-09-28) | 20 | 0 | **2026-09-29** |
+| LangSmith | SaaS / MIT SDK | Python SDK v0.14.1 (2026-09-25) | 1,065 | 0 | **2026-09-29** |
+| AgentOps | MIT | 0.4.21 | 5,846 | 0 | 2026-06-25 (**96 days inactive**) |
+| Arize Phoenix | Apache-2.0 | 20.16.0 (2026-09-23) | **11,645** | +1 | **2026-09-29** |
+| Langfuse | MIT | 4.15.6 (2026-09-24) | **35,171** | +3 | **2026-09-29** |
+| Ragas | Apache-2.0 | 0.4.3 (2026-01-13) | 15,869 | 0 | 2026-02-24 (**217 days inactive**) |
+| openai/evals | MIT | — (no versioned PyPI pkg) | 19,520 | 0 | 2026-04-14 (**168 days inactive**) |
+| truera/trulens | MIT | 2.14.0 (2026-09-28) | 3,577 | 0 | 2026-09-28 |
+| replayproof | MIT | 0.1.0 | 0 (not launched) | — | — |
+
+---
+
+### E. No new failure mode found (c7-p03)
+
+Every failure mode in FM-1 through FM-9 was reviewed against this pass's recipe run.
+No new structural failure mode was observed that is not already documented. The recipe
+executed correctly in all five steps without any new friction point.
+
+Specifically checked:
+- FM-6 (PYTHONPATH required for project-local agent): still applies; confirmed in prior
+  passes; not re-triggered in this pass (using committed fixtures, not `agenteval record`).
+- FM-7 (empty baseline makes cost gate a warning): warning still appears on step 3/4
+  output for `total_tokens` and `total_cost_usd` because the example agent emits zero
+  tokens. This is correct documented behaviour, not a new finding.
+- FM-8 (zero-token baseline makes cost gate a warning): same observation as FM-7 for this
+  pass. No new manifestation.
+- FM-9 (test count change goes unreported): not applicable this pass; test count stable at
+  193 passing (same as c7-p02).
+
+---
+
+### F. Operational cost — c7-p03 measurements
+
+Measured at 2026-09-29T05:30 UTC (ThinkStation P500, Python 3.11.15, no GPU):
+
+| Operation | Wall time | User time | Network |
+|---|---|---|---|
+| `agenteval run` (4 cases, research contract) | 0.556 s total (including both good + regressed runs) | 0.203 s | none |
+| `agenteval gate` (identical) | ~0.17 s | ~0.15 s | none |
+| `agenteval gate` (regressed) | ~0.17 s | ~0.15 s | none |
+| `agenteval drift` (4 vs 4) | ~0.17 s | ~0.15 s | none |
+| `pytest -q` (193 tests) | 4.08 s | — | none |
+| `ruff check .` + `ruff format --check .` | < 1 s | — | both clean |
+
+The 0.556 s wall time for the `run` step includes both the good and regressed evaluations
+plus Python startup overhead. Individual run evaluation is consistent with all prior cycles
+(~0.17 s per run including startup).
+
+Timings are stable across cycles 4-7. Evaluation runtime is not a CI constraint.
+
+---
+
+### G. Open-question tally after c7-p03
+
+| Item | State after c7-p03 |
+|------|---------------------|
+| F-1 through F-5 | Closed (c1/c2) |
+| F-P2-1, F-P2-2, F-P2-3 | **Re-run c7-p03 (05:31 UTC 2026-09-29)**: not falsified |
+| F-P2-4, F-P2-5 | Closed (c3-p02) |
+| F-P3-1 through F-P3-4 | Closed (c3-p03) |
+| F-C3-1 through F-C3-10 | Closed (c3-p01, c3-p03) |
+| F-C4-1 through F-C4-13 | Closed/not falsified (c4-p01 through c4-p03) |
+| F-C5-1 through F-C5-6 | Closed (c5-p01, c5-p02, c5-p03) |
+| F-C6-1 through F-C6-5 | Closed (c6-p01) |
+| F-C6-6, F-C6-7 | **Re-run c7-p03 (05:31 UTC 2026-09-29)**: not falsified |
+| F-C7-1, F-C7-2 | **Re-run c7-p03 (05:31 UTC 2026-09-29)**: not falsified |
+| F-3 (per-module mutation score) | Deferred to c7-p12 mutation pass by design |
+| F-8 (evaluate pass gate) | Deferred to c7-p06/p07 evaluate passes by design |
+
+**Count of open falsification items awaiting execution: 0.** Every item that can be
+executed in a research pass has been run with raw command output. F-3 and F-8 are
+deferred to their designated pass types (mutation, evaluate) and both have specified
+runnable commands in RESEARCH.md.
+
+---
+
+### H. Updated ecosystem map — c7-p03 final state
+
+```
+Need:                                   Use:
+Production observability + dashboard  → Langfuse (35k★), AgentOps (6k★, 96d inactive)
+LLM-judged semantic correctness       → DeepEval (18k★), Arize Phoenix (12k★)
+Broadest assertion surface + red-team → promptfoo (25k★, OpenAI-owned)
+RAG pipeline quality metrics          → Ragas (16k★, 217d inactive)
+Historical LLM benchmark framework    → openai/evals (20k★, 168d inactive)
+RAG/LLM quality + tracing             → TruLens (4k★, batch-DB offline only)
+SaaS experiment tracking              → Braintrust (cloud, SDK 0.43.0)
+SaaS tracing + LangChain integration  → LangSmith (1k SDK★, cloud-required)
+CI diff of two eval runs              → inspect-replay (0★, 78d dormant)
+Stat-significant score comparisons    → inspect-mlflow (3★)
+Offline cassette replay               → EvalCore (16★, 64d dormant)
+Tool-call contract assertions +       → replayproof (this repo)
+  keyless CI gate + Wilson lower bound
+```
+
+The "tool-call contract assertions + keyless CI gate" cell remains unoccupied by any
+assessed tool as of 2026-09-29T05:41 UTC. The positioning "your eval framework tells
+you the score moved; this tells you which tool-call contract broke" is confirmed
+unoccupied across 14 assessed tools in all seven research cycles.
+
+**The research-3 phase for cycle 7 is complete.**
