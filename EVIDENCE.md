@@ -872,3 +872,77 @@ All acceptance criteria pass:
 4. ruff check . && ruff format --check .: clean
 5. README contains genuine results table from demo output (51.0% Wilson for 4/4)
 6. No files outside this repo modified. No push.
+
+---
+
+## 15. Cycle 9 pass 5 (c9-p05-implement-2) — 5 new adversarial tests + metadata=None fix
+
+Date: 2026-09-29T20:00 UTC
+
+**Changes in this pass:**
+- Added 5 new adversarial tests to `tests/test_adversarial.py` (total: 62 adversarial tests):
+  - test_required_tools_check_is_case_sensitive
+  - test_tool_sequence_unordered_accepts_any_order
+  - test_run_from_jsonl_metadata_none_defaults_to_empty_dict
+  - test_html_report_contains_no_external_urls
+  - test_gate_cost_regression_independent_of_token_gate
+- Fixed `transcript.py Run.from_dict`: `d.get("metadata", {})` returns `None` when the key
+  exists with a null value. Changed to `d.get("metadata") or {}` to handle both absent and
+  null cases. Forward-compatible loading now correct.
+
+### New adversarial tests detail (c9-p05)
+
+- test_required_tools_check_is_case_sensitive: required_tools must use exact-case matching.
+  'Search_Docs' must not satisfy a contract requiring 'search_docs'. Fault injection:
+  tc.name.lower() in lookup => wrong-case name passes.
+- test_tool_sequence_unordered_accepts_any_order: tool_sequence(ordered=False) must accept
+  any call order, not require subsequence. Fault injection: ignore ordered flag =>
+  ['summarise','search'] fails for expected=['search','summarise'] with ordered=False.
+- test_run_from_jsonl_metadata_none_defaults_to_empty_dict: Run.from_dict must default
+  metadata to {} when the JSON field is null or absent. Fault injection: dict(None) =>
+  TypeError when metadata key is present but null.
+- test_html_report_contains_no_external_urls: to_html must produce a self-contained
+  document (inline CSS only, no CDN links). Fault injection: add a CDN stylesheet href
+  => test finds 'https://' in an attribute => fails.
+- test_gate_cost_regression_independent_of_token_gate: cost gate must fire even when
+  total_tokens baseline is 0. The token-gate skip must not suppress the cost gate.
+  Fault injection: guard cost gate with 'if baseline.total_tokens == 0: skip' =>
+  a 50% cost increase is silently ignored.
+
+### Verification
+
+```
+$ .venv/bin/pytest -q
+........................................................................ [ 32%]
+........................................................................ [ 64%]
+........................................................................ [ 96%]
+.........                                                                [100%]
+225 passed in 2.93s
+
+$ .venv/bin/ruff check .
+All checks passed!
+
+$ .venv/bin/ruff format --check .
+21 files already formatted
+
+$ .venv/bin/python -c "import agenteval; print(agenteval.__version__)"
+0.1.0
+```
+
+Test breakdown by file (c9-p05):
+- test_adversarial.py: 62 tests (+5 from c9-p05)
+- test_scoring.py: 52 tests
+- test_budget_drift.py: 40 tests
+- test_assertions.py: 35 tests
+- test_report.py: 17 tests
+- test_replay.py: 10 tests
+- test_properties.py: 9 tests
+Total: 225 tests
+
+All acceptance criteria pass:
+1. pytest -q: 225 passed, no network required (+5 from c9-p05 new tests)
+2. bash examples/run_demo.sh: runs to completion, prints results table
+3. Gate: exit 1 on regressed_run.jsonl, exit 0 on sample_run.jsonl
+4. ruff check . && ruff format --check .: clean
+5. README contains genuine results table from demo output (51.0% Wilson for 4/4)
+6. No files outside this repo modified. No push.

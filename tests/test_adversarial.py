@@ -228,16 +228,35 @@ test_gate_baseline_with_zero_tokens_and_nonzero_current_trips:
     Fault injection: guard with 'if baseline_tokens == 0: skip' => a real LLM run
     that costs $10 is never caught because the seed baseline was a zero-token mock.
 
---- New in c9-p04 ---
+--- New in c9-p05 ---
 
-test_from_messages_evaluates_offline_without_runner:
-    Catches an implementation of from_messages that requires a callable agent or
-    makes any external call. The pydantic-evals gap (c9-p02) establishes that tools
-    in this space require the function under test to be callable live; replayproof
-    must not. A static OpenAI-style message snapshot must produce a contract-
-    evaluatable Run with zero runner invocations.
-    Fault injection: add 'if agent is None: raise RuntimeError' inside from_messages
-    => this test fails with RuntimeError before reaching the contract step.
+test_required_tools_check_is_case_sensitive:
+    Catches a required_tools check that normalises tool names to lowercase before
+    comparison. 'search_docs' != 'Search_Docs'; tool names are exact identifiers.
+    Fault injection: tc.name.lower() in lookup => wrong case passes.
+
+test_tool_sequence_unordered_accepts_any_order:
+    Catches a tool_sequence(ordered=False) that still enforces order (uses
+    subsequence scan regardless of the ordered flag). A reversed call order
+    that satisfies the set constraint must pass.
+    Fault injection: ignore the ordered flag => subsequence scan rejects valid runs.
+
+test_run_from_jsonl_metadata_none_defaults_to_empty_dict:
+    Catches a Run.from_dict that calls dict(None) when 'metadata' is null in the
+    JSON, raising TypeError. Forward-compatible loading must default to {}.
+    Fault injection: dict(d.get("metadata", {})) when key is present as null =>
+    dict(None) => TypeError.
+
+test_html_report_contains_no_external_urls:
+    Catches a to_html that adds a <link> or <script src> tag pointing to an external
+    CDN. The spec requires self-contained reports (inline CSS only, no CDN, no JS).
+    Fault injection: add stylesheet href='https://...' => test finds 'https://' in attr.
+
+test_gate_cost_regression_independent_of_token_gate:
+    Catches a gate that skips the cost check when total_tokens == 0 (treating the
+    zero-token skip guard as a global gate skip). Cost and token gates are independent.
+    Fault injection: 'if baseline.total_tokens == 0: return PASS' => cost regression
+    silently ignored when the baseline is a zero-token mock.
 """
 
 from __future__ import annotations
@@ -2359,3 +2378,220 @@ checks:
         suite.pass_rate_value == 1.0
     ), f"Suite pass rate must be 1.0 for a fully passing static run, got {suite.pass_rate_value}"
     assert suite.wilson_lower_bound > 0.0, "Wilson lower bound must be > 0.0 for a non-empty suite"
+
+
+# ──────────────────────────────────────────────────────────────
+# New in c9-p05 — 5 new adversarial/byzantine tests
+# ──────────────────────────────────────────────────────────────
+
+
+def test_required_tools_check_is_case_sensitive() -> None:
+    """required_tools check must use exact case matching, not case-insensitive.
+
+    A contract requiring 'search_docs' must NOT pass when the agent calls
+    'Search_Docs' or 'SEARCH_DOCS'. Tool names are identifiers; silently
+    normalising case would mask a real mismatch between the contract and the
+    agent's actual tool namespace.
+
+    Fault detected: an implementation that calls .lower() on tool names before
+    comparison would pass this test's bad run, producing a false green.
+    Fault injection: use tc.name.lower() in the actual set lookup =>
+    'search_docs' matches 'Search_Docs' => required_tools passes when it must not.
+    """
+    from agenteval.assertions import Contract
+
+    contract_yaml = """
+name: case_check
+checks:
+  - type: required_tools
+    id: must_call_search
+    severity: error
+    names:
+      - search_docs
+"""
+    contract = Contract.from_yaml(contract_yaml)
+
+    # Run calls 'Search_Docs' (wrong case) — must FAIL the contract.
+    wrong_case_run = _minimal_run(tool_calls=[("Search_Docs", {"q": "solar"}, "result")])
+    result = contract.evaluate(wrong_case_run)
+    assert not result.passed, (
+        "required_tools must fail when tool name case differs; "
+        "'Search_Docs' is not the same as 'search_docs'"
+    )
+
+    # Run calls 'search_docs' (correct case) — must PASS.
+    correct_run = _minimal_run(tool_calls=[("search_docs", {"q": "solar"}, "result")])
+    result_good = contract.evaluate(correct_run)
+    assert result_good.passed, "required_tools must pass when exact name matches"
+
+
+def test_tool_sequence_unordered_accepts_any_order() -> None:
+    """tool_sequence with ordered=False must accept any call order.
+
+    A contract with ordered=False requires only that all named tools were
+    called — it must not enforce any particular ordering. An implementation
+    that always checks subsequence (ordered=True logic) would incorrectly
+    reject a valid run where tools appear in a different-but-acceptable order.
+
+    Fault detected: ignoring the ordered=False flag and always doing a
+    subsequence scan, which rejects valid out-of-order calls.
+    Fault injection: remove the 'if self.ordered:' branch and always run the
+    subsequence scan => ['summarise', 'search'] fails for expected=['search','summarise'].
+    """
+    from agenteval.assertions import ToolSequenceCheck
+
+    check = ToolSequenceCheck(
+        id="seq_unordered",
+        expected=["search_docs", "summarise"],
+        ordered=False,
+        severity="error",
+    )
+
+    # Tools called in reverse order — must PASS because ordered=False.
+    reversed_run = _minimal_run(
+        tool_calls=[
+            ("summarise", {"text": "..."}, "summary"),
+            ("search_docs", {"q": "solar"}, "result"),
+        ]
+    )
+    result = check.evaluate(reversed_run)
+    assert result.passed, (
+        "tool_sequence with ordered=False must pass when all required tools "
+        "are present, regardless of order. Got: "
+        f"{result.message}"
+    )
+
+    # Only one tool present — must FAIL.
+    partial_run = _minimal_run(tool_calls=[("search_docs", {"q": "solar"}, "result")])
+    result_partial = check.evaluate(partial_run)
+    assert (
+        not result_partial.passed
+    ), "tool_sequence with ordered=False must fail when a required tool is absent"
+
+
+def test_run_from_jsonl_metadata_none_defaults_to_empty_dict() -> None:
+    """Run.from_jsonl must accept a missing or null metadata field.
+
+    Forward compatibility: a future producer may omit 'metadata' or set it to
+    null. The reader must default to an empty dict rather than crashing.
+
+    Fault detected: accessing run_dict['metadata'] without a default, or
+    passing None directly to Run(metadata=None) => TypeError or AttributeError
+    when the code later does metadata.get('key').
+    Fault injection: require metadata in the JSON schema => from_jsonl raises
+    on valid recordings that omit it.
+    """
+    import json
+
+    from agenteval.transcript import Run
+
+    # A minimal valid JSONL line with metadata explicitly set to null.
+    run_dict = {
+        "schema_version": "1",
+        "name": "null_meta_test",
+        "agent_id": "agent-x",
+        "model": "test-model",
+        "provider": "test",
+        "started_at": "2026-01-01T00:00:00Z",
+        "turns": [],
+        "total_tokens_in": 0,
+        "total_tokens_out": 0,
+        "total_latency_ms": 0.0,
+        "metadata": None,
+    }
+    run_json = json.dumps(run_dict)
+    run = Run.from_jsonl(run_json)
+    # metadata must not be None — it must be a dict (possibly empty).
+    assert run.metadata is not None, "metadata must default to {} when null in JSONL"
+    assert isinstance(run.metadata, dict), f"metadata must be dict, got {type(run.metadata)}"
+
+    # A minimal valid JSONL line with metadata omitted entirely.
+    del run_dict["metadata"]
+    run_json_no_meta = json.dumps(run_dict)
+    run2 = Run.from_jsonl(run_json_no_meta)
+    assert run2.metadata is not None, "metadata must default to {} when absent from JSONL"
+    assert isinstance(
+        run2.metadata, dict
+    ), f"metadata must be dict when absent, got {type(run2.metadata)}"
+
+
+def test_html_report_contains_no_external_urls() -> None:
+    """to_html must produce a self-contained report with no external resource URLs.
+
+    An HTML report that loads CSS/JS from a CDN (e.g. https://cdn.jsdelivr.net)
+    breaks in airgapped CI and creates an unintended outbound request. The spec
+    requires 'inline CSS only — no CDN, no JS dependency'.
+
+    Fault detected: adding a <link rel='stylesheet' href='https://...'> or
+    <script src='https://...'> tag to the HTML output.
+    Fault injection: add a CDN stylesheet link to to_html => this test fails by
+    finding 'https://' in a src= or href= attribute.
+    """
+    import re as _re
+
+    from agenteval.report import to_html
+    from agenteval.scoring import CaseResult, SuiteResult, wilson_lower
+
+    suite = SuiteResult(
+        suite_name="html_test",
+        case_results=(
+            CaseResult(
+                case_id="case1",
+                passed=True,
+                checks=(),
+                tokens_in=10,
+                tokens_out=20,
+                latency_ms=50.0,
+            ),
+        ),
+        pass_rate_value=1.0,
+        wilson_lower_bound=wilson_lower(1, 1),
+        total_tokens_in=10,
+        total_tokens_out=20,
+        total_cost_usd=0.0,
+        p50_latency_ms=50.0,
+        p95_latency_ms=50.0,
+    )
+
+    html = to_html(suite)
+
+    # Find any src= or href= attributes pointing to https:// external resources.
+    external_src = _re.findall(r'(?:src|href)=["\']https?://', html)
+    assert not external_src, "HTML report must not contain external URLs. " f"Found: {external_src}"
+
+    # It must be a non-trivial HTML document.
+    assert "<html" in html.lower(), "to_html must return an HTML document"
+    assert "html_test" in html, "to_html must include the suite name"
+
+
+def test_gate_cost_regression_independent_of_token_gate() -> None:
+    """Cost regression gate must fire even when total_tokens is zero.
+
+    A run that uses a cheap-by-token model but with high per-call cost (e.g.
+    a tool that charges per-call, not per-token) can have total_tokens=0 but
+    total_cost_usd > 0. The cost gate must fire on a 10%+ cost increase even
+    when the token gate is suppressed by zero-baseline tokens.
+
+    This is distinct from test_gate_zero_baseline_tokens_nonzero_current_trips:
+    that test verifies the token warning path; this one verifies the cost gate
+    is a separate, independent check that fires on its own evidence.
+
+    Fault detected: short-circuiting the cost gate when total_tokens == 0 or
+    when the token gate is skipped (e.g. 'if baseline.total_tokens == 0: return PASS').
+    Fault injection: guard the cost gate with 'if baseline.total_tokens == 0: skip' =>
+    a 50% cost increase is silently ignored when the token baseline is zero.
+    """
+    from agenteval.budget import Baseline, compare
+
+    baseline_suite = _suite(passed=4, total=4, tokens=0, cost=1.00)
+    current_suite = _suite(passed=4, total=4, tokens=0, cost=1.50)  # +50% cost
+
+    baseline = Baseline(baseline_suite.to_dict())
+    report = compare(current_suite.to_dict(), baseline)
+    # The cost gate must trip (+50% > 10% threshold).
+    tripped_metrics = [t.metric for t in report.trips]
+    assert "total_cost_usd" in tripped_metrics, (
+        f"Cost gate must trip on a 50% cost increase even when total_tokens=0. "
+        f"Gate report: {report}"
+    )
+    assert not report.ok, "GateReport.ok must be False when cost gate trips"
