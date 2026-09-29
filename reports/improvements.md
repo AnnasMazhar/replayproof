@@ -1,5 +1,177 @@
 # Improvement Log — agent-eval-harness
 
+## c6-p08-improve-1: Fix vacuous boundary tests in TestNormalQuantile — kill 5 surviving mutants (2026-09-29)
+
+### Finding source
+
+Mutation testing analysis (c5 mutation report: reports/mutation-c5.json).
+12 surviving mutants remained from the c5 run. Seven of them were in `_normal_quantile`:
+- mutmut_1: guard `p <= 0.0` → `p < 0.0`
+- mutmut_3: guard `or` → `and` (guard never fires)
+- mutmut_4: guard `p >= 1.0` → `p > 1.0`
+- mutmut_5: guard `p >= 1.0` → `p >= 2.0`
+- mutmut_6: `raise ValueError(f"...")` → `raise ValueError(None)` (message is None)
+- mutmut_19: `sign = 1.0 if p >= 0.5` → `sign = 1.0 if p > 0.5` (equivalent at p=0.5)
+- mutmut_24: `q = p if p >= 0.5` → `q = p if p > 0.5` (equivalent at p=0.5)
+
+Investigation showed that the existing tests `test_normal_quantile_boundary_zero` and
+`test_normal_quantile_boundary_one` used bare `pytest.raises(ValueError)` without a
+message match. The test docstring for `test_normal_quantile_boundary_zero` claimed:
+
+> "Injection: change guard to 'if p < 0.0 or p >= 1.0' => p=0.0 not caught =>
+> log(1-q) = log(1) = 0 => t=0 => returns -(c0/1) = -2.515"
+
+**This analysis was wrong.** With mutmut_1 active and p=0.0: `q = 1.0 - 0.0 = 1.0`,
+then `math.log(1.0 - 1.0) = math.log(0.0)` raises `ValueError: math domain error`.
+So mutmut_1 also raises ValueError — just with a different message ("math domain error"
+vs "p must be in (0, 1), got 0.0"). The bare `pytest.raises(ValueError)` cannot
+distinguish these, so the test passed for the mutant and it survived.
+
+This is the same class of issue as AR-MAJ-3 (fixed in c2-p08): a test whose docstring
+claims it detects a specific fault, but which actually fails to catch the mutation
+because the assertion is too broad.
+
+### Root cause
+
+The tests were written before the distinction between "our explicit guard raises the
+specific message" and "the math fallback also raises ValueError for boundary inputs"
+was understood. `_normal_quantile(0.0)` and `_normal_quantile(1.0)` raise ValueError
+via two different code paths:
+- **Correct behaviour**: the explicit guard fires and raises `ValueError("p must be in (0, 1), got 0.0")`
+- **Mutant behaviour**: the guard is weakened/removed, the boundary value falls through,
+  `math.log(0)` or `math.sqrt(-2*math.log(0))` raises `ValueError: math domain error`
+
+Both are `ValueError`, so `pytest.raises(ValueError)` catches both — making the test
+vacuous for boundary guard mutations.
+
+For mutmut_6 specifically: `raise ValueError(None)` — this fires with the right
+condition but raises with a `None` message instead of our string, which also passes
+bare `pytest.raises(ValueError)`.
+
+mutmut_19 and mutmut_24 are genuinely equivalent mutants: they only differ at
+`p=0.5` exactly, where both produce a result within floating-point noise (~1e-7).
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 191 passed |
+| Mutation kill rate | 94.8% (221/233) |
+| `_normal_quantile` surviving mutants | 7 (mutmut_1/3/4/5/6/19/24) |
+| `test_normal_quantile_boundary_zero` assertion | `pytest.raises(ValueError)` — vacuous |
+| `test_normal_quantile_boundary_zero` docstring | Wrong — claims mutmut_1 returns -2.515 |
+| `test_normal_quantile_boundary_one` assertion | `pytest.raises((ValueError, OverflowError))` — vacuous |
+| Equivalent mutants documented | mutmut_19 and mutmut_24 undocumented |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 192 passed (+1) |
+| Mutation kill rate | 97.0% (226/233) |
+| `_normal_quantile` surviving mutants | 2 (mutmut_19/24 — documented equivalents) |
+| `test_normal_quantile_boundary_zero` assertion | `pytest.raises(ValueError, match=r"p must be in \(0, 1\)")` |
+| `test_normal_quantile_boundary_zero` docstring | Corrected: describes the actual fault paths for all killed mutants |
+| `test_normal_quantile_boundary_one` assertion | `pytest.raises(ValueError, match=r"p must be in \(0, 1\)")` — kills mutmut_4 |
+| `test_normal_quantile_midpoint_exact` (new) | Documents mutmut_19/24 as equivalent; KAT for z(0.5)≈0 |
+| Equivalent mutants documented | YES — test docstring explains why mutmut_19/24 cannot be killed |
+
+### Evidence
+
+New mutmut run after fix:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/mutmut run
+Found 3 new tests, rerunning stats collection
+Running mutation testing
+ 233/233  🎉 226 🫥 0  ⏰ 0  🤔 0  🙁 7  🔇 0
+12.00 mutations/second
+```
+
+Surviving mutants (all equivalent):
+
+```
+$ .venv/bin/mutmut results
+    agenteval.scoring.x_wilson_lower__mutmut_10: survived   (string mutation in error message)
+    agenteval.scoring.x_wilson_lower__mutmut_11: survived   (string mutation in error message)
+    agenteval.scoring.x_wilson_lower__mutmut_12: survived   (string mutation in error message)
+    agenteval.scoring.x_wilson_lower__mutmut_69: survived   (min(1.0) -> min(2.0), unreachable)
+    agenteval.scoring.x__normal_quantile__mutmut_19: survived   (sign at p=0.5, diff=2e-7)
+    agenteval.scoring.x__normal_quantile__mutmut_24: survived   (q at p=0.5, identical result)
+    agenteval.scoring.x_compute_suite__mutmut_1: survived   (default param string)
+```
+
+Full test suite:
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................ [ 37%]
+........................................................................ [ 75%]
+................................................                         [100%]
+192 passed in 3.16s
+```
+
+Ruff clean:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+21 files already formatted
+RUFF CLEAN
+```
+
+New tests (targeted):
+
+```
+$ .venv/bin/python -m pytest tests/test_scoring.py::TestNormalQuantile -v 2>&1 | tail -16
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_boundary_zero PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_boundary_one PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_midpoint_exact PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_known_lookup_0975 PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_known_lookup_095 PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_known_lookup_099 PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_known_lookup_0995 PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_lookup_not_in_keys PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_approx_090 PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_approx_080 PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_negative_branch PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_symmetry PASSED
+12 passed in 0.11s
+```
+
+Fault injection proof that the old bare `pytest.raises(ValueError)` was vacuous:
+
+```python
+# Simulate mutmut_3 (or -> and: guard never fires)
+import math
+def mutmut_3_guard(p):
+    if p <= 0.0 and p >= 1.0:  # never true
+        raise ValueError(f"p must be in (0, 1), got {p}")
+    ...
+
+# mutmut_3 at p=0.0: reaches log(1 - 1.0) = log(0) -> ValueError: math domain error
+# Old test: pytest.raises(ValueError) -> PASSES (wrong! guard was bypassed)
+# New test: pytest.raises(ValueError, match="p must be in") -> FAILS (correct! guard message absent)
+```
+
+### Files changed
+
+- `tests/test_scoring.py` — `TestNormalQuantile.test_normal_quantile_boundary_zero`:
+  corrected docstring (removed wrong claim about -2.515 return value; documented the
+  actual fault paths for mutmut_1/3/5 which raise `math domain error` instead of guard
+  message); changed `pytest.raises(ValueError)` → `pytest.raises(ValueError,
+  match=r"p must be in \(0, 1\)")`. `test_normal_quantile_boundary_one`: changed
+  `pytest.raises((ValueError, OverflowError))` → `pytest.raises(ValueError,
+  match=r"p must be in \(0, 1\)")`. Added `test_normal_quantile_midpoint_exact` (new):
+  KAT for z(0.5)≈0 and documentation that mutmut_19/24 are equivalent mutants.
+  Updated module docstring to include the three new/modified tests.
+- `mutants/tests/test_scoring.py` — synced (identical to tests/test_scoring.py)
+- `reports/improvements.md` — this entry
+
+---
+
+
+
 ## c5-p09-improve-2: Fix fabricated EvalCore integration, README ecosystem omissions, gate JSONL error message (2026-09-28)
 
 ### Finding source

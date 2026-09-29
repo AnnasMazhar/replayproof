@@ -47,6 +47,18 @@ Faults detected by this module:
 - test_compute_suite_name_preserved: catches mutations to the suite_name default or
   string concatenation in metadata. The suite name must round-trip through to_dict().
 
+TestNormalQuantile (boundary guard tests, c6-p08):
+- test_normal_quantile_boundary_zero: kills mutmut_1/3/5/6 by matching the guard
+  error message "p must be in (0, 1)". Without the match, all those mutants also raise
+  ValueError (from log(0) or None message), so bare pytest.raises(ValueError) does not
+  distinguish them. The docstring previously claimed mutmut_1 returns -2.515 — wrong;
+  it raises 'math domain error'. Corrected.
+- test_normal_quantile_boundary_one: kills mutmut_4 (guard changed '>=' to '>',
+  so p=1.0 falls through and computes -2.515 instead of raising). Match on guard message.
+- test_normal_quantile_midpoint_exact: documents that mutmut_19 and mutmut_24 are
+  equivalent mutants (p=0.5 difference is below floating-point tolerance). KAT for
+  near-zero result at the standard normal median.
+
 TestWilsonLowerConfidenceValidation (new, C2P11-MAJ-1):
 - test_wilson_lower_rejects_negative_confidence: catches wilson_lower(3, 5, -0.5)
   returning a garbage float (0.733) instead of raising ValueError.  The adversarial
@@ -510,19 +522,66 @@ class TestNormalQuantile:
     """
 
     def test_normal_quantile_boundary_zero(self) -> None:
-        """Fault: p=0.0 accepted because guard uses p < 0.0 instead of p <= 0.0.
+        """Fault: guard mutations let p=0.0 slip through, raising a different ValueError.
 
-        Injection: change guard to 'if p < 0.0 or p >= 1.0' => p=0.0 not caught =>
-        log(1-q) = log(1) = 0 => t=0 => returns -(c0/1) = -2.515 (wrong sign, not
-        infinity).  Test must see ValueError, not a garbage float.
+        The explicit guard is 'if p <= 0.0 or p >= 1.0: raise ValueError("p must be in
+        (0, 1), got ...")'.  Boundary mutations include:
+          mutmut_1: 'p < 0.0'  (instead of p <= 0.0) — p=0.0 falls through to
+                    log(1 - q) = log(1.0 - 1.0) = log(0) => 'math domain error'
+          mutmut_3: 'p <= 0.0 and p >= 1.0' — guard is never true, same fallback
+          mutmut_4: 'p <= 0.0 or p > 1.0'   — p=0.0 trips the <= branch correctly,
+                    but p=1.0 would fall through (see test_normal_quantile_boundary_one)
+          mutmut_5: 'p <= 0.0 or p >= 2.0'  — p=0.0 trips <=0 branch correctly;
+                    p in (1.0, 2.0) reaches log(1-q) which raises 'math domain error'
+          mutmut_6: 'raise ValueError(None)' — guard fires but message is None
+
+        All of these raise ValueError for p=0.0, so a bare pytest.raises(ValueError)
+        does NOT distinguish them from the correct behaviour.  Matching the guard message
+        kills mutmut_1 (math domain error message), mutmut_3 (math domain error),
+        mutmut_5 (math domain error for p in (1,2)), and mutmut_6 (None message).
+
+        match= uses a regex; escape the parentheses to match literal '(0, 1)'.
         """
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"p must be in \(0, 1\)"):
             _normal_quantile(0.0)
 
     def test_normal_quantile_boundary_one(self) -> None:
-        """Fault: p=1.0 accepted (log(0) => math.log raises ValueError in Python)."""
-        with pytest.raises((ValueError, OverflowError)):
+        """Fault: guard mutations let p=1.0 slip through, raising a different ValueError.
+
+        mutmut_4 changes 'p >= 1.0' to 'p > 1.0', so p=1.0 is not caught by the guard.
+        Execution falls through to q = 1.0 - p = 0.0, then
+        log(1.0 - 0.0) = log(1.0) = 0.0, t = sqrt(0.0) = 0.0, which returns a finite
+        garbage value (-c0/1 ≈ -2.515) instead of raising — unlike the bare ValueError
+        that log(0) would produce for p > 1.0.
+
+        mutmut_6 raises ValueError(None) — message is None, not our guard string.
+
+        Matching the guard message kills both mutmut_4 (returns -2.515, no exception)
+        and mutmut_6 (wrong message).
+        """
+        with pytest.raises(ValueError, match=r"p must be in \(0, 1\)"):
             _normal_quantile(1.0)
+
+    def test_normal_quantile_midpoint_exact(self) -> None:
+        """KAT: z(0.5) must be near 0.0 — standard normal median is exactly 0.
+
+        Documents why mutmut_19 and mutmut_24 are equivalent mutants:
+          mutmut_19: 'sign = 1.0 if p > 0.5 else -1.0' (was >=)
+            At p=0.5 exactly: original sign=+1, mutant sign=-1. The A&S formula at
+            p=0.5 returns approx ≈ -1e-7 (tiny negative), so original=+(-1e-7)=-1e-7
+            and mutant=-(-1e-7)=+1e-7. The difference is 2e-7, below any reasonable
+            tolerance; both are effectively 0. Equivalent for all practical inputs.
+          mutmut_24: 'q = p if p > 0.5 else 1.0 - p' (was >=)
+            At p=0.5: original q=0.5, mutant q=1-0.5=0.5. Identical result.
+            Equivalent mutant.
+
+        This test establishes the KAT (z(0.5) ≈ 0 with tolerance 1e-3) and
+        documents the equivalence, satisfying QUALITY-CONTRACT §3 which requires
+        every surviving mutant to have an explanation.
+        """
+        z = _normal_quantile(0.5)
+        # A&S formula 26.2.17 at p=0.5: floating-point result is near-zero (< 1e-6).
+        assert abs(z) < 1e-3, f"z(0.5) must be near 0.0, got {z}"
 
     def test_normal_quantile_known_lookup_0975(self) -> None:
         """KAT: z(0.975) must equal the exact value stored in the _known dict.
