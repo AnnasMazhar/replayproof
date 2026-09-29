@@ -332,6 +332,87 @@ class TestGateNonFiniteRejection:
             compare(current_corrupted, baseline)
 
 
+class TestGateNegativeMetricRejection:
+    """Tests for C6P11-MIN-2: gate must reject negative token/latency/cost metrics.
+
+    A negative token count can only arise from a corrupted or hand-crafted run
+    file.  Without this guard the token-increase gate silently passes: the delta
+    (negative_count - baseline) is negative, so the ratio is negative, which is
+    always below the allowed-increase threshold.
+
+    Faults detected:
+    - test_compare_rejects_negative_tokens_in: catches a gate that returns ok=True
+      for a run with total_tokens_in=-9999999.  Named fault: remove the non-negative
+      guard for token counts => compare returns ok=True despite extreme negative value.
+    - test_compare_rejects_negative_tokens_out: same fault for total_tokens_out.
+    - test_compare_rejects_negative_latency: same fault for p95_latency_ms < 0.
+    - test_compare_rejects_negative_cost: same fault for total_cost_usd < 0.
+    - test_compare_accepts_zero_metrics: zero is valid (first-run baseline or demo
+      agent with no LLM); gate must not raise for zero values.
+    """
+
+    def test_compare_rejects_negative_tokens_in(self) -> None:
+        """Fault: gate accepts total_tokens_in < 0 and returns ok=True (C6P11-MIN-2).
+
+        With baseline tokens=150 and current tokens_in=-9999999, the total current
+        tokens = -9999999, making the token-increase ratio strongly negative.  A ratio
+        of -67000 is < 0.10, so the gate trips never.
+        Inject: remove the non-negative guard => compare returns ok=True.
+        """
+        baseline_dict = _suite_dict(pass_rate=1.0, tokens_in=100, tokens_out=50)
+        current_dict = _suite_dict(pass_rate=1.0, tokens_in=-9999999, tokens_out=50)
+        baseline = Baseline(baseline_dict)
+        with pytest.raises(ValueError, match="total_tokens_in"):
+            compare(current_dict, baseline)
+
+    def test_compare_rejects_negative_tokens_out(self) -> None:
+        """Fault: gate accepts total_tokens_out < 0 and allows token gate bypass.
+
+        Inject: remove guard for tokens_out => compare returns ok=True.
+        """
+        baseline_dict = _suite_dict(pass_rate=1.0, tokens_in=100, tokens_out=50)
+        current_dict = _suite_dict(pass_rate=1.0, tokens_in=100, tokens_out=-50)
+        baseline = Baseline(baseline_dict)
+        with pytest.raises(ValueError, match="total_tokens_out"):
+            compare(current_dict, baseline)
+
+    def test_compare_rejects_negative_latency(self) -> None:
+        """Fault: gate accepts p95_latency_ms < 0 and returns ok=True.
+
+        Inject: remove guard for latency => compare returns ok=True even with -1.0ms.
+        """
+        baseline_dict = _suite_dict(pass_rate=1.0, p95_latency=100.0)
+        current_dict = dict(_suite_dict(pass_rate=1.0, p95_latency=100.0))
+        current_dict["p95_latency_ms"] = -1.0
+        baseline = Baseline(baseline_dict)
+        with pytest.raises(ValueError, match="p95_latency_ms"):
+            compare(current_dict, baseline)
+
+    def test_compare_rejects_negative_cost(self) -> None:
+        """Fault: gate accepts total_cost_usd < 0 and returns ok=True.
+
+        Inject: remove guard for cost => compare returns ok=True for negative cost.
+        """
+        baseline_dict = _suite_dict(pass_rate=1.0, cost=0.01)
+        current_dict = dict(_suite_dict(pass_rate=1.0, cost=0.01))
+        current_dict["total_cost_usd"] = -0.01
+        baseline = Baseline(baseline_dict)
+        with pytest.raises(ValueError, match="total_cost_usd"):
+            compare(current_dict, baseline)
+
+    def test_compare_accepts_zero_metrics(self) -> None:
+        """Zero token/latency/cost values are valid (demo agent, first run).
+
+        The guard must not raise for zero — only for strictly negative values.
+        """
+        baseline_dict = _suite_dict(pass_rate=1.0, tokens_in=0, tokens_out=0)
+        current_dict = _suite_dict(pass_rate=1.0, tokens_in=0, tokens_out=0)
+        baseline = Baseline(baseline_dict)
+        # Must not raise.
+        report = compare(current_dict, baseline)
+        assert report.ok
+
+
 class TestTranscriptRoundTrip:
     """Run serialisation round-trip test."""
 

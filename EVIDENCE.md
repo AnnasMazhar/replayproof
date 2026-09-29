@@ -366,3 +366,136 @@ All acceptance criteria pass:
 4. ruff check . && ruff format --check .: clean
 5. README contains genuine results table from demo output
 6. No files outside this repo modified. No push. No git add .
+
+---
+
+## 11. Cycle 7 pass 4 (c7-p04-implement-1) — fix C6P11-MIN-2 + 5 new tests
+
+Date: 2026-09-29T07:02 UTC
+
+**Change:** Added non-negative metric validation to `budget.py:compare()` (C6P11-MIN-2).
+Negative token counts, latency, and cost in the current run dict now raise `ValueError`
+immediately instead of silently passing the gate.  Added `TestGateNegativeMetricRejection`
+(5 tests) to `tests/test_budget_drift.py`.
+
+```
+$ .venv/bin/pytest -q
+........................................................................ [ 36%]
+........................................................................ [ 72%]
+......................................................                   [100%]
+198 passed in 2.79s
+
+$ .venv/bin/ruff check .
+All checks passed!
+
+$ .venv/bin/ruff format --check .
+21 files already formatted
+
+$ bash examples/run_demo.sh
+=== agent-eval-harness demo ===
+
+--- Step 1: evaluate sample_run.jsonl against research contract ---
+# Evaluation Report: research
+
+## Summary
+
+| Metric | Value |
+| ------ | ----- |
+| Cases | 4 |
+| Passed | 4 |
+| Pass Rate | 100.0% |
+| Wilson Lower Bound (95%) | 51.0% |
+| Total Tokens In | 0 |
+| Total Tokens Out | 0 |
+| p50 Latency | 0.0 ms |
+| p95 Latency | 0.1 ms |
+
+## Per-Case Results
+
+| Case ID | Passed | Tokens In | Tokens Out | Latency ms |
+| ------- | ------ | --------- | ---------- | ---------- |
+| How do solar panels work | PASS | 0 | 0 | 0.1 |
+| How long does installation take | PASS | 0 | 0 | 0.0 |
+| What is net metering | PASS | 0 | 0 | 0.0 |
+| What types of batteries are used for storage | PASS | 0 | 0 | 0.0 |
+
+
+--- Step 2: evaluate regressed_run.jsonl against research contract ---
+# Evaluation Report: research
+
+## Summary
+
+| Metric | Value |
+| ------ | ----- |
+| Cases | 4 |
+| Passed | 2 |
+| Pass Rate | 50.0% |
+| Wilson Lower Bound (95%) | 15.0% |
+| Total Tokens In | 0 |
+| Total Tokens Out | 0 |
+| p50 Latency | 0.0 ms |
+| p95 Latency | 0.1 ms |
+
+## Per-Case Results
+
+| Case ID | Passed | Tokens In | Tokens Out | Latency ms |
+| ------- | ------ | --------- | ---------- | ---------- |
+| How do solar panels work | FAIL | 0 | 0 | 0.0 |
+| How long does installation take | PASS | 0 | 0 | 0.1 |
+| What is net metering | PASS | 0 | 0 | 0.0 |
+| What types of batteries are used for storage | FAIL | 0 | 0 | 0.0 |
+
+
+--- Step 3: gate good run vs itself (expect: PASS, exit 0) ---
+Gate: PASS — no regressions detected.
+Warning: the following gates were not enforced because the baseline value is zero (first-run or corrupted baseline): total_tokens, total_cost_usd
+Exit code: 0
+
+--- Step 4: gate regressed run vs good baseline (expect: FAIL, exit 1) ---
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+Warning: the following gates were not enforced because the baseline value is zero (first-run or corrupted baseline): total_tokens, total_cost_usd
+Exit code: 1
+
+--- Step 5: drift report ---
+Regressions : 2
+Fixes       : 0
+Churn       : 0
+Stable pass : 2
+Stable fail : 0
+Token delta : +0
+
+Regressions:
+  How do solar panels work
+  What types of batteries are used for storage
+
+--- Step 6: markdown report for regressed run ---
+[... same as step 2 output ...]
+
+--- Final checks ---
+PASS: gate exits correctly (0 on good, 1 on regressed)
+
+=== Demo complete ===
+
+$ .venv/bin/python -c "import agenteval; print(agenteval.__version__)"
+0.1.0
+```
+
+All acceptance criteria pass:
+1. pytest -q: 198 passed, no network required (+5 from C6P11-MIN-2 fix)
+2. bash examples/run_demo.sh: runs to completion, prints results table
+3. Gate: exit 1 on regressed_run.jsonl, exit 0 on sample_run.jsonl
+4. ruff check . && ruff format --check .: clean
+5. README contains genuine results table from demo output
+6. No files outside this repo modified. No push. No git add .
+
+### New tests added (TestGateNegativeMetricRejection)
+
+Fixes C6P11-MIN-2 (open from c6-p11 adversarial review):
+- test_compare_rejects_negative_tokens_in: total_tokens_in=-9999999 raises ValueError
+- test_compare_rejects_negative_tokens_out: total_tokens_out=-50 raises ValueError
+- test_compare_rejects_negative_latency: p95_latency_ms=-1.0 raises ValueError
+- test_compare_rejects_negative_cost: total_cost_usd=-0.01 raises ValueError
+- test_compare_accepts_zero_metrics: zero values are valid (first-run, demo agent)

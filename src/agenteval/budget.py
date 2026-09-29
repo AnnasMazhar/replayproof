@@ -172,6 +172,31 @@ def compare(
                     "corrupted run files must not be passed to the gate"
                 )
 
+    # Guard: reject negative token/cost/latency counts.  A negative token count
+    # can only arise from a corrupted or hand-crafted run file.  Allowing it
+    # silently would make the token-increase gate pass (negative < baseline,
+    # so the delta is negative and the threshold check is never tripped).
+    _nonneg_int_metrics = ("total_tokens_in", "total_tokens_out")
+    for _metric in _nonneg_int_metrics:
+        _val = current.get(_metric)
+        if _val is not None:
+            _ival = int(_val)
+            if _ival < 0:
+                raise ValueError(
+                    f"current['{_metric}'] is negative ({_ival!r}); "
+                    "token counts must be non-negative"
+                )
+    _nonneg_float_metrics = ("p95_latency_ms", "total_cost_usd")
+    for _metric in _nonneg_float_metrics:
+        _val = current.get(_metric)
+        if _val is not None:
+            _fval = float(_val)
+            if math.isfinite(_fval) and _fval < 0.0:
+                raise ValueError(
+                    f"current['{_metric}'] is negative ({_fval!r}); "
+                    "latency and cost metrics must be non-negative"
+                )
+
     # Pass-rate gate: trip if pass rate drops more than allowed.
     cur_pass = float(current.get("pass_rate", 0.0))
     drop = baseline.pass_rate - cur_pass
