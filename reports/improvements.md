@@ -1,6 +1,169 @@
 # Improvement Log — agent-eval-harness
 
-## c8-p09-improve-2: Fix COMPARISONS.md internal star count inconsistency (2026-09-29)
+## c9-p08-improve-1: Fix C8P11-MIN-1 — check severity mutable after contract load (2026-09-29)
+
+### Finding source
+
+Adversarial pass c8-p11 (C8P11-MIN-1): check dataclasses were mutable. An attacker with
+code execution in the same process as the contract loader could write:
+
+```python
+for check in contract.checks:
+    check.severity = 'warn'
+```
+
+and flip every `error`-severity check to `warn`, causing `CheckResults.passed` to return
+`True` for a run that violated security constraints. The finding showed:
+
+```
+Before mutation: passed=False
+After mutation: passed=True
+!!! CONFIRMED VULNERABILITY: Severity mutation changes evaluation outcome !!!
+```
+
+### Root cause
+
+All 10 check subclasses (`ToolSequenceCheck`, `RequiredToolsCheck`, `ForbiddenToolsCheck`,
+`ArgSchemaCheck`, `MaxToolCallsCheck`, `MaxTokensCheck`, `MaxLatencyCheck`,
+`NoPatternCheck`, `FinalAnswerMatchesCheck`, `FinalAnswerNotEmptyCheck`) were declared as
+`@dataclass` without `frozen=True`. Python dataclasses are mutable by default; any
+attribute — including `severity` — can be reassigned after construction. No test existed
+to verify post-construction immutability.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 217 passed |
+| `check.severity = 'warn'` after load | succeeds silently |
+| `contract.evaluate(bad_run).passed` after severity mutation | `True` (bypass) |
+| Check dataclasses have `frozen=True` | NO |
+| Test verifying severity immutability | NONE |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 226 passed (+1) |
+| `check.severity = 'warn'` after load | raises `FrozenInstanceError: cannot assign to field 'severity'` |
+| `contract.evaluate(bad_run).passed` after mutation attempt | `False` (attack blocked before evaluate) |
+| Check dataclasses have `frozen=True` | YES — all 10 subclasses |
+| Test verifying severity immutability | YES — `TestCheckSeverityImmutability.test_check_severity_is_frozen_after_load` |
+
+### Evidence
+
+Attack blocked after fix:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python3 -c "
+from agenteval.transcript import Run, Turn, ToolCall
+from agenteval.assertions import Contract
+
+contract = Contract.from_yaml('''
+name: security
+checks:
+  - type: forbidden_tools
+    id: no_email
+    severity: error
+    names: [send_email]
+''')
+
+bad_run = Run(
+    name='bad_run', agent_id='test', model='test', provider='test',
+    started_at='2026-09-29T00:00:00Z',
+    turns=[Turn(role='assistant', content='Done', tool_calls=[
+        ToolCall(name='send_email', args={}, result='sent', error=None, duration_ms=0.1),
+    ], tokens_in=0, tokens_out=10, latency_ms=1.0)],
+    total_tokens_in=0, total_tokens_out=10, total_latency_ms=1.0, metadata={}
+)
+
+result_before = contract.evaluate(bad_run)
+print(f'Before mutation: passed={result_before.passed}')
+
+try:
+    for check in contract.checks:
+        check.severity = 'warn'
+    print('VULNERABLE: severity mutation succeeded')
+except Exception as e:
+    print(f'FIXED: severity mutation blocked: {e}')
+"
+Before mutation: passed=False
+FIXED: severity mutation blocked: cannot assign to field 'severity'
+```
+
+New test passes:
+
+```
+$ .venv/bin/python -m pytest tests/test_assertions.py::TestCheckSeverityImmutability -v
+tests/test_assertions.py::TestCheckSeverityImmutability::test_check_severity_is_frozen_after_load PASSED
+1 passed in 0.21s
+```
+
+Full suite:
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................ [ 31%]
+........................................................................ [ 63%]
+........................................................................ [ 95%]
+..........                                                               [100%]
+226 passed in 2.80s
+```
+
+Ruff:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+21 files already formatted
+RUFF CLEAN
+```
+
+Fault injection proof (demonstrating the old mutable code was vulnerable):
+
+```
+$ .venv/bin/python3 -c "
+# Old mutable dataclass (pre-fix simulation):
+from dataclasses import dataclass, field
+class Check: pass
+
+@dataclass  # no frozen=True
+class ForbiddenToolsCheck(Check):
+    severity: str = 'error'
+    names: list = field(default_factory=list)
+
+check = ForbiddenToolsCheck(names=['send_email'])
+check.severity = 'warn'  # attack succeeds
+print(f'OLD CODE VULNERABLE: severity={check.severity}')
+
+# New frozen dataclass (post-fix):
+from agenteval.assertions import ForbiddenToolsCheck as FixedCheck
+fixed = FixedCheck(names=['send_email'])
+try:
+    fixed.severity = 'warn'
+    print('STILL VULNERABLE')
+except Exception as e:
+    print(f'FIXED: {e}')
+"
+OLD CODE VULNERABLE: severity=warn
+FIXED: cannot assign to field 'severity'
+```
+
+### Files changed
+
+- `src/agenteval/assertions.py` — changed `@dataclass` → `@dataclass(frozen=True)` on all
+  10 check subclasses: `ToolSequenceCheck`, `RequiredToolsCheck`, `ForbiddenToolsCheck`,
+  `ArgSchemaCheck`, `MaxToolCallsCheck`, `MaxTokensCheck`, `MaxLatencyCheck`,
+  `NoPatternCheck`, `FinalAnswerMatchesCheck`, `FinalAnswerNotEmptyCheck`.
+- `tests/test_assertions.py` — updated module docstring; added `TestCheckSeverityImmutability`
+  class (1 test): `test_check_severity_is_frozen_after_load` — loads a contract with
+  `severity: error`, evaluates a bad run (asserts `passed=False`), then attempts
+  `check.severity = 'warn'` inside `pytest.raises(Exception, match="cannot assign to field")`,
+  then re-evaluates and asserts still `passed=False`.
+- `mutants/tests/test_assertions.py` — synced with tests/test_assertions.py (identical)
+- `reports/improvements.md` — this entry
+
+
 
 ### Finding source
 

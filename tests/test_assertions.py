@@ -63,6 +63,11 @@ TestAdoptionGuideContracts:
 - test_adoption_tool_sequence_expected_field: confirms ToolSequenceCheck exposes 'expected',
   not 'tools', as the constructor parameter.
 - test_adoption_no_pattern_field_name: confirms NoPatternCheck uses 'field_name', not 'field'.
+
+TestCheckSeverityImmutability:
+- test_check_severity_is_frozen_after_load: catches any code that successfully mutates
+  check.severity from 'error' to 'warn' after contract load, which would allow a call-site
+  to downgrade a security-critical check and flip a failing contract to passing.
 """
 
 import os
@@ -525,3 +530,50 @@ checks:
         # Must detect a PII email in final_content
         r = check.evaluate(_run(final_content="Contact us at user@example.com for help."))
         assert not r.passed, "Must detect email PII in final_content"
+
+
+class TestCheckSeverityImmutability:
+    """Verify that check severity cannot be mutated after contract load.
+
+    Finding C8P11-MIN-1: check dataclasses were mutable; an attacker with code execution
+    could set check.severity = 'warn' to downgrade an error check, causing a failing
+    contract to return passed=True.
+    """
+
+    def test_check_severity_is_frozen_after_load(self) -> None:
+        """Fault: check.severity = 'warn' succeeds, flipping a failing contract to passing.
+
+        Injection: after loading a contract with severity=error, set check.severity='warn',
+        then evaluate the same bad run. Before the fix the contract would return passed=True
+        after the mutation. After the fix the assignment raises FrozenInstanceError.
+        """
+        import pytest
+
+        contract = Contract.from_yaml(
+            """
+name: security
+checks:
+  - type: forbidden_tools
+    id: no_email
+    severity: error
+    names: [send_email]
+"""
+        )
+
+        bad_run = _run(tool_names=["send_email"])
+
+        # Confirm baseline: bad run must fail the contract
+        result_before = contract.evaluate(bad_run)
+        assert not result_before.passed, "Bad run must fail the contract before any mutation"
+
+        # The attack: try to downgrade severity from error to warn.
+        # With frozen=True this must raise; if it silently succeeds the test fails.
+        for check in contract.checks:
+            with pytest.raises(Exception, match="cannot assign to field"):
+                check.severity = "warn"  # type: ignore[misc]
+
+        # Contract must still fail — severity is unchanged
+        result_after = contract.evaluate(bad_run)
+        assert (
+            not result_after.passed
+        ), "Contract must still fail after attempted mutation — severity must be unchanged"
