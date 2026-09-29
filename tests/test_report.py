@@ -51,6 +51,14 @@ Faults detected:
   simplified illustration missing the 'final_answer_not_empty' check added to the real
   contract file. Fault injection: add a new check type to research.yaml without updating
   the README => this test fails because the new type is absent from the README section.
+
+- test_comparisons_narrative_star_counts_match_table (TestCOMPARISONSInternalConsistency):
+  catches COMPARISONS.md narrative text that contradicts the data table in the same
+  document for the same tool. Root cause (c8-p09): the narrative "AgentOps (5,847 stars)"
+  disagreed with the table row "5,846" and "Arize Phoenix (11,642)" disagreed with "11,644"
+  in the same file. A reviewer reading top-to-bottom finds contradictory numbers within
+  50 lines. Fault injection: change the narrative to a number that does not match any
+  table row => this test fails.
 """
 
 import os
@@ -531,4 +539,80 @@ class TestREADMEContractYAMLSync:
             f"examples/contracts/research.yaml: {sorted(missing)}. "
             "Update the README example to include all check types from the real contract. "
             "This prevents README-code drift that misleads engineers who copy the example."
+        )
+
+
+class TestCOMPARISONSInternalConsistency:
+    """Guard against COMPARISONS.md narrative contradicting its own table.
+
+    The table contains the authoritative star counts. Narrative text (bullet lists,
+    'Choose this when...' sections) must use numbers that match the table. When a star
+    count is refreshed in the table but not in the narrative, a reviewer reads two
+    different numbers for the same tool in the same document — a credibility failure.
+    """
+
+    def _find_repo_root(self) -> str:
+        import os
+        import pathlib
+
+        env_root = os.environ.get("REPO_ROOT")
+        if env_root:
+            return env_root
+        candidate = pathlib.Path(__file__).resolve().parent
+        while not (candidate / "docs").is_dir() and candidate.parent != candidate:
+            candidate = candidate.parent
+        return str(candidate)
+
+    def test_comparisons_narrative_star_counts_match_table(self) -> None:
+        """COMPARISONS.md narrative bullet counts must equal the authoritative table row.
+
+        The table (lines beginning with '|') is the single source of truth for star
+        counts. Narrative text outside the table may reference a tool's star count using
+        the exact number that appears in the table row. If the narrative has a different
+        number for the same tool, the document is internally inconsistent.
+
+        Only tools whose narrative star count can be unambiguously linked to a table row
+        are checked; the test does not check approximate shorthands like '35k' or '6k'.
+
+        Fault injection: change COMPARISONS.md line 75 to say 'AgentOps (5,847 stars)'
+        while the table row keeps '5,846' => this test fails with a clear message naming
+        the inconsistency.
+        """
+        import pathlib
+        import re
+
+        repo_root = pathlib.Path(self._find_repo_root())
+        comp = (repo_root / "COMPARISONS.md").read_text(encoding="utf-8")
+        lines = comp.splitlines()
+
+        # Build a set of ALL star counts that appear in table rows (lines starting with |)
+        table_counts: set[str] = set()
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("|"):
+                for m in re.finditer(r"\*{0,2}(\d{1,3}(?:,\d{3})+)\*{0,2}", stripped):
+                    table_counts.add(m.group(1))
+
+        # Find all exact star counts (format: N,NNN or NN,NNN) mentioned in narrative
+        # text (lines that do NOT start with |).  Shorthand like '35k' or '6k' is
+        # intentionally excluded: the regex only matches comma-formatted numbers.
+        violations: list[str] = []
+        for lineno, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if stripped.startswith("|"):
+                continue
+            for m in re.finditer(r"(\d{1,3}(?:,\d{3})+)\s+stars", stripped):
+                count = m.group(1)
+                if count not in table_counts:
+                    violations.append(
+                        f"Line {lineno}: narrative says '{count} stars' but that exact "
+                        f"number is not in any table row. "
+                        f"Table counts found: {sorted(table_counts)[:8]}..."
+                    )
+
+        assert not violations, (
+            "COMPARISONS.md has narrative star counts that do not match the table:\n"
+            + "\n".join(violations)
+            + "\n\nUpdate the narrative to use the exact number from the table row, "
+            "or the table to match the narrative. The table is the source of truth."
         )

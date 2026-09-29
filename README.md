@@ -322,9 +322,9 @@ See [COMPARISONS.md](COMPARISONS.md) for a full factual table. The short version
   This tool reads those recordings and asserts contracts over them.
 - **inspect_ai + inspect-replay** owns sample-aligned log diffing — use it when the
   question is "which sample moved". Use this when the question is "which contract broke".
-- **promptfoo** has the broadest tool-call assertion surface and 25,544 stars (OpenAI-owned).
+- **promptfoo** has the broadest tool-call assertion surface and 25,552 stars (OpenAI-owned).
   Choose it for breadth and red-teaming. Choose this for deterministic, keyless, baseline-gated CI.
-- **DeepEval** (18,490 stars) is the largest LLM-judged metric library — `ToolCorrectnessMetric`
+- **DeepEval** (18,497 stars) is the largest LLM-judged metric library — `ToolCorrectnessMetric`
   and argument checks, all LLM-as-judge. Choose it for semantic evaluation. Choose this when the
   question is structural, deterministic, and must cost zero API keys.
 - **Langfuse** (35k stars), **AgentOps** (6k), and **Arize Phoenix** (12k) are the
