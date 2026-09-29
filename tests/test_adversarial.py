@@ -227,6 +227,17 @@ test_gate_baseline_with_zero_tokens_and_nonzero_current_trips:
     was a mock with no LLM and the real run now has real cost.
     Fault injection: guard with 'if baseline_tokens == 0: skip' => a real LLM run
     that costs $10 is never caught because the seed baseline was a zero-token mock.
+
+--- New in c9-p04 ---
+
+test_from_messages_evaluates_offline_without_runner:
+    Catches an implementation of from_messages that requires a callable agent or
+    makes any external call. The pydantic-evals gap (c9-p02) establishes that tools
+    in this space require the function under test to be callable live; replayproof
+    must not. A static OpenAI-style message snapshot must produce a contract-
+    evaluatable Run with zero runner invocations.
+    Fault injection: add 'if agent is None: raise RuntimeError' inside from_messages
+    => this test fails with RuntimeError before reaching the contract step.
 """
 
 from __future__ import annotations
@@ -2238,3 +2249,113 @@ checks:
     assert (
         suite.pass_rate_value == 1.0
     ), f"pass_rate must be 1.0 when the only failure is warn-severity; got {suite.pass_rate_value}"
+
+
+def test_from_messages_evaluates_offline_without_runner() -> None:
+    """from_messages must produce a contract-evaluatable Run from a static snapshot.
+
+    This test operationalises the pydantic-evals gap (c9-p02): pydantic-evals requires
+    the function under test to be callable at eval time — it calls the live function for
+    every case and has no offline transcript reader. replayproof's from_messages() must
+    build a complete Run from a frozen message list without invoking any callable.
+
+    The test constructs a static OpenAI-style message list (no live model, no API key,
+    no callable agent), passes it through from_messages(), evaluates it against a real
+    contract, and asserts the result is structurally complete and correct.
+
+    Fault detected: an implementation of from_messages that requires a callable or makes
+    any external call (network, subprocess, file outside the fixture) to produce a Run.
+    Fault injection: add a `if agent is None: raise RuntimeError` guard inside
+    from_messages => this test fails with RuntimeError before reaching the contract step.
+    """
+    from agenteval.assertions import Contract
+    from agenteval.record import from_messages
+    from agenteval.scoring import CaseResult, compute_suite
+
+    # A frozen OpenAI-style message snapshot — no live model, no network, no callable.
+    # This is the shape an agent framework produces after the run; we assert over the
+    # recording, not over a live execution.
+    static_messages: list[dict] = [
+        {
+            "role": "user",
+            "content": "What is net metering?",
+        },
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_01",
+                    "type": "function",
+                    "function": {
+                        "name": "search_docs",
+                        "arguments": '{"query": "net metering definition"}',
+                    },
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_01",
+            "content": (
+                "Net metering allows solar owners to sell excess electricity back to the grid."
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": (
+                "Net metering is a billing arrangement that credits solar panel owners"
+                " for electricity they add to the grid."
+            ),
+        },
+    ]
+
+    # No callable invoked — from_messages reads the snapshot as-is.
+    run = from_messages(
+        static_messages,
+        name="net_metering_static",
+        agent_id="static-agent",
+        model="snapshot",
+        provider="none",
+    )
+
+    # The run must be structurally complete.
+    assert run.name == "net_metering_static"
+    assert len(run.turns) > 0, "from_messages must produce at least one turn"
+
+    # Evaluate against a minimal contract — no runner required at this stage either.
+    contract_yaml = """
+name: offline_test
+checks:
+  - type: required_tools
+    id: must_use_search
+    severity: error
+    names:
+      - search_docs
+  - type: final_answer_not_empty
+    id: final_not_empty
+    severity: error
+"""
+    contract = Contract.from_yaml(contract_yaml)
+    result = contract.evaluate(run)
+
+    assert result.passed, (
+        f"Contract must pass on a static snapshot that includes search_docs and a "
+        f"non-empty final answer. Failures: "
+        f"{[r.message for r in result.results if not r.passed]}"
+    )
+
+    # Build a suite result — also fully offline.
+    case = CaseResult(
+        case_id=run.name,
+        passed=result.passed,
+        checks=result.results,
+        tokens_in=run.total_tokens_in,
+        tokens_out=run.total_tokens_out,
+        latency_ms=run.total_latency_ms,
+    )
+    suite = compute_suite([case])
+    assert (
+        suite.pass_rate_value == 1.0
+    ), f"Suite pass rate must be 1.0 for a fully passing static run, got {suite.pass_rate_value}"
+    assert suite.wilson_lower_bound > 0.0, "Wilson lower bound must be > 0.0 for a non-empty suite"

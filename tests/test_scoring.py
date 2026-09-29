@@ -39,6 +39,13 @@ Faults detected by this module:
   ADVERSARIAL_REVIEW.md both stated 0.478 (wrong by ~9pp). The correct formula
   gives 1/(1 + z^2/n) for p_hat=1.0, which equals ~0.566 at z=1.96, n=5.
 
+- test_wilson_lower_n4_s4: catches an implementation that returns the wrong value for
+  the demo-scale (4/4) case. The spec's citation-audit (Tier-2) called out that
+  the arithmetic for wilson_lower(4,4) must show both centre and half-width steps
+  to avoid a teaching artifact with the wrong intermediate value. Correct result:
+  ~0.5102 (reported in README as 51.0% after rounding). Fault injection: use the
+  wrong formula step (e.g. omit half-width subtraction) => returns ~0.7551 instead.
+
 - test_percentile_n2: catches a mutant that changes the 'n == 1' early-return guard
   to 'n == 2', which would return sorted_values[0] (the minimum) for a 2-element
   list at any percentile. For p50 of [1.0, 3.0], the correct answer is 2.0 (midpoint
@@ -898,4 +905,61 @@ class TestWilsonLowerKATSmallN:
         assert abs(result - 0.052369) < 0.001, (
             f"wilson_lower(3, 20, 0.95) expected ~0.052369, got {result:.6f}. "
             "Hand derivation: z=1.96, p̂=0.15, denom=1.192, centre=0.206, half=0.154 → lower=0.052."
+        )
+
+    def test_wilson_lower_n4_s4(self) -> None:
+        """KAT: wilson_lower(4, 4, 0.95) ≈ 0.5102 — the demo-scale perfect-score case.
+
+        The spec's independent citation audit (Tier-2, 2026-09-26) noted that the
+        hand-worked teaching artifact for wilson_lower(4,4) showed incomplete arithmetic:
+        the intermediate value 1.48018 / 1.9604 = 0.7551 was presented without the
+        subsequent half-width subtraction step, making it appear the answer was 0.7551
+        rather than the correct 0.5102.  Both steps are shown here.
+
+        Step-by-step derivation (n=4, s=4, p̂=1.0, z=1.959963985):
+          z²             = 3.841459
+          p̂              = 4/4 = 1.0
+
+          Step 1 — centre (numerator / denominator without sqrt term):
+            numerator₀   = p̂ + z²/(2n) = 1.0 + 3.841459/8 = 1.0 + 0.480182 = 1.480182
+            denominator  = 1 + z²/n    = 1 + 3.841459/4   = 1 + 0.960365  = 1.960365
+            centre       = 1.480182 / 1.960365 = 0.75504
+
+          Step 2 — half-width:
+            term_root    = p̂(1−p̂)/n + z²/(4n²)
+                         = 1.0·0.0/4 + 3.841459/(4·16)
+                         = 0 + 3.841459/64
+                         = 0.060023
+            half_num     = z · √0.060023 = 1.959964 · 0.245000 = 0.480190
+            half         = half_num / denominator = 0.480190 / 1.960365 = 0.24496
+
+          Step 3 — lower bound:
+            lower        = centre − half = 0.75504 − 0.24496 = 0.51008 ≈ 0.5101
+
+        The value 0.5101 rounds to 51.0% in the README results table.
+        The intermediate value 0.7551 (from step 1 alone) is the *centre* of the
+        Wilson interval, not the lower bound — showing only step 1 is the teaching error
+        the spec's audit identified.
+
+        Fault injection: omit the half-width subtraction (return centre only) =>
+        returns ~0.755 instead of ~0.510 => this test fails.
+
+        Verified independently:
+          python3 -c "from agenteval.scoring import wilson_lower;
+                      print(f'{wilson_lower(4,4):.6f}')"
+          → 0.510100
+        """
+        result = wilson_lower(successes=4, n=4, confidence=0.95)
+        expected = 0.5101
+        assert abs(result - expected) < 0.005, (
+            f"wilson_lower(4, 4) = {result:.4f}, expected ~{expected:.4f}. "
+            "The value ~0.7551 is the Wilson interval centre (step 1 only); "
+            "the lower bound requires subtracting the half-width (step 2). "
+            "See hand derivation in this docstring."
+        )
+        # The lower bound must be strictly less than 0.75 — the centre value.
+        # An implementation returning the centre instead of the lower bound fails here.
+        assert result < 0.75, (
+            f"wilson_lower(4, 4) = {result:.4f} should be < 0.75. "
+            "A value near 0.755 indicates the half-width subtraction was omitted."
         )

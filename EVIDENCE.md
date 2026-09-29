@@ -26,32 +26,42 @@ Installed 1 package in 2ms
 
 ```
 $ pytest -q
-........................................................................ [ 37%]
-........................................................................ [ 75%]
-...............................................                          [100%]
-191 passed in 4.98s
+........................................................................ [ 32%]
+........................................................................ [ 65%]
+........................................................................ [ 98%]
+....                                                                     [100%]
+220 passed in 8.52s
 ```
 
-191 tests (c6-p05). Previous cycle high-water marks:
-- c6-p04: 188 tests
-- c5-p05: 188 tests (4 new adversarial tests added)
-- c5-p09: 188 tests (1 new test for actionable JSONL gate error)
+220 tests (c9-p04). Previous cycle high-water marks:
+- c9-p02/p03: 217 tests (lint clean; research passes only)
+- c8-p09: 217 tests (+1 COMPARISONS internal consistency test)
+- c8-p04: 210 tests
+- c7-p05: 204 tests
+- c6-p05: 191 tests
 
-Test breakdown by file (c6-p05):
-- test_adversarial.py: 46 tests (byzantines, hostile inputs, injection attempts; +3 new)
-- test_assertions.py: 34 tests (each check type, good/bad run, property-based)
-- test_budget_drift.py: 38 tests (gate thresholds, drift classification, edge cases)
-- test_properties.py: 21 tests (hypothesis property-based: Wilson monotone, replay idempotent, etc.)
-- test_replay.py: 19 tests (dry/strict/lenient modes, ReplayMismatch, determinism)
-- test_report.py: 21 tests (markdown stable, no timestamps, HTML self-contained)
-- test_scoring.py: 12 tests (KAT with hand-computed values, Wilson bounds, pass_rate)
+Test breakdown by file (c9-p04):
+- test_adversarial.py: 57 tests (+1: test_from_messages_evaluates_offline_without_runner)
+- test_scoring.py: 52 tests (+1: test_wilson_lower_n4_s4 KAT with both arithmetic steps)
+- test_budget_drift.py: 40 tests
+- test_assertions.py: 35 tests
+- test_report.py: 17 tests (+1: test_comparisons_includes_pydantic_evals)
+- test_replay.py: 10 tests
+- test_properties.py: 9 tests
 
-New adversarial tests in c6-p05:
-- test_suite_large_run_hundreds_of_tool_calls_does_not_crash: 500-call run completes in < 2s
-- test_case_id_non_ascii_unicode_survives_report_roundtrip: CJK+Arabic case_id verbatim in Markdown
-- test_gate_zero_baseline_tokens_nonzero_current_is_flagged_not_silently_passed: skipped_zero_baseline recorded
-
----
+New tests in c9-p04:
+- test_wilson_lower_n4_s4: KAT for wilson_lower(4,4) = 0.5101. The spec's independent
+  citation audit (Tier-2, 2026-09-26) identified that the teaching example showed only
+  the centre step (0.7551), not the full two-step derivation. Both steps are now shown in
+  the test docstring and IMPLEMENTATION-NOTES.md. Fault injection: return centre without
+  subtracting half-width => returns 0.7551 instead of 0.5101 => test fails.
+- test_comparisons_includes_pydantic_evals: COMPARISONS.md must have a pydantic-evals row.
+  c9-p02 added pydantic-evals (v2.51.0, pydantic-ai 20,266*) as Source 50 — the largest
+  new entrant documented in any cycle. The test prevents it from being accidentally dropped.
+- test_from_messages_evaluates_offline_without_runner: operationalizes the pydantic-evals
+  gap (c9-p02). A static OpenAI-style message snapshot must produce a contract-evaluatable
+  Run with zero runner invocations. pydantic-evals requires a live callable; this test
+  verifies replayproof does not.
 
 ## 3. Lint
 
@@ -772,4 +782,93 @@ All acceptance criteria pass:
 3. Gate: exit 1 on regressed_run.jsonl, exit 0 on sample_run.jsonl
 4. ruff check . && ruff format --check .: clean
 5. README contains genuine results table from demo output
+6. No files outside this repo modified. No push.
+
+---
+
+## 14. Cycle 9 pass 4 (c9-p04-implement-1) — 3 new tests, IMPLEMENTATION-NOTES update
+
+Date: 2026-09-29T19:30 UTC
+
+**Changes in this pass:**
+- Added `test_wilson_lower_n4_s4` to `tests/test_scoring.py`: KAT for the demo-scale
+  4/4 case. The spec's citation audit (Tier-2) identified that the prior teaching
+  example showed only the Wilson interval centre (0.7551) without the half-width
+  subtraction step. The test now documents both steps and verifies the correct value
+  0.5101 (51.0% in the README results table).
+- Added `test_comparisons_includes_pydantic_evals` to `tests/test_report.py`: guards
+  against the pydantic-evals row (added in c9-p02, Source 50) being accidentally
+  removed from COMPARISONS.md.
+- Added `test_from_messages_evaluates_offline_without_runner` to
+  `tests/test_adversarial.py`: operationalizes the pydantic-evals gap (c9-p02). A
+  static OpenAI-style message snapshot must produce a contract-evaluatable Run with
+  zero runner invocations — the defining property that distinguishes replayproof's
+  offline reader model from pydantic-evals's runner-bound model.
+- Updated `docs/IMPLEMENTATION-NOTES.md`: added the full two-step n=4, s=4 derivation
+  (centre then half-width) to the Wilson algorithm section.
+
+```
+$ pytest -q
+........................................................................ [ 32%]
+........................................................................ [ 65%]
+........................................................................ [ 98%]
+....                                                                     [100%]
+220 passed in 8.52s
+
+$ ruff check .
+All checks passed!
+
+$ ruff format --check .
+21 files already formatted
+
+$ bash examples/run_demo.sh
+=== agent-eval-harness demo ===
+
+--- Step 1: evaluate sample_run.jsonl against research contract ---
+# Evaluation Report: research
+
+## Summary
+
+| Metric | Value |
+| ------ | ----- |
+| Cases | 4 |
+| Passed | 4 |
+| Pass Rate | 100.0% |
+| Wilson Lower Bound (95%) | 51.0% |
+| Total Tokens In | 0 |
+| Total Tokens Out | 0 |
+| p50 Latency | 0.0 ms |
+| p95 Latency | 0.1 ms |
+
+## Per-Case Results
+
+| Case ID | Passed | Tokens In | Tokens Out | Latency ms |
+| ------- | ------ | --------- | ---------- | ---------- |
+| How do solar panels work | PASS | 0 | 0 | 0.1 |
+| How long does installation take | PASS | 0 | 0 | 0.0 |
+| What is net metering | PASS | 0 | 0 | 0.0 |
+| What types of batteries are used for storage | PASS | 0 | 0 | 0.0 |
+
+--- Step 4: gate regressed run vs good baseline (expect: FAIL, exit 1) ---
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+Exit code: 1
+
+--- Final checks ---
+PASS: gate exits correctly (0 on good, 1 on regressed)
+
+=== Demo complete ===
+
+$ python -c "import agenteval; print(agenteval.__version__)"
+0.1.0
+```
+
+All acceptance criteria pass:
+1. pytest -q: 220 passed, no network required (+3 from c9-p04 new tests)
+2. bash examples/run_demo.sh: runs to completion, prints results table
+3. Gate: exit 1 on regressed_run.jsonl, exit 0 on sample_run.jsonl
+4. ruff check . && ruff format --check .: clean
+5. README contains genuine results table from demo output (51.0% Wilson for 4/4)
 6. No files outside this repo modified. No push.

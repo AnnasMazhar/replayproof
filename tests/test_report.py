@@ -616,3 +616,63 @@ class TestCOMPARISONSInternalConsistency:
             + "\n\nUpdate the narrative to use the exact number from the table row, "
             "or the table to match the narrative. The table is the source of truth."
         )
+
+
+class TestCOMPARISONSPydanticEvalsPresent:
+    """Guard: pydantic-evals must appear in COMPARISONS.md.
+
+    c9-p02-research-2 documented pydantic-evals (v2.51.0, pydantic-ai 20,266★) as
+    a new entrant in the eval space (Source 50) and confirmed it does not implement
+    offline/keyless operation, YAML tool-call contract assertions, Wilson bounds, or
+    a gate CLI. The gap claim is not falsified by this tool, but it must be acknowledged
+    in COMPARISONS.md because a reviewer who discovers it independently and does not find
+    it in the table will conclude the comparison is incomplete.
+
+    Fault injection: remove the pydantic-evals row from COMPARISONS.md =>
+    this test fails, forcing the row to be restored before the next commit.
+    """
+
+    def _find_repo_root(self) -> str:
+        import os
+        import pathlib
+
+        env_root = os.environ.get("REPO_ROOT")
+        if env_root:
+            return env_root
+        candidate = pathlib.Path(__file__).resolve().parent
+        while not (candidate / "docs").is_dir() and candidate.parent != candidate:
+            candidate = candidate.parent
+        return str(candidate)
+
+    def test_comparisons_includes_pydantic_evals(self) -> None:
+        """COMPARISONS.md must include a row for pydantic-evals.
+
+        pydantic-evals is part of pydantic-ai (20,266★ as of 2026-09-29) and was
+        documented in c9-p02 as the largest new entrant in the eval space since cycle 8.
+        Its runner-bound model (requires live function calls, no offline JSONL reader,
+        no YAML contract assertions) makes the gap claim more defensible by showing that
+        even a well-resourced competitor does not cover the offline/keyless dimension.
+
+        The test checks that 'pydantic-evals' appears in the COMPARISONS.md table
+        (a line beginning with '|') so the row cannot be dropped without this test
+        failing.
+
+        Fault injection: delete the pydantic-evals row from COMPARISONS.md =>
+        this test fails because 'pydantic-evals' no longer appears in any table line.
+        """
+        import pathlib
+
+        repo_root = pathlib.Path(self._find_repo_root())
+        comp_path = repo_root / "COMPARISONS.md"
+        assert comp_path.exists(), f"COMPARISONS.md not found at {comp_path}"
+
+        comp = comp_path.read_text(encoding="utf-8")
+        table_lines = [line.strip() for line in comp.splitlines() if line.strip().startswith("|")]
+        found = any("pydantic-evals" in line.lower() for line in table_lines)
+        assert found, (
+            "COMPARISONS.md is missing a table row for pydantic-evals. "
+            "pydantic-evals (pydantic-ai 20,266★, v2.51.0 released 2026-09-25) was "
+            "documented in c9-p02 as a new entrant in the eval space. Its runner-bound "
+            "model (requires live calls, no offline replay, no YAML contracts) "
+            "substantiates the gap claim. Add a row before pushing."
+        )
