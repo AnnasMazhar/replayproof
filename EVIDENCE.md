@@ -577,3 +577,143 @@ Total: 204 tests
 - test_arg_schema_inf_nan_in_args_rejected: ArgSchemaCheck must reject inf/NaN in args.
   jsonschema accepts them; we pre-check with json.dumps(allow_nan=False). Fixed in
   src/agenteval/assertions.py ArgSchemaCheck.evaluate.
+
+---
+
+## 13. Cycle 8 pass 4 (c8-p04-implement-1) — verify green, commit untracked reports
+
+Date: 2026-09-29T12:30 UTC
+
+No new code changes in this pass. The core was fully built through c7-p05 / c7-p08-improve.
+c8-p01 through c8-p03 were research passes (docs only). This pass verifies the repo is
+still green, updates EVIDENCE.md, and commits the three untracked eval/mutation reports
+from cycle 7.
+
+```
+$ pytest -q
+........................................................................ [ 34%]
+........................................................................ [ 68%]
+..................................................................       [100%]
+210 passed in 4.05s
+```
+
+Test breakdown by file (c8-p04):
+- test_adversarial.py: 52 tests
+- test_scoring.py: 49 tests
+- test_budget_drift.py: 40 tests
+- test_assertions.py: 35 tests
+- test_report.py: 15 tests
+- test_replay.py: 10 tests
+- test_properties.py: 9 tests
+Total: 210 tests
+
+```
+$ ruff check .
+All checks passed!
+
+$ ruff format --check .
+21 files already formatted
+```
+
+```
+$ bash examples/run_demo.sh
+=== agent-eval-harness demo ===
+
+--- Step 1: evaluate sample_run.jsonl against research contract ---
+# Evaluation Report: research
+
+## Summary
+
+| Metric | Value |
+| ------ | ----- |
+| Cases | 4 |
+| Passed | 4 |
+| Pass Rate | 100.0% |
+| Wilson Lower Bound (95%) | 51.0% |
+| Total Tokens In | 0 |
+| Total Tokens Out | 0 |
+| p50 Latency | 0.0 ms |
+| p95 Latency | 0.1 ms |
+
+## Per-Case Results
+
+| Case ID | Passed | Tokens In | Tokens Out | Latency ms |
+| ------- | ------ | --------- | ---------- | ---------- |
+| How do solar panels work | PASS | 0 | 0 | 0.1 |
+| How long does installation take | PASS | 0 | 0 | 0.0 |
+| What is net metering | PASS | 0 | 0 | 0.0 |
+| What types of batteries are used for storage | PASS | 0 | 0 | 0.0 |
+
+
+--- Step 2: evaluate regressed_run.jsonl against research contract ---
+# Evaluation Report: research
+
+## Summary
+
+| Metric | Value |
+| ------ | ----- |
+| Cases | 4 |
+| Passed | 2 |
+| Pass Rate | 50.0% |
+| Wilson Lower Bound (95%) | 15.0% |
+| Total Tokens In | 0 |
+| Total Tokens Out | 0 |
+| p50 Latency | 0.0 ms |
+| p95 Latency | 0.1 ms |
+
+## Per-Case Results
+
+| Case ID | Passed | Tokens In | Tokens Out | Latency ms |
+| ------- | ------ | --------- | ---------- | ---------- |
+| How do solar panels work | FAIL | 0 | 0 | 0.0 |
+| How long does installation take | PASS | 0 | 0 | 0.1 |
+| What is net metering | PASS | 0 | 0 | 0.0 |
+| What types of batteries are used for storage | FAIL | 0 | 0 | 0.0 |
+
+
+--- Step 3: gate good run vs itself (expect: PASS, exit 0) ---
+Gate: PASS — no regressions detected.
+Warning: the following gates were not enforced because the baseline value is zero (first-run or corrupted baseline): total_tokens, total_cost_usd
+Exit code: 0
+
+--- Step 4: gate regressed run vs good baseline (expect: FAIL, exit 1) ---
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+Warning: the following gates were not enforced because the baseline value is zero (first-run or corrupted baseline): total_tokens, total_cost_usd
+Exit code: 1
+
+--- Step 5: drift report ---
+Regressions : 2
+Fixes       : 0
+Churn       : 0
+Stable pass : 2
+Stable fail : 0
+Token delta : +0
+
+Regressions:
+  How do solar panels work
+  What types of batteries are used for storage
+
+--- Step 6: markdown report for regressed run ---
+[... identical to step 2 ...]
+
+--- Final checks ---
+PASS: gate exits correctly (0 on good, 1 on regressed)
+
+=== Demo complete ===
+```
+
+```
+$ python -c "import agenteval; print(agenteval.__version__)"
+0.1.0
+```
+
+All acceptance criteria pass:
+1. pytest -q: 210 passed, no network required
+2. bash examples/run_demo.sh: runs to completion, prints results table
+3. Gate: exit 1 on regressed_run.jsonl, exit 0 on sample_run.jsonl
+4. ruff check . && ruff format --check .: clean
+5. README contains genuine results table from demo output (51% Wilson lower bound for 4/4)
+6. No files outside this repo modified. No push.
