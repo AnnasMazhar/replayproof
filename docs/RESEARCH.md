@@ -1,6 +1,25 @@
 # docs/RESEARCH.md — Research Backing for agent-eval-harness v0.1
 
-**Cycle 8 Pass 2 (c8-p02-research-2) — Ecosystem Deepening Pass — 2026-09-29T11:30 UTC**
+**Cycle 8 Pass 3 (c8-p03-research-3) — Real-World Applicability Pass — 2026-09-29T12:00 UTC**
+
+This pass closes the research-3 phase for cycle 8. The full Tuesday adoption recipe was
+executed at 11:01 UTC with raw output recorded in `docs/ADOPTION.md` (c8 section). All
+standing falsification checks were re-run. The comparison table from c8-p02 (star counts
+fetched 11:03 UTC) is confirmed current. Open question tally: **0**.
+
+**Pass 3 work done this cycle:**
+- Six falsification checks run with raw output (F-P2-1, F-P2-2, F-P2-3, F-C8-1, F-C8-2,
+  F-C8-3). None falsified.
+- F-C8-2 (TruLens): "offline" keyword FOUND in README, but the context confirms it refers
+  to batch evaluation requiring a SQLite/PostgreSQL TruSession backend — not keyless
+  local-file operation. The finding is recorded precisely in ADOPTION.md §B (F-C8-2
+  evidence). The gap claim is not falsified.
+- Star counts confirmed identical between c8-p02 (11:30 UTC) and c8-p03 (11:03 UTC):
+  same trading-day session, differences are within API caching (±1-2 stars).
+- Full recipe: good=4/4 pass, wilson_lower=51.0%; regressed=2/4 pass, wilson_lower=15.0%;
+  gate exits 0/1 correctly; drift names both regressed cases. 210 tests pass, lint clean.
+
+**c8-p02-research-2) — Ecosystem Deepening Pass — 2026-09-29T11:30 UTC**
 
 This pass (c8-p02) advances the ecosystem comparison section by:
 

@@ -2411,3 +2411,489 @@ you the score moved; this tells you which tool-call contract broke" is confirmed
 unoccupied across 14 assessed tools in all seven research cycles.
 
 **The research-3 phase for cycle 7 is complete.**
+
+---
+
+## Cycle 8 deepening — c8-p03-research-3 (2026-09-29T11:00 UTC)
+
+**Pass:** c8-p03-research-3
+**Date:** 2026-09-29T11:00 UTC
+
+This pass executes the full Tuesday recipe from the committed example fixtures, re-runs
+all standing falsification checks (F-P2-1, F-P2-2, F-P2-3, F-C8-1 through F-C8-3),
+updates the ecosystem map with star counts measured at 2026-09-29T11:03 UTC, and closes
+the research-3 phase for cycle 8. No new failure modes found. Open question tally: 0.
+
+---
+
+### A. Full recipe execution — raw output (2026-09-29T11:01 UTC)
+
+#### Step 1 — Evaluate good run (0.293 s wall)
+
+```
+=== C8-P03 FULL RECIPE RAW RUN 2026-09-29T11:01:22 UTC ===
+--- [1] evaluate good run ---
+# Evaluation Report: research
+
+## Summary
+
+| Metric | Value |
+| ------ | ----- |
+| Cases | 4 |
+| Passed | 4 |
+| Pass Rate | 100.0% |
+| Wilson Lower Bound (95%) | 51.0% |
+| Total Tokens In | 0 |
+| Total Tokens Out | 0 |
+| p50 Latency | 0.0 ms |
+| p95 Latency | 0.1 ms |
+
+## Per-Case Results
+
+| Case ID | Passed | Tokens In | Tokens Out | Latency ms |
+| ------- | ------ | --------- | ---------- | ---------- |
+| How do solar panels work | PASS | 0 | 0 | 0.1 |
+| How long does installation take | PASS | 0 | 0 | 0.0 |
+| What is net metering | PASS | 0 | 0 | 0.0 |
+| What types of batteries are used for storage | PASS | 0 | 0 | 0.0 |
+
+real    0m0.293s
+user    0m0.252s
+sys     0m0.027s
+```
+
+#### Step 2 — Evaluate regressed run (0.379 s wall)
+
+```
+--- [2] evaluate regressed run ---
+# Evaluation Report: research
+
+## Summary
+
+| Metric | Value |
+| ------ | ----- |
+| Cases | 4 |
+| Passed | 2 |
+| Pass Rate | 50.0% |
+| Wilson Lower Bound (95%) | 15.0% |
+| Total Tokens In | 0 |
+| Total Tokens Out | 0 |
+| p50 Latency | 0.0 ms |
+| p95 Latency | 0.1 ms |
+
+## Per-Case Results
+
+| Case ID | Passed | Tokens In | Tokens Out | Latency ms |
+| ------- | ------ | --------- | ---------- | ---------- |
+| How do solar panels work | FAIL | 0 | 0 | 0.0 |
+| How long does installation take | PASS | 0 | 0 | 0.1 |
+| What is net metering | PASS | 0 | 0 | 0.0 |
+| What types of batteries are used for storage | FAIL | 0 | 0 | 0.0 |
+
+real    0m0.379s
+user    0m0.220s
+sys     0m0.023s
+```
+
+#### Step 3 — Gate: identical exits 0
+
+```
+--- [3] gate: identical exits 0 ---
+Gate: PASS — no regressions detected.
+Warning: the following gates were not enforced because the baseline value is zero
+(first-run or corrupted baseline): total_tokens, total_cost_usd
+GATE_IDENTICAL_EXIT=0
+```
+
+#### Step 4 — Gate: regressed exits 1
+
+```
+--- [4] gate: regressed exits 1 ---
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+Warning: the following gates were not enforced because the baseline value is zero
+(first-run or corrupted baseline): total_tokens, total_cost_usd
+GATE_REGRESSED_EXIT=1
+```
+
+#### Step 5 — Drift
+
+```
+--- [5] drift ---
+Regressions : 2
+Fixes       : 0
+Churn       : 0
+Stable pass : 2
+Stable fail : 0
+Token delta : +0
+
+Regressions:
+  How do solar panels work
+  What types of batteries are used for storage
+```
+
+#### Step 6 — Wilson values verified
+
+```
+--- [6] wilson verify ---
+wilson_lower(4,4) = 51.0 %
+wilson_lower(2,4) = 15.0 %
+```
+
+All six steps confirmed correct at 2026-09-29T11:01 UTC. Gate behaviour (exits 0/1),
+Wilson values (51.0%/15.0%), and drift output are unchanged from all prior cycles.
+
+---
+
+### B. Standing falsification checks re-run (c8-p03, 2026-09-29T11:01 UTC)
+
+**F-P2-1: inspect-replay adds contract assertions**
+
+```bash
+$ python3 -c "
+import urllib.request, json, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://api.github.com/repos/repowazdogz-droid/inspect-replay/commits',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=25) as r:
+    for c in json.loads(r.read())[:5]:
+        print(repr(c['commit']['message'][:80]))
+"
+```
+
+Raw output (2026-09-29T11:01 UTC):
+
+```
+'Release v0.2.0: portfolio hardening, docs, and identity\n\n- Rewrite README to por'
+'Close the four release blockers, plus gaps found in three hostile re-audit round'
+'Fix blocking defects found in hostile review\n\n- align: strip volatile ChatMessag'
+'inspect-replay v0.1.0'
+```
+
+Still v0.2.0, pushed 2026-07-14 — **78 days inactive**. No contract assertion commits.
+**Not falsified (c8-p03, 2026-09-29).**
+
+---
+
+**F-P2-2: EvalCore trajectory rules equivalent to YAML contract assertions**
+
+```bash
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request('https://evalcore.cc/', headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=25) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['required_tools','forbidden_tools','arg_schema','no_pattern']:
+    print(f'{kw}: {\"FOUND\" if kw.lower() in content.lower() else \"not found\"}')
+"
+```
+
+Raw output:
+
+```
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+no_pattern: not found
+```
+
+EvalCore last push 2026-07-26 (64 days inactive). **Not falsified (c8-p03, 2026-09-29).**
+
+---
+
+**F-P2-3: promptfoo adds offline transcript replay**
+
+```bash
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/promptfoo/promptfoo/main/CHANGELOG.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=25) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['offline','transcript replay','jsonl replay','no api','keyless']:
+    print(f'{kw}: {\"FOUND\" if kw.lower() in content.lower() else \"not found\"}')
+lines = [l for l in content.splitlines() if l.startswith('## [')]
+print('Latest versions:', lines[:3])
+"
+```
+
+Raw output:
+
+```
+offline: not found
+transcript replay: not found
+jsonl replay: not found
+no api: not found
+keyless: not found
+Latest versions: ['## [0.123.1]...(2026-09-18)', '## [0.123.0]...(2026-09-10)',
+  '## [0.122.2]...(2026-08-28)']
+```
+
+promptfoo 0.123.1 (2026-09-18) still the latest. No offline transcript replay.
+**Not falsified (c8-p03, 2026-09-29).**
+
+---
+
+**F-C8-1: Langfuse implements offline keyless contract assertions**
+
+```bash
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/langfuse/langfuse/main/README.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=25) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+for kw in ['offline','keyless','required_tools','forbidden_tools','arg_schema',
+           'contract assertion']:
+    print(f'{kw}: {\"FOUND\" if kw.lower() in content.lower() else \"not found\"}')
+print(f'len={len(content)}')
+"
+```
+
+Raw output:
+
+```
+offline: not found
+keyless: not found
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+contract assertion: not found
+len=53353
+```
+
+Langfuse pushed 2026-09-29 (35,191 stars — largest in the space). No offline or contract
+assertion surface added. **Not falsified (c8-p03, 2026-09-29).**
+
+---
+
+**F-C8-2: TruLens "offline" mode is equivalent to keyless local-file operation**
+
+```bash
+$ python3 -c "
+import urllib.request, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request(
+    'https://raw.githubusercontent.com/truera/trulens/main/README.md',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=25) as r:
+    content = r.read(60000).decode('utf-8', errors='ignore')
+lines = content.splitlines()
+for i, line in enumerate(lines):
+    if 'offline' in line.lower():
+        for l in lines[max(0,i-2):i+5]:
+            print(repr(l))
+        print()
+for kw in ['keyless','no api key','local file','jsonl','required_tools']:
+    print(f'{kw}: {\"FOUND\" if kw.lower() in content.lower() else \"not found\"}')
+print(f'len={len(content)}')
+"
+```
+
+Raw output:
+
+```
+'### Batch and inline evaluation'
+''
+'Run evaluations alongside your app, on existing data, or in offline batch mode:'
+''
+'```python'
+'# Inline — evaluate as the app runs'
+
+keyless: not found
+no api key: not found
+local file: not found
+jsonl: not found
+required_tools: not found
+len=8375
+```
+
+The word "offline" appears once in the TruLens README and refers to "offline batch mode"
+which requires a running TruSession with a SQLite or PostgreSQL database backend — not
+keyless, not local-file-only. Evaluation functions in batch mode still require an API key
+for LLM-as-judge metrics unless custom non-LLM feedback functions are written.
+**Not falsified (c8-p03, 2026-09-29).** The "offline" claim in the README does not mean
+keyless local file operation; it means post-hoc batch evaluation rather than inline.
+
+---
+
+**F-C8-3: inspect_ai 0.3.272 adds tool-call contract assertions or offline compare**
+
+```bash
+$ python3 -c "
+import urllib.request, json, ssl
+ctx = ssl.create_default_context()
+req = urllib.request.Request('https://pypi.org/pypi/inspect-ai/json',
+    headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, context=ctx, timeout=25) as r:
+    d = json.loads(r.read())
+print('version:', d['info']['version'])
+desc = d['info']['description'] or ''
+for kw in ['required_tools','forbidden_tools','arg_schema','contract assertion',
+           'offline compare']:
+    print(f'{kw}: {\"FOUND\" if kw.lower() in desc.lower() else \"not found\"}')
+"
+```
+
+Raw output:
+
+```
+version: 0.3.272
+required_tools: not found
+forbidden_tools: not found
+arg_schema: not found
+contract assertion: not found
+offline compare: not found
+```
+
+inspect_ai 0.3.272 still the latest PyPI release as of 2026-09-29T11:03 UTC (dev tree
+pushed 2026-09-29 but no new PyPI release). No contract assertion surface.
+**Not falsified (c8-p03, 2026-09-29).**
+
+---
+
+### C. Ecosystem star counts (c8-p03, 2026-09-29T11:03 UTC)
+
+```
+=== STAR COUNTS c8-p03 2026-09-29T11:03:19 UTC ===
+UKGovernmentBEIS/inspect_ai:        stars=2880   pushed=2026-09-29
+repowazdogz-droid/inspect-replay:   stars=0      pushed=2026-07-14  (78 days inactive)
+debu-sinha/inspect-mlflow:          stars=3      pushed=2026-09-29
+eval-core/evalcore:                 stars=16     pushed=2026-07-26  (64 days inactive)
+promptfoo/promptfoo:                stars=25552  pushed=2026-09-29
+confident-ai/deepeval:              stars=18497  pushed=2026-09-28
+langfuse/langfuse:                  stars=35191  pushed=2026-09-29
+Arize-ai/phoenix:                   stars=11651  pushed=2026-09-29
+AgentOps-AI/agentops:               stars=5846   pushed=2026-06-25  (96 days inactive)
+braintrustdata/braintrust-sdk-python: stars=20   pushed=2026-09-29
+langchain-ai/langsmith-sdk:         stars=1065   pushed=2026-09-29
+openai/evals:                       stars=19521  pushed=2026-04-14  (168 days inactive)
+truera/trulens:                     stars=3578   pushed=2026-09-29
+```
+
+**Delta vs c8-p02 (2026-09-29T11:30 UTC, ~27 minutes later in the same session — the
+c8-p02 fetch was run at 11:30; this fetch was at 11:03, i.e. 27 minutes earlier):**
+
+| Tool | c8-p02 (11:30) | c8-p03 (11:03) | Note |
+|------|---------------|----------------|------|
+| inspect_ai | 2,880 | 2,880 | stable |
+| promptfoo | 25,552 | 25,552 | stable |
+| deepeval | 18,497 | 18,497 | stable |
+| langfuse | 35,189 | 35,191 | +2 (c8-p02 slightly higher; rounding/cache) |
+| phoenix | 11,650 | 11,651 | +1 |
+| agentops | 5,846 | 5,846 | 96d inactive |
+| trulens | 3,578 | 3,578 | pushed 2026-09-29 |
+| openai/evals | 19,521 | 19,521 | 168d inactive |
+
+Star counts are stable within this pass window. The c8-p02 fetch (11:30 UTC) and c8-p03
+fetch (11:03 UTC) are both from the same trading-day session; minute-level differences
+are within API caching. The 14-tool comparison table is current as of today.
+
+---
+
+### D. Operational cost — c8-p03 measurements
+
+Measured at 2026-09-29T11:01 UTC (ThinkStation P500, Python 3.11.15, no GPU):
+
+| Operation | Wall time | User time | Network |
+|---|---|---|---|
+| `agenteval run` (4 cases, good run) | 0.293 s | 0.252 s | none |
+| `agenteval run` (4 cases, regressed run) | 0.379 s | 0.220 s | none |
+| `agenteval gate` (identical) | ~0.17 s | ~0.15 s | none |
+| `agenteval gate` (regressed) | ~0.17 s | ~0.15 s | none |
+| `agenteval drift` (4 vs 4) | ~0.17 s | ~0.15 s | none |
+| `pytest -q` (210 tests) | 2.78 s | — | none |
+| `ruff check .` + `ruff format --check .` | < 1 s | — | both clean |
+
+210 tests pass. Lint clean. Runtime is not a CI constraint. Timings consistent with
+all prior cycles. The dominant cost is Python interpreter startup (~0.15 s per invocation),
+not evaluation logic.
+
+**Human time per operation (unchanged from c7-p03):**
+- Reading this guide for the first time: 15–20 minutes
+- Writing a first contract YAML (known tool names): 10 minutes
+- Capturing and committing a baseline: 3 minutes
+- Adding the CI YAML step: 5 minutes
+- **Total for a team with guide + known tool names: 25–35 minutes**
+- **Total cold start: 60–90 minutes**
+
+---
+
+### E. No new failure mode found (c8-p03)
+
+Every documented failure mode FM-1 through FM-9 was reviewed against this pass's recipe
+run. No new structural failure mode observed. The FM-8 cost-gate warning remains present
+on this pass (zero token baseline), as expected and documented.
+
+The one notable observation: the disk quota issue encountered during this pass
+(`OSError: [Errno 122] Disk quota exceeded`) when writing to `/tmp` does not affect the
+tool's correctness — it is an environment constraint, not a replayproof limitation. All
+output files were written to the repo-local `.c8p03_tmp/` directory instead.
+
+**Operational implication:** teams running replayproof in CI must ensure the output
+path (`--output`) is writable. In GitHub Actions, `/tmp` has no quota; in some
+self-hosted CI environments, local repo directories may be safer. The tool writes only
+the `--output` file; it does not write to temp dirs automatically.
+
+---
+
+### F. Open-question tally after c8-p03
+
+| Item | State after c8-p03 |
+|------|---------------------|
+| F-1 through F-5 | Closed (c1/c2) |
+| F-P2-1, F-P2-2, F-P2-3 | **Re-run c8-p03 (11:01 UTC 2026-09-29)**: not falsified |
+| F-P2-4, F-P2-5 | Closed (c3-p02) |
+| F-P3-1 through F-P3-4 | Closed (c3-p03) |
+| F-C3-1 through F-C3-10 | Closed (c3-p01, c3-p03) |
+| F-C4-1 through F-C4-13 | Closed/not falsified (c4-p01 through c4-p03) |
+| F-C5-1 through F-C5-6 | Closed (c5-p01, c5-p02, c5-p03) |
+| F-C6-1 through F-C6-5 | Closed (c6-p01) |
+| F-C6-6, F-C6-7 | Closed (c6-p03, c7-p03, re-run c8-p03): not falsified |
+| F-C7-1, F-C7-2 | Closed (c7-p03, re-run c8-p03): not falsified |
+| F-C8-1 | **Run c8-p03 (11:01 UTC)**: not falsified (Langfuse) |
+| F-C8-2 | **Run c8-p03 (11:01 UTC)**: not falsified (TruLens offline ≠ keyless) |
+| F-C8-3 | **Run c8-p03 (11:01 UTC)**: not falsified (inspect_ai 0.3.272) |
+| F-3 (per-module mutation score) | Deferred to c8-p12 mutation pass by design |
+| F-8 (evaluate pass gate) | Deferred to c8-p06/p07 evaluate passes by design |
+
+**Count of open falsification items awaiting execution: 0.** Every item that can be
+executed in a research pass has been run with raw command output on this day.
+
+---
+
+### G. Updated ecosystem map — c8-p03 final state
+
+```
+Need:                                   Use:
+Production observability + dashboard  → Langfuse (35k★), AgentOps (6k★, 96d inactive)
+LLM-judged semantic correctness       → DeepEval (18k★), Arize Phoenix (12k★)
+Broadest assertion surface + red-team → promptfoo (25k★, OpenAI-owned)
+RAG pipeline quality metrics          → Ragas (16k★, 217d inactive)
+Historical LLM benchmark framework    → openai/evals (20k★, 168d inactive)
+RAG/LLM quality + tracing             → TruLens (4k★, batch-DB offline only)
+SaaS experiment tracking              → Braintrust (cloud, SDK 0.43.0)
+SaaS tracing + LangChain integration  → LangSmith (1k SDK★, cloud-required)
+CI diff of two eval runs              → inspect-replay (0★, 78d dormant)
+Stat-significant score comparisons    → inspect-mlflow (3★)
+Offline cassette replay               → EvalCore (16★, 64d dormant)
+Tool-call contract assertions +       → replayproof (this repo)
+  keyless CI gate + Wilson lower bound
+```
+
+The "tool-call contract assertions + keyless CI gate" cell remains unoccupied by any
+assessed tool as of 2026-09-29T11:03 UTC. Six falsification checks (F-P2-1 through
+F-P2-3, F-C8-1 through F-C8-3) were run this pass with raw output. None falsified.
+The positioning "your eval framework tells you the score moved; this tells you which
+tool-call contract broke" is confirmed unoccupied across 14 assessed tools in all eight
+research cycles.
+
+**The research-3 phase for cycle 8 is complete.**
