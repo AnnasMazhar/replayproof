@@ -413,6 +413,85 @@ class TestGateNegativeMetricRejection:
         assert report.ok
 
 
+class TestGatePassRateRangeValidation:
+    """Gate must reject pass_rate outside [0.0, 1.0] with ValueError.
+
+    pass_rate is a probability and must lie in [0.0, 1.0].  A value greater
+    than 1.0 silently bypasses the gate: the drop calculation (baseline -
+    current) yields a negative number, which is never > max_pass_rate_drop,
+    so compare() returns ok=True for a physically impossible value.
+
+    Faults detected:
+    - test_compare_rejects_pass_rate_above_one: catches a gate that returns
+      ok=True for pass_rate=2.0.  Named fault: remove the [0,1] range guard
+      => compare returns ok=True even though pass_rate=2.0 is impossible.
+    - test_compare_rejects_pass_rate_1_5: same for 1.5.
+    - test_compare_rejects_negative_pass_rate: catches silent ok=False
+      (gate trips but does not raise) for pass_rate=-0.5.  Named fault:
+      remove the range guard => compare silently proceeds; consistent error
+      behaviour requires ValueError for any out-of-range input.
+    - test_compare_accepts_zero_pass_rate: 0.0 is a valid (total failure)
+      pass_rate; guard must not raise for boundary value.
+    - test_compare_accepts_one_pass_rate: 1.0 is a valid (total success)
+      pass_rate; guard must not raise for boundary value.
+    """
+
+    def test_compare_rejects_pass_rate_above_one(self) -> None:
+        """Fault: gate accepts pass_rate=2.0 and returns ok=True.
+
+        With baseline=0.9 and current=2.0, drop = 0.9 - 2.0 = -1.1.
+        -1.1 is not > 0.0, so no trip fires and gate returns ok=True.
+        Inject: remove the [0,1] range guard => compare returns ok=True.
+        """
+        baseline = Baseline(_suite_dict(pass_rate=0.9))
+        current = dict(_suite_dict(pass_rate=0.9))
+        current["pass_rate"] = 2.0
+        with pytest.raises(ValueError, match="pass_rate"):
+            compare(current, baseline)
+
+    def test_compare_rejects_pass_rate_1_5(self) -> None:
+        """Fault: gate accepts pass_rate=1.5 and returns ok=True.
+
+        Same mechanism as above; 1.5 is a distinct boundary beyond the valid range.
+        Inject: remove the [0,1] range guard => compare returns ok=True.
+        """
+        baseline = Baseline(_suite_dict(pass_rate=0.8))
+        current = dict(_suite_dict(pass_rate=0.8))
+        current["pass_rate"] = 1.5
+        with pytest.raises(ValueError, match="pass_rate"):
+            compare(current, baseline)
+
+    def test_compare_rejects_negative_pass_rate(self) -> None:
+        """Fault: gate silently proceeds for pass_rate=-0.5 instead of raising.
+
+        Without the guard, compare() calculates drop = baseline - (-0.5) = large
+        positive, trips the gate, and returns ok=False — no error is raised.
+        Consistent fail-closed behaviour requires ValueError for any invalid input.
+        Inject: remove the [0,1] range guard => compare returns ok=False silently.
+        """
+        baseline = Baseline(_suite_dict(pass_rate=0.9))
+        current = dict(_suite_dict(pass_rate=0.9))
+        current["pass_rate"] = -0.5
+        with pytest.raises(ValueError, match="pass_rate"):
+            compare(current, baseline)
+
+    def test_compare_accepts_zero_pass_rate(self) -> None:
+        """0.0 is a valid pass_rate (total failure run); guard must not raise."""
+        baseline = Baseline(_suite_dict(pass_rate=0.9))
+        current = _suite_dict(pass_rate=0.0)
+        # Must not raise; gate should trip on the pass_rate drop.
+        report = compare(current, baseline)
+        assert not report.ok  # drop = 0.9 > 0.0 threshold
+
+    def test_compare_accepts_one_pass_rate(self) -> None:
+        """1.0 is a valid pass_rate (perfect run); guard must not raise."""
+        baseline = Baseline(_suite_dict(pass_rate=0.8))
+        current = _suite_dict(pass_rate=1.0)
+        # Must not raise; no trip since current > baseline.
+        report = compare(current, baseline)
+        assert report.ok
+
+
 class TestTranscriptRoundTrip:
     """Run serialisation round-trip test."""
 

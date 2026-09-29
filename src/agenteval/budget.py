@@ -172,6 +172,17 @@ def compare(
                     "corrupted run files must not be passed to the gate"
                 )
 
+    # Guard: pass_rate must be in [0.0, 1.0].  A value outside this range can
+    # only arise from a corrupted or hand-crafted run file.  Critically, a
+    # pass_rate > 1.0 causes the drop calculation (baseline - current) to yield
+    # a negative value, which is never > max_pass_rate_drop, so the gate
+    # silently returns ok=True even though the value is physically impossible.
+    _pr_val = current.get("pass_rate")
+    if _pr_val is not None:
+        _pr = float(_pr_val)
+        if math.isfinite(_pr) and not (0.0 <= _pr <= 1.0):
+            raise ValueError(f"current['pass_rate'] is {_pr!r}; pass_rate must be in [0.0, 1.0]")
+
     # Guard: reject negative token/cost/latency counts.  A negative token count
     # can only arise from a corrupted or hand-crafted run file.  Allowing it
     # silently would make the token-increase gate pass (negative < baseline,

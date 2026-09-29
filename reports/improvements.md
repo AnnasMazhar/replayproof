@@ -1,6 +1,126 @@
 # Improvement Log — agent-eval-harness
 
-## c6-p09-improve-2: Fix ADOPTION.md wrong PyPI install name (2026-09-29)
+## c7-p08-improve-1: Fix pass_rate out-of-range passes gate silently (2026-09-29)
+
+### Finding source
+
+Same class as C6P11-MIN-2 (negative token counts). The gate's existing non-finite guard
+(`math.isfinite`) correctly rejects NaN/Inf but does not reject `pass_rate` values outside
+the valid probability range [0.0, 1.0].
+
+Exploit:
+
+```
+$ .venv/bin/python -c "
+from agenteval.budget import compare, Baseline
+baseline = Baseline({'pass_rate': 0.9, 'total_tokens_in': 100, 'total_tokens_out': 100,
+                     'p95_latency_ms': 10.0, 'total_cost_usd': 0.01})
+current = {'pass_rate': 2.0, 'total_tokens_in': 100, 'total_tokens_out': 100,
+           'p95_latency_ms': 10.0, 'total_cost_usd': 0.01}
+report = compare(current, baseline)
+print(f'pass_rate=2.0: ok={report.ok}, trips={list(t.metric for t in report.trips)}')
+"
+pass_rate=2.0: ok=True, trips=[]
+```
+
+`pass_rate=2.0` is a physically impossible value (a probability cannot exceed 1.0), yet
+`compare()` silently returns `ok=True`. The mechanism: the gate computes
+`drop = baseline.pass_rate - cur_pass = 0.9 - 2.0 = -1.1`, and `-1.1 > 0.0` is False, so
+no trip fires. A corrupted or hand-crafted run file with `pass_rate=2.0` would defeat every
+downstream comparison.
+
+`pass_rate=-0.5` is also invalid. Without a range guard it silently proceeds, tripping the
+gate (ok=False) rather than raising — inconsistent with the fail-closed contract the gate
+module docstring promises.
+
+### Root cause
+
+The non-finite check (`math.isfinite`) was added to block NaN/Inf in c3-p08. That check
+correctly handles pathological float values but does not enforce domain constraints. `2.0` is
+finite, so it passes the finite check. No domain-range guard existed for `pass_rate`.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 204 passed |
+| `compare({'pass_rate': 2.0, ...}, baseline)` | `ok=True, trips=[]` — silent bypass |
+| `compare({'pass_rate': -0.5, ...}, baseline)` | `ok=False, trips=[pass_rate]` — silent, no error |
+| Test covering `pass_rate > 1.0` | none |
+| Test covering `pass_rate < 0.0` | none |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 209 passed (+5) |
+| `compare({'pass_rate': 2.0, ...}, baseline)` | `ValueError: current['pass_rate'] is 2.0; pass_rate must be in [0.0, 1.0]` |
+| `compare({'pass_rate': -0.5, ...}, baseline)` | `ValueError: current['pass_rate'] is -0.5; pass_rate must be in [0.0, 1.0]` |
+| `compare({'pass_rate': 0.0, ...}, baseline)` | ok=False (trips gate — valid behaviour) |
+| `compare({'pass_rate': 1.0, ...}, baseline)` | ok=True (valid — no regression) |
+| Test class | `TestGatePassRateRangeValidation` (5 tests) |
+
+### Evidence
+
+New tests:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest tests/test_budget_drift.py::TestGatePassRateRangeValidation -v
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-8.3.3, pluggy-1.6.0
+...
+tests/test_budget_drift.py::TestGatePassRateRangeValidation::test_compare_rejects_pass_rate_above_one PASSED
+tests/test_budget_drift.py::TestGatePassRateRangeValidation::test_compare_rejects_pass_rate_1_5 PASSED
+tests/test_budget_drift.py::TestGatePassRateRangeValidation::test_compare_rejects_negative_pass_rate PASSED
+tests/test_budget_drift.py::TestGatePassRateRangeValidation::test_compare_accepts_zero_pass_rate PASSED
+tests/test_budget_drift.py::TestGatePassRateRangeValidation::test_compare_accepts_one_pass_rate PASSED
+============================== 5 passed in 0.25s ===============================
+```
+
+Full suite:
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................ [ 34%]
+........................................................................ [ 68%]
+.................................................................        [100%]
+209 passed in 2.71s
+```
+
+Ruff:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+21 files already formatted
+RUFF CLEAN
+```
+
+Fault injection proof (before fix, bypass confirmed; after fix, blocked):
+
+```
+$ .venv/bin/python -c "
+from agenteval.budget import compare, Baseline
+baseline = Baseline({'pass_rate': 0.9, 'total_tokens_in': 100, 'total_tokens_out': 100,
+                     'p95_latency_ms': 10.0, 'total_cost_usd': 0.01})
+current = {'pass_rate': 2.0, 'total_tokens_in': 100, 'total_tokens_out': 100,
+           'p95_latency_ms': 10.0, 'total_cost_usd': 0.01}
+try:
+    report = compare(current, baseline)
+    print(f'VULNERABLE: ok={report.ok}')
+except ValueError as e:
+    print(f'BLOCKED: {e}')
+"
+BLOCKED: current['pass_rate'] is 2.0; pass_rate must be in [0.0, 1.0]
+```
+
+### Files changed
+
+- `src/agenteval/budget.py` — added `pass_rate` range guard after the non-finite check:
+  raises `ValueError` when `pass_rate` is finite but outside `[0.0, 1.0]`
+- `tests/test_budget_drift.py` — added `TestGatePassRateRangeValidation` class (5 tests)
+
+
 
 ### Finding source
 
@@ -120,6 +240,129 @@ Line 2: bad name found, disclaimer=False
   docs/ADOPTION.md for any `pip install agent-eval-harness` or
   `uv pip install agent-eval-harness` line without a nearby disclaimer phrase.
 - `mutants/tests/test_report.py` — synced with tests/test_report.py (identical)
+- `reports/improvements.md` — this entry
+
+---
+
+## c6-p09-improve-2: Fix ADOPTION.md wrong PyPI install name (2026-09-29)
+
+### Finding source
+
+Systematic credibility audit of docs/ADOPTION.md as the primary stranger-facing
+onboarding surface. The ADOPTION.md Step 0 install command (the first thing any engineer
+following the guide executes) contained:
+
+```
+uv pip install 'agent-eval-harness>=0.1.0'
+```
+
+The PyPI slot `agent-eval-harness` is occupied by a different, unrelated package
+(Franck Ndzomga, 2026-02-09). This was discovered and fixed in the README in c2-p08,
+but ADOPTION.md was never updated. The same bad name also appeared in the CI YAML
+example at line 280 (`pip install 'agent-eval-harness>=0.1.0'`). Additionally the
+secondary git+ URL in Step 0 pointed to `github.com/openclaw/...` (wrong account)
+rather than `github.com/AnnasMazhar/...`.
+
+This is the most credibility-damaging gap in the adoption guide: an engineer spends
+their first minute installing the wrong package, then gets `ImportError: No module named
+agenteval`, and has no idea why. The README had been corrected; ADOPTION.md had not.
+
+### Root cause
+
+The ADOPTION.md install step was written in c1-p03 before the PyPI name collision was
+discovered and fixed in c2-p08. The c2-p08 fix updated README.md and pyproject.toml
+but did not audit or update ADOPTION.md. No test existed that would detect the bad name
+in ADOPTION.md (the existing `TestREADMEInstallContract` only checks README.md).
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 192 passed |
+| ADOPTION.md Step 0 install command | `uv pip install 'agent-eval-harness>=0.1.0'` (wrong PyPI name) |
+| ADOPTION.md Step 0 secondary git+ URL | `git+https://github.com/openclaw/agent-eval-harness.git@feat/v0.1` (wrong account) |
+| ADOPTION.md CI YAML install | `pip install 'agent-eval-harness>=0.1.0'` (wrong PyPI name) |
+| Test detecting bad install in ADOPTION.md | NONE |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 193 passed (+1) |
+| ADOPTION.md Step 0 install command | `git clone https://github.com/AnnasMazhar/replayproof && uv pip install -e '.[dev]'` (source install, works today) |
+| ADOPTION.md Step 0 secondary git+ URL | `pip install git+https://github.com/AnnasMazhar/replayproof` (with "Requires the repo to be publicly accessible:" note) |
+| ADOPTION.md CI YAML install | `git clone https://github.com/AnnasMazhar/replayproof && pip install -e .` (correct) |
+| PyPI collision note | Added inline: "Note: `pip install agent-eval-harness` installs a **different, unrelated package**" |
+| Test detecting bad install in ADOPTION.md | YES — `TestAdoptionInstallContract.test_adoption_install_uses_correct_package_name` |
+
+### Evidence
+
+New test passes:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest tests/test_report.py::TestAdoptionInstallContract -v
+tests/test_report.py::TestAdoptionInstallContract::test_adoption_install_uses_correct_package_name PASSED
+1 passed in 0.24s
+```
+
+Full test suite:
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................ [ 37%]
+........................................................................ [ 74%]
+.................................................                        [100%]
+193 passed in 4.27s
+```
+
+Ruff clean:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+21 files already formatted
+RUFF CLEAN
+```
+
+Demo still passes:
+
+```
+$ bash examples/run_demo.sh | grep -E "PASS: gate exits|Demo complete"
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+Fault injection proof that test catches the bad name:
+
+```
+$ python3 -c "
+# Simulate ADOPTION.md with the old bad install line
+lines = ['cd your-project/', \"uv pip install 'agent-eval-harness>=0.1.0'\"]
+bad_names = (\"pip install agent-eval-harness\", \"uv pip install agent-eval-harness\")
+disclaimer_phrases = ('different, unrelated package', 'different package', 'occupied by')
+for i, line in enumerate(lines):
+    if any(b in line.lower() for b in bad_names):
+        window = lines[max(0, i-3):i+1]
+        combined = ' '.join(l.lower() for l in window)
+        has_disclaimer = any(p in combined for p in disclaimer_phrases)
+        print(f'Line {i+1}: bad name found, disclaimer={has_disclaimer}')
+"
+Line 2: bad name found, disclaimer=False
+# test assertion `not violations` fails — correct.
+```
+
+### Files changed
+
+- `docs/ADOPTION.md` — Step 0 code block: replaced `uv pip install 'agent-eval-harness>=0.1.0'`
+  with source install (`git clone AnnasMazhar/replayproof && uv pip install -e '.[dev]'`);
+  added git+ secondary with `# Requires the repo to be publicly accessible:` comment;
+  added inline PyPI collision note. CI YAML (line 280): replaced
+  `pip install 'agent-eval-harness>=0.1.0'` with `git clone ... && pip install -e .`
+  plus inline comment.
+- `tests/test_report.py` — updated module docstring; added `TestAdoptionInstallContract`
+  class (1 test): `test_adoption_install_uses_correct_package_name` — scans
+  docs/ADOPTION.md for any `pip install agent-eval-harness` or
+  `uv pip install agent-eval-harness` line without a nearby disclaimer phrase.
 - `reports/improvements.md` — this entry
 
 ---
