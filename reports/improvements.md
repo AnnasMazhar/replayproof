@@ -2520,3 +2520,133 @@ wilson_lower(5,5) = 0.5655
 - `docs/RESEARCH.md` — corrected 4 occurrences of 0.478 → 0.5655 with correction note
 - `docs/ADVERSARIAL_REVIEW.md` — corrected F3 finding; status changed to Fixed
 - `reports/improvements.md` — this file
+
+---
+
+## c9-p09-improve-2: Adoption readiness — error messages, docs-to-code gaps, README credibility (2026-09-29)
+
+### Finding source
+
+Improvement pass 2 audit of README, COMPARISONS.md, and ADOPTION.md for the biggest
+credibility gaps a skeptical reviewer would find.
+
+Three concrete issues found:
+
+**Issue 1 — actionable error message gap (FM-6)**
+
+`agenteval record` with a non-installed module produces:
+
+```
+error: cannot import module 'examples.research_agent': No module named 'examples'
+Make sure the module is on PYTHONPATH or installed in the active venv.
+```
+
+The fix is a two-second change (`PYTHONPATH=$(pwd) agenteval record ...`) but the old
+error message does not mention it. A first-time user hitting this on a Tuesday would not
+know the fix. This is documented as FM-6 in ADOPTION.md, but the code never closed the
+loop — the error message remained generic.
+
+**Issue 2 — stale star counts in README**
+
+The README "Where this fits" section contained star counts from an earlier pass:
+- promptfoo: 25,552 (stale) → 25,558 (c9-p03 fetch, 2026-09-29T18:01 UTC)
+- DeepEval: 18,497 (stale) → 18,502 (c9-p03 fetch, 2026-09-29T18:01 UTC)
+
+COMPARISONS.md had current counts; the README lagged. A reviewer who cross-checks the
+two documents would see a discrepancy.
+
+**Issue 3 — Contract YAML example shows 6 checks with no mention of the other 4 (biggest credibility gap)**
+
+The README "Contract YAML" section shows 6 checks in the example. COMPARISONS.md states
+"10 checks in a YAML contract." A skeptical reviewer reading the README contract example
+and counting 6 checks would question the "10 checks" claim elsewhere. There was no note
+in the README explaining that 6 of 10 were shown.
+
+The missing 4: `tool_sequence`, `arg_schema`, `max_latency_ms`, `final_answer_matches`.
+All 4 are implemented in `src/agenteval/assertions.py` and are in the registry. The
+YAML example is not misleading — it just shows the most common 6 — but without the
+note, the gap looked like an unsupported claim.
+
+### Root cause
+
+- FM-6 was documented in ADOPTION.md but never fed back into the error message in
+  `cli.py` (documentation and code were out of sync).
+- Star counts in README were updated in the research pass but not carried through to the
+  "Where this fits" prose section (the research pass updated COMPARISONS.md, not README).
+- The "10 checks" count was correct but the README example did not explain the
+  discrepancy with the 6-check YAML shown.
+
+### Changes made
+
+1. `src/agenteval/cli.py` — `_cmd_record` `ModuleNotFoundError` message now says:
+   ```
+   If the agent is a local module (not installed), add the repo root to PYTHONPATH:
+     PYTHONPATH=$(pwd) agenteval record --agent ...
+   Or install the package: pip install -e .
+   ```
+
+2. `README.md` — star counts updated in "Where this fits":
+   - promptfoo: 25,552 → 25,558 (source: c9-p03 GitHub API fetch, 2026-09-29T18:01 UTC)
+   - DeepEval: 18,497 → 18,502 (source: c9-p03 GitHub API fetch, 2026-09-29T18:01 UTC)
+
+3. `README.md` — added a note after the Contract YAML example:
+   > This example shows 6 of the 10 available check types. The full list, with the 4 not
+   > shown above: `tool_sequence` (required tool ordering, subsequence match), `arg_schema`
+   > (JSON-Schema validation of a tool's arguments), `max_latency_ms` (per-run latency cap),
+   > and `final_answer_matches` (regex on the final answer). All 10 types load from the same
+   > YAML format. See [docs/DESIGN.md](docs/DESIGN.md) for the full check reference.
+
+### Before / After
+
+| Metric | Before | After |
+| ------ | ------ | ----- |
+| `record` import error mentions PYTHONPATH | NO | YES |
+| promptfoo star count in README | 25,552 (stale) | 25,558 (c9-p03) |
+| DeepEval star count in README | 18,497 (stale) | 18,502 (c9-p03) |
+| Contract YAML section explains all 10 checks | NO | YES (note + names 4 missing) |
+| Tests (pytest) | 226 passed | 226 passed (unchanged) |
+| Lint (ruff) | clean | clean (unchanged) |
+| Demo (`bash examples/run_demo.sh`) | passes | passes (unchanged) |
+
+### Evidence
+
+New error message:
+
+```
+$ .venv/bin/agenteval record --agent examples.research_agent:research_agent \
+    --task "test" --output /tmp/x.jsonl
+error: cannot import module 'examples.research_agent': No module named 'examples'
+If the agent is a local module (not installed), add the repo root to PYTHONPATH:
+  PYTHONPATH=$(pwd) agenteval record --agent ...
+Or install the package: pip install -e .
+```
+
+Tests pass:
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................ [ 31%]
+........................................................................ [ 63%]
+........................................................................ [ 95%]
+..........                                                               [100%]
+226 passed in 2.71s
+```
+
+Lint clean:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo CLEAN
+All checks passed!
+21 files already formatted
+CLEAN
+```
+
+Demo:
+
+```
+$ bash examples/run_demo.sh | tail -4
+--- Final checks ---
+PASS: gate exits correctly (0 on good, 1 on regressed)
+
+=== Demo complete ===
+```

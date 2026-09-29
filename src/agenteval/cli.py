@@ -52,7 +52,9 @@ def _cmd_record(args: argparse.Namespace) -> int:
     except ModuleNotFoundError as exc:
         print(
             f"error: cannot import module {module_path!r}: {exc}\n"
-            "Make sure the module is on PYTHONPATH or installed in the active venv.",
+            "If the agent is a local module (not installed), add the repo root to PYTHONPATH:\n"
+            "  PYTHONPATH=$(pwd) agenteval record --agent ...\n"
+            "Or install the package: pip install -e .",
             file=sys.stderr,
         )
         return 1

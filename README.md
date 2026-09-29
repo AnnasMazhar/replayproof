@@ -201,6 +201,12 @@ checks:
     severity: error
 ```
 
+This example shows 6 of the 10 available check types. The full list, with the 4 not shown
+above: `tool_sequence` (required tool ordering, subsequence match), `arg_schema`
+(JSON-Schema validation of a tool's arguments), `max_latency_ms` (per-run latency cap),
+and `final_answer_matches` (regex on the final answer). All 10 types load from the same
+YAML format. See [docs/DESIGN.md](docs/DESIGN.md) for the full check reference.
+
 ## Integration with Inspect AI
 
 If your team already runs `inspect_ai` evals, use the included bridge script to convert
@@ -322,9 +328,9 @@ See [COMPARISONS.md](COMPARISONS.md) for a full factual table. The short version
   This tool reads those recordings and asserts contracts over them.
 - **inspect_ai + inspect-replay** owns sample-aligned log diffing — use it when the
   question is "which sample moved". Use this when the question is "which contract broke".
-- **promptfoo** has the broadest tool-call assertion surface and 25,552 stars (OpenAI-owned).
+- **promptfoo** has the broadest tool-call assertion surface and 25,558 stars (OpenAI-owned).
   Choose it for breadth and red-teaming. Choose this for deterministic, keyless, baseline-gated CI.
-- **DeepEval** (18,497 stars) is the largest LLM-judged metric library — `ToolCorrectnessMetric`
+- **DeepEval** (18,502 stars) is the largest LLM-judged metric library — `ToolCorrectnessMetric`
   and argument checks, all LLM-as-judge. Choose it for semantic evaluation. Choose this when the
   question is structural, deterministic, and must cost zero API keys.
 - **Langfuse** (35k stars), **AgentOps** (6k), and **Arize Phoenix** (12k) are the
