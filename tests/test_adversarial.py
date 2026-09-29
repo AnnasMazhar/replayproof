@@ -1713,3 +1713,265 @@ def test_gate_zero_baseline_tokens_nonzero_current_is_flagged_not_silently_passe
         "is zero and current is nonzero — silent suppression means a costly LLM run "
         "would never trip the token gate on its first recorded run"
     )
+
+
+# ---------------------------------------------------------------------------
+# New in c7-p05 — adversarial / byzantine additions
+# ---------------------------------------------------------------------------
+
+# test_from_messages_malformed_openai_tool_call_no_function_key:
+#     Catches a from_messages implementation that crashes when an OpenAI-style
+#     tool_call dict is missing the 'function' key (e.g. if an MCP recorder
+#     writes {"id": "x", "type": "tool_call"} with no 'function' payload).
+#     Fault injection: access tc['function'] without a guard => KeyError.
+#
+# test_from_messages_function_arguments_not_json_string:
+#     Catches from_messages that crashes when function.arguments is not a valid
+#     JSON string (e.g. the recorder wrote a partial buffer).
+#     Fault injection: json.loads(args) without try/except => JSONDecodeError.
+#
+# test_recorder_agent_raises_exception_run_still_recorded:
+#     Catches a Recorder that silently swallows the agent exception and returns a
+#     corrupt Run, or that drops the tool calls recorded before the exception.
+#     Fault injection: surround agent() call in try/except return Run() => no exception
+#     propagated, half the recorded calls are lost.
+#
+# test_no_pattern_unknown_field_name_falls_back_not_crashes:
+#     Catches a no_pattern check with an unrecognised field_name that crashes instead
+#     of falling back to the default (final_content). A hostile contract setting
+#     field_name to an arbitrary string must not crash CI.
+#     Fault injection: raise KeyError on unknown field_name => unhandled exception.
+#
+# test_tool_sequence_empty_expected_always_passes:
+#     Catches a tool_sequence check with an empty expected list that incorrectly fails.
+#     An empty sequence is vacuously satisfied by any run — the contract says nothing
+#     about ordering when no tools are listed.
+#     Fault injection: return failed if actual_names is also empty => wrong for non-empty run.
+#
+# test_from_messages_openai_function_arguments_already_dict:
+#     Catches from_messages that crashes or double-decodes when function.arguments is
+#     already a dict (some recorders skip JSON serialisation and write the raw dict).
+#     Fault injection: json.loads(args) when args is already a dict => TypeError.
+
+
+def test_from_messages_malformed_openai_tool_call_no_function_key() -> None:
+    """from_messages must skip/ignore tool_call entries that lack a 'function' key.
+
+    Fault detected: OpenAI-style tool_call dict missing 'function' crashes from_messages
+    instead of being skipped gracefully.
+    """
+    messages = [
+        {"role": "user", "content": "hello"},
+        {
+            "role": "assistant",
+            "content": "done",
+            # malformed: OpenAI shape but missing 'function' key entirely
+            "tool_calls": [{"id": "call_abc", "type": "tool_call"}],
+        },
+    ]
+    # Must not raise; the malformed entry should be skipped
+    run = from_messages(messages, name="t", agent_id="a", model="m", provider="p")
+    assert len(run.turns) == 2
+    # The malformed tool call should not appear in the run
+    all_calls = run.all_tool_calls()
+    assert (
+        len(all_calls) == 0
+    ), "A malformed tool_call entry missing 'function' must be skipped, not crash"
+
+
+def test_from_messages_function_arguments_already_dict() -> None:
+    """from_messages must handle function.arguments that is already a dict.
+
+    Fault detected: double-decoding a dict via json.loads raises TypeError; the
+    recorder must accept both pre-parsed dicts and JSON strings.
+    """
+    messages = [
+        {"role": "user", "content": "query"},
+        {
+            "role": "assistant",
+            "content": "result",
+            "tool_calls": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "search_docs",
+                        # arguments as a dict, not a JSON string
+                        "arguments": {"query": "solar panels", "limit": 3},
+                    },
+                }
+            ],
+        },
+    ]
+    run = from_messages(messages, name="t", agent_id="a", model="m", provider="p")
+    calls = run.all_tool_calls()
+    assert len(calls) == 1
+    assert calls[0].name == "search_docs"
+    assert calls[0].args == {"query": "solar panels", "limit": 3}
+
+
+def test_recorder_agent_raises_exception_propagates() -> None:
+    """Recorder must propagate exceptions from the agent, not swallow them.
+
+    Fault detected: a Recorder that wraps agent() in try/except and returns a
+    partial Run on exception silently hides errors and delivers a corrupt recording.
+    The Recorder must let the exception propagate to the caller.
+    """
+
+    tick = [0.0]
+
+    def fake_clock() -> float:
+        tick[0] += 0.1
+        return tick[0]
+
+    calls_before_crash: list[str] = []
+
+    def crashing_agent(task: str, tools: dict) -> str:
+        tools["search_docs"](query="ok")
+        calls_before_crash.append("search_docs")
+        raise RuntimeError("agent internal error")
+
+    def search_docs(query: str) -> str:
+        return "found"
+
+    from agenteval.record import Recorder
+
+    rec = Recorder(
+        agent=crashing_agent,
+        agent_id="test",
+        model="none",
+        provider="test",
+        clock=fake_clock,
+    )
+    with pytest.raises(RuntimeError, match="agent internal error"):
+        rec.record("test task", {"search_docs": search_docs})
+    # The tool call before the crash was still recorded inside the wrapper,
+    # but the exception must reach the caller
+    assert "search_docs" in calls_before_crash
+
+
+def test_no_pattern_unknown_field_name_falls_back_gracefully() -> None:
+    """no_pattern with an unrecognised field_name must not crash.
+
+    Fault detected: a hostile contract file sets field_name to an arbitrary string
+    (e.g. 'env_vars', '../../etc/passwd'). The check must fall back to final_content
+    rather than raising KeyError or AttributeError.
+    """
+    from agenteval.assertions import NoPatternCheck
+    from agenteval.transcript import Run, Turn
+
+    run = Run(
+        name="t",
+        agent_id="a",
+        model="m",
+        provider="p",
+        started_at="",
+        turns=(Turn(role="assistant", content="no sensitive data here"),),
+        total_tokens_in=0,
+        total_tokens_out=0,
+        total_latency_ms=0.0,
+    )
+    check = NoPatternCheck(
+        id="no_pattern",
+        severity="error",
+        field_name="__nonexistent_field__",
+        regex=r"\b\d{3}-\d{2}-\d{4}\b",  # SSN pattern
+    )
+    # Must not raise; should return a CheckResult (pass or fail, not exception)
+    result = check.evaluate(run)
+    assert result.check_id == "no_pattern"
+    assert isinstance(result.passed, bool)
+
+
+def test_tool_sequence_empty_expected_always_passes() -> None:
+    """tool_sequence with empty expected list must always pass.
+
+    Fault detected: a tool_sequence check with expected=[] that fails on a non-empty
+    run. An empty sequence is vacuously satisfied — no ordering constraint is imposed.
+    Fault injection: check 'if not expected: return failed' => vacuous truth broken.
+    """
+    from agenteval.assertions import ToolSequenceCheck
+    from agenteval.transcript import Run, ToolCall, Turn
+
+    run = Run(
+        name="t",
+        agent_id="a",
+        model="m",
+        provider="p",
+        started_at="",
+        turns=(
+            Turn(
+                role="assistant",
+                content="done",
+                tool_calls=(
+                    ToolCall(name="search_docs", args={"query": "x"}, result="ok"),
+                    ToolCall(name="summarise", args={}, result="summary"),
+                ),
+            ),
+        ),
+        total_tokens_in=0,
+        total_tokens_out=0,
+        total_latency_ms=0.0,
+    )
+    # ordered=True, empty expected — must pass
+    check_ordered = ToolSequenceCheck(expected=[], ordered=True)
+    result = check_ordered.evaluate(run)
+    assert result.passed, "Empty ordered sequence must pass on any run"
+
+    # ordered=False, empty expected — must also pass
+    check_unordered = ToolSequenceCheck(expected=[], ordered=False)
+    result2 = check_unordered.evaluate(run)
+    assert result2.passed, "Empty unordered sequence must pass on any run"
+
+
+def test_arg_schema_inf_nan_in_args_rejected() -> None:
+    """arg_schema must reject args containing inf/NaN when schema says number.
+
+    Fault detected: a JSON Schema validator that accepts Python float('inf') or
+    float('nan') as valid 'number' values. JSON does not have inf/NaN; passing them
+    to a tool arg that will be serialised to JSON causes downstream errors.
+    The jsonschema library correctly rejects these per the JSON spec.
+    """
+    import math
+
+    from agenteval.assertions import ArgSchemaCheck
+    from agenteval.transcript import Run, ToolCall, Turn
+
+    def _run_with_arg(value: float) -> Run:
+        return Run(
+            name="t",
+            agent_id="a",
+            model="m",
+            provider="p",
+            started_at="",
+            turns=(
+                Turn(
+                    role="assistant",
+                    content="done",
+                    tool_calls=(ToolCall(name="compute", args={"value": value}, result="ok"),),
+                ),
+            ),
+            total_tokens_in=0,
+            total_tokens_out=0,
+            total_latency_ms=0.0,
+        )
+
+    check = ArgSchemaCheck(
+        tool="compute",
+        schema={
+            "type": "object",
+            "properties": {"value": {"type": "number"}},
+            "required": ["value"],
+        },
+    )
+
+    # Normal float must pass
+    result_normal = check.evaluate(_run_with_arg(3.14))
+    assert result_normal.passed, "Normal float must pass number schema"
+
+    # inf must fail — not representable in JSON
+    result_inf = check.evaluate(_run_with_arg(math.inf))
+    assert not result_inf.passed, "inf must fail JSON Schema number validation"
+
+    # nan must fail — not representable in JSON
+    result_nan = check.evaluate(_run_with_arg(float("nan")))
+    assert not result_nan.passed, "NaN must fail JSON Schema number validation"

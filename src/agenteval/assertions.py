@@ -187,10 +187,24 @@ class ArgSchemaCheck(Check):
     schema: dict[str, Any] = field(default_factory=dict)
 
     def evaluate(self, run: Run) -> CheckResult:
-        """Fault detected: args fail JSON Schema validation."""
+        """Fault detected: args fail JSON Schema validation or contain non-JSON values."""
+        import json as _json
+
         for tc in run.all_tool_calls():
             if tc.name != self.tool:
                 continue
+            # Pre-validate that args are JSON-serialisable (rejects inf, NaN, etc.).
+            # JSON has no Infinity or NaN; passing them to a downstream tool that
+            # serialises args would produce invalid JSON.
+            try:
+                _json.dumps(tc.args, allow_nan=False)
+            except (TypeError, ValueError) as exc:
+                return CheckResult(
+                    check_id=self.id,
+                    passed=False,
+                    severity=self.severity,
+                    message=f"Tool '{self.tool}' args contain non-JSON-serialisable values: {exc}",
+                )
             try:
                 jsonschema.validate(instance=tc.args, schema=self.schema)
             except jsonschema.ValidationError as exc:

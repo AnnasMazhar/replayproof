@@ -13,7 +13,7 @@ ai-evaluation
 contract-testing
 confidence-interval
 token-usage
-evals
+ai-evals
 record-replay
 jsonl
 good-first-issue
