@@ -1,7 +1,7 @@
 # COMPARISONS — where replayproof fits, and where it does not
 
 Every cell below was checked against the tool's own documentation or repository on
-**2026-09-28** (last full refresh: c6-p02-research-2, 21:31 UTC). Nothing here is
+**2026-09-29** (last full refresh: c7-p02-research-2, 04:31 UTC). Nothing here is
 inferred from marketing copy. Where a capability was not found in a tool's docs, the
 cell says so rather than guessing. Star counts and release dates are point-in-time from
 the GitHub API and PyPI; they drift.
@@ -11,22 +11,24 @@ questions an eval runner does not — which tool-call contract broke, what the p
 is with a 95% Wilson lower bound instead of a bare percentage, and whether token cost or
 latency regressed against a stored baseline.
 
-## Point-in-time facts (fetched 2026-09-28, 21:31 UTC)
+## Point-in-time facts (fetched 2026-09-29, 04:31 UTC)
 
 | Tool | Licence | Stars | Version / release |
 |---|---|---|---|
 | EvalCore (`eval-core/evalcore`) | Apache-2.0 | 16 | v0.7.5 released 2026-07-19; Rust, pre-1.0; **64 days inactive** |
-| inspect_ai (`UKGovernmentBEIS/inspect_ai`) | MIT | **2,875** | PyPI **0.3.272** published **2026-09-28** |
-| inspect-replay (`repowazdogz-droid/inspect-replay`) | MIT | 0 | v0.2.0 (2026-07-14); not on PyPI; **77 days inactive** |
+| inspect_ai (`UKGovernmentBEIS/inspect_ai`) | MIT | **2,877** | PyPI **0.3.272** published **2026-09-28**; pushed 2026-09-29 |
+| inspect-replay (`repowazdogz-droid/inspect-replay`) | MIT | 0 | v0.2.0 (2026-07-14); not on PyPI; **78 days inactive** |
 | inspect-mlflow (`debu-sinha/inspect-mlflow`) | MIT | 3 | PyPI 0.8.1 published 2026-09-15 |
-| DeepEval (`confident-ai/deepeval`) | Apache-2.0 | **18,489** | 4.2.6 published 2026-09-24 |
-| promptfoo (`promptfoo/promptfoo`) | MIT (OpenAI) | **25,537** | 0.123.1 released 2026-09-18 |
-| Braintrust (`braintrustdata/braintrust-sdk-python`) | SaaS / MIT SDK | 20 (SDK) | Python SDK v0.42.0 (2026-09-22) |
-| LangSmith (`langchain-ai/langsmith-sdk`) | SaaS / MIT SDK | 1,064 (SDK) | Python SDK v0.14.1 (2026-09-25) |
-| AgentOps (`AgentOps-AI/agentops`) | MIT | **5,846** | 0.4.21; cloud-first monitoring; **95 days inactive** |
-| Arize Phoenix (`Arize-ai/phoenix`) | Apache-2.0 | **11,645** | 20.16.0; observability + LLM-judge |
-| **Langfuse** (`langfuse/langfuse`) | MIT | **35,148** | 4.15.6 (2026-09-24); observability + LLM-judge; self-hostable |
-| **Ragas** (`explodinggradients/ragas`) | Apache-2.0 | **15,868** | 0.4.3; RAG pipeline eval; **217 days inactive**; no tool-call assertions |
+| DeepEval (`confident-ai/deepeval`) | Apache-2.0 | **18,490** | 4.2.6 published 2026-09-24 |
+| promptfoo (`promptfoo/promptfoo`) | MIT (OpenAI) | **25,544** | 0.123.1 released 2026-09-18; pushed 2026-09-29 |
+| Braintrust (`braintrustdata/braintrust-sdk-python`) | SaaS / MIT SDK | 20 (SDK) | Python SDK v0.43.0 (2026-09-28) |
+| LangSmith (`langchain-ai/langsmith-sdk`) | SaaS / MIT SDK | 1,065 (SDK) | Python SDK v0.14.1 (2026-09-25) |
+| AgentOps (`AgentOps-AI/agentops`) | MIT | **5,846** | 0.4.21; cloud-first monitoring; **96 days inactive** |
+| Arize Phoenix (`Arize-ai/phoenix`) | Apache-2.0 | **11,644** | 20.16.0; observability + LLM-judge |
+| **Langfuse** (`langfuse/langfuse`) | MIT | **35,168** | 4.15.6 (2026-09-24); observability + LLM-judge; self-hostable; **largest in space** |
+| **Ragas** (`explodinggradients/ragas`) | Apache-2.0 | **15,869** | 0.4.3; RAG pipeline eval; **217 days inactive**; no tool-call assertions |
+| **openai/evals** (`openai/evals`) | MIT | **19,520** | no versioned PyPI; **168 days inactive**; no tool-call assertions |
+| **truera/trulens** (`truera/trulens`) | MIT | **3,577** | 2.14.0 (2026-09-28); LLM quality eval; "offline" = batch mode, not keyless |
 | replayproof (this repo, `agenteval`) | MIT | 0 (not launched) | 0.1.0, 2026-09-26 |
 
 ## The table
@@ -39,9 +41,11 @@ latency regressed against a stored baseline.
 | **DeepEval / promptfoo** | Apache-2.0 (DeepEval) · MIT (promptfoo) | **No.** Neither documents a record/replay cache. promptfoo caches provider responses (14-day TTL in `~/.promptfoo/cache`), and its own FAQ says strict offline use needs local providers or Enterprise on-prem. DeepEval: "Most of deepeval's metrics are LLM-as-a-Judge metrics and default to OpenAI" | **Yes — the strongest row against us.** promptfoo ships `tool-call-f1`, `is-valid-openai-tools-call`, and `trajectory:tool-used` / `tool-args-match` / `tool-sequence` / `step-count` (needs trace data). DeepEval ships `ToolCorrectnessMetric` and argument checks, LLM-judged (`usesLLMs`) | **Not found.** Neither docs set contains "confidence interval" or "wilson" for pass rates (searched 2026-09-26) | **Absolute only.** promptfoo's `cost` assertion checks cost is at or below a threshold; DeepEval has no cost gate (`token_cost` is a test-case field). Neither compares cost to a stored baseline | **promptfoo:** receives OTLP traces from your app or a tracing service. **DeepEval:** builds test cases from framework integrations. Neither reads Inspect `.eval` |
 | **Braintrust** | SaaS / MIT SDK | **No.** Cloud-required by design: all results are posted to Braintrust servers; the SDK connects to `https://api.braintrust.dev`. A `BRAINTRUST_API_KEY` is required for every eval call. No local-only mode documented. | **No.** Scorer API checks output correctness (exact match, LLM rubric, similarity); no assertions over `required_tools`, `forbidden_tools`, `arg_schema`, or `no_pattern` | **No.** Experiments report a per-scorer average; no confidence interval or Wilson lower bound is surfaced | **No.** Platform UI shows cost history; no `braintrust gate --baseline` CLI command that exits non-zero on cost regression | **Braintrust datasets only.** The `Eval()` function runs against a dataset stored in Braintrust; it does not read existing JSONL transcripts. Data is uploaded to the platform. |
 | **LangSmith** | SaaS / MIT SDK | **No.** `LANGCHAIN_API_KEY` required; results post to `smith.langchain.com`. Self-hosted option exists but requires infra. No keyless offline mode. | **No.** Evaluator API checks `run.outputs` dict — no assertions over tool-call sequences; tool calls appear in the trace view but are not an assertion target. `required_tools`, `forbidden_tools`, `arg_schema`, and `no_pattern` are absent from the SDK API | **No.** Evaluations report per-evaluator averages; no Wilson lower bound | **No.** Cost tracking exists in the platform UI; no CLI gate that exits non-zero on a token cost regression vs a committed baseline | **Tight LangChain coupling.** Full value requires LangChain decorators or `@traceable` wrapper on every tool; non-LangChain agents are supported but require wrapping all tool calls |
-| **AgentOps** (AgentOps-AI) | MIT | **No.** Cloud-required by design: `agentops.init(api_key=...)` sends all session data to AgentOps servers. No offline mode documented. Stars: 5,847 (2026-09-28); last push 2026-06-25 | **No.** SDK records tool calls for cloud dashboard replay; no assertions on `required_tools`, `forbidden_tools`, `arg_schema`, or `no_pattern`. No YAML contract file. | **No.** Benchmark scores are point estimates in the cloud UI; no confidence interval. | **No.** Cost comparisons exist in the cloud UI; no CLI command that exits non-zero on a cost delta. | **AgentOps datasets only.** Session data is uploaded to AgentOps servers; there is no offline JSONL consumer. |
-| **Arize Phoenix** (Arize-ai) | Apache-2.0 | **No documented offline mode.** `phoenix serve` starts a local server but evaluation runs with LLM-as-a-judge metrics require an API connection. Stars: 11,644 (2026-09-28); actively pushed 2026-09-28. | **No deterministic assertions.** `ToolEvaluator` assesses tool *relevance* via LLM judge (semantic match, not structural contract); `required_tools`, `forbidden_tools`, `arg_schema`, `no_pattern` are absent. | **No.** Experiment UI reports per-metric averages; no Wilson lower bound. | **No.** Cost tracked per experiment in the platform; no CLI gate that exits non-zero on a cost regression vs a committed baseline. | **OTel traces only.** Reads OpenTelemetry spans; does not read arbitrary JSONL transcripts. |
-| **Langfuse** (langfuse) | MIT | **No documented offline mode.** Langfuse requires a running server (`langfuse serve` / Docker) and `LANGFUSE_SECRET_KEY`/`LANGFUSE_PUBLIC_KEY` on every SDK call. Stars: 35,141 (2026-09-28, **largest in the space**); actively pushed 2026-09-28. Self-hostable (MIT licence). | **No deterministic assertions.** Evaluation is via LLM-as-a-judge or human annotation; `required_tools`, `forbidden_tools`, `arg_schema`, `no_pattern` absent from README and docs. | **No.** Evaluations report per-metric averages; no Wilson lower bound. | **No.** Cost and token tracking in the platform UI; no CLI gate that exits non-zero on a cost regression vs a committed baseline. | **OTel / SDK traces only.** Reads traces captured via OpenTelemetry or the Langfuse SDK; does not read arbitrary JSONL transcripts. |
+| **AgentOps** (AgentOps-AI) | MIT | **No.** Cloud-required by design: `agentops.init(api_key=...)` sends all session data to AgentOps servers. No offline mode documented. Stars: 5,846 (2026-09-29); last push 2026-06-25 | **No.** SDK records tool calls for cloud dashboard replay; no assertions on `required_tools`, `forbidden_tools`, `arg_schema`, or `no_pattern`. No YAML contract file. | **No.** Benchmark scores are point estimates in the cloud UI; no confidence interval. | **No.** Cost comparisons exist in the cloud UI; no CLI command that exits non-zero on a cost delta. | **AgentOps datasets only.** Session data is uploaded to AgentOps servers; there is no offline JSONL consumer. |
+| **Arize Phoenix** (Arize-ai) | Apache-2.0 | **No documented offline mode.** `phoenix serve` starts a local server but evaluation runs with LLM-as-a-judge metrics require an API connection. Stars: 11,644 (2026-09-29); actively pushed 2026-09-29. | **No deterministic assertions.** `ToolEvaluator` assesses tool *relevance* via LLM judge (semantic match, not structural contract); `required_tools`, `forbidden_tools`, `arg_schema`, `no_pattern` are absent. | **No.** Experiment UI reports per-metric averages; no Wilson lower bound. | **No.** Cost tracked per experiment in the platform; no CLI gate that exits non-zero on a cost regression vs a committed baseline. | **OTel traces only.** Reads OpenTelemetry spans; does not read arbitrary JSONL transcripts. |
+| **Langfuse** (langfuse) | MIT | **No documented offline mode.** Langfuse requires a running server (`langfuse serve` / Docker) and `LANGFUSE_SECRET_KEY`/`LANGFUSE_PUBLIC_KEY` on every SDK call. Stars: 35,168 (2026-09-29, **largest in the space**); actively pushed 2026-09-29. Self-hostable (MIT licence). | **No deterministic assertions.** Evaluation is via LLM-as-a-judge or human annotation; `required_tools`, `forbidden_tools`, `arg_schema`, `no_pattern` absent from README and docs. | **No.** Evaluations report per-metric averages; no Wilson lower bound. | **No.** Cost and token tracking in the platform UI; no CLI gate that exits non-zero on a cost regression vs a committed baseline. | **OTel / SDK traces only.** Reads traces captured via OpenTelemetry or the Langfuse SDK; does not read arbitrary JSONL transcripts. |
+| **openai/evals** (openai) | MIT | **No.** `oaieval` CLI requires `OPENAI_API_KEY`; every eval re-calls the live model. No cassette/replay mode. Stars: 19,520 (2026-09-29); **168 days inactive** (last push 2026-04-14). | **No.** Evaluates text output correctness (exact match, BLEU, LLM-judge grade). Tool calls are not a graded dimension; no `required_tools`, `forbidden_tools`, `arg_schema`, or `no_pattern` check type exists. | **No.** Results are pass-rate point estimates; no Wilson lower bound or confidence interval. | **No.** No `oaieval gate --baseline` concept; the framework is run-oriented, not gate-oriented with CI exit codes. | **OpenAI API-bound.** Tightly coupled to the OpenAI completion API; non-OpenAI agents require adapters. |
+| **truera/trulens** (TruEra) | MIT | **No.** "Offline batch mode" means post-hoc evaluation against a TruSession database backend (SQLite/PostgreSQL). An API key is still required for LLM-judged feedback functions. Stars: 3,577 (2026-09-29); actively pushed 2026-09-28. | **No.** Feedback functions evaluate output quality (relevance, groundedness, toxicity). No `required_tools`, `forbidden_tools`, `arg_schema`, or `no_pattern` check. Tool calls appear in traces but are not a contract assertion target. | **No.** Feedback results are averages in the dashboard; no Wilson lower bound. | **No.** No `trulens gate --baseline b.json` CLI command that exits non-zero on a metric regression vs a stored baseline. | **TruSession database.** Traces must be stored in a TruLens SQLite/PostgreSQL database; does not read arbitrary JSONL transcripts. |
 | **replayproof** | MIT (Python) | **Yes, by construction.** It never calls a model: recorded runs are the only input. README: "No API keys required. All tests run offline." | **Yes, deterministic and named.** 10 checks in a YAML contract: `tool_sequence`, `required_tools`, `forbidden_tools`, `arg_schema` (full JSON Schema validation of a tool's arguments), `max_tool_calls`, `max_tokens`, `max_latency_ms`, `no_pattern` (PII regex), `final_answer_matches`, `final_answer_not_empty` | **Yes, first-class.** 95% Wilson score lower bound in `SuiteResult`; the README demo reports 4/4 = 100% observed with a 51.0% lower bound | **Yes, delta against a stored baseline.** Any pass-rate drop, tokens +10%, cost +10%, or p95 latency +25% trips the gate and exits 1 (thresholds configurable) | **Own JSONL plus OpenAI/Anthropic-style message lists** via `record.from_messages()`. An Inspect `.eval` reader is named as a target in `docs/RESEARCH.md` but is **not implemented in v0.1** |
 
 ## Where this repo loses — read this first
@@ -95,6 +99,9 @@ latency regressed against a stored baseline.
 - `AgentOps-AI/agentops` README, PyPI, GitHub API (c4-p02)
 - `Arize-ai/phoenix` README, PyPI, GitHub API (c4-p02)
 - `langfuse/langfuse` README (53,353 chars), PyPI, GitHub API (c5-p02)
+- `explodinggradients/ragas` README, PyPI, GitHub API (c6-p02)
+- `openai/evals` README (6,461 chars), GitHub API (c7-p02); no tool-call assertion keywords
+- `truera/trulens` README (8,375 chars), PyPI v2.14.0, GitHub API (c7-p02); "offline" = batch mode
 - This repo: `README.md`, `CHANGELOG.md`, `src/agenteval/assertions.py`,
   `src/agenteval/budget.py`, `src/agenteval/record.py`
 
@@ -120,9 +127,16 @@ latency regressed against a stored baseline.
 - **Arize Phoenix** — choose it when you want LLM-as-a-judge evaluation, OTel-native
   tracing, and a self-hosted or managed experiment tracking UI.
 - **Langfuse** — choose it when you want the largest open-source observability platform
-  (35,141 stars) with self-hosting via Docker, OTel-native tracing, LLM-as-a-judge evals,
+  (35,168 stars) with self-hosting via Docker, OTel-native tracing, LLM-as-a-judge evals,
   and a team-facing dashboard. It is the MIT-licenced self-hostable alternative to
   Braintrust and LangSmith.
+- **openai/evals** — historically the framework that defined LLM eval practice. Choose it
+  for its community library of contributed eval tasks if your agent uses the OpenAI API
+  directly. Do not choose it for new projects — 168 days inactive as of 2026-09-29.
+- **truera/trulens** — choose it when your stack uses LangChain or LlamaIndex and you want
+  a feedback function library (relevance, groundedness, toxicity) evaluated post-hoc against
+  stored traces. The "offline batch mode" requires a TruSession database backend; it is
+  not a keyless local-file mode.
 - **replayproof** — choose it when recordings already exist, the gate must be
   deterministic, data must not leave the machine, and one command has to fail the build
   on a broken tool contract, a Wilson-uncertain pass rate, or a token-cost regression.
