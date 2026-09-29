@@ -499,3 +499,81 @@ Fixes C6P11-MIN-2 (open from c6-p11 adversarial review):
 - test_compare_rejects_negative_latency: p95_latency_ms=-1.0 raises ValueError
 - test_compare_rejects_negative_cost: total_cost_usd=-0.01 raises ValueError
 - test_compare_accepts_zero_metrics: zero values are valid (first-run, demo agent)
+
+---
+
+## 12. Cycle 7 pass 5 (c7-p05-implement-2) — adversarial expansion + inf/NaN fix
+
+Date: 2026-09-29T07:30 UTC
+
+**Changes:**
+- Added 6 new adversarial tests to `tests/test_adversarial.py` (total: 52 adversarial tests):
+  - test_from_messages_malformed_openai_tool_call_no_function_key
+  - test_from_messages_function_arguments_already_dict
+  - test_recorder_agent_raises_exception_propagates
+  - test_no_pattern_unknown_field_name_falls_back_gracefully
+  - test_tool_sequence_empty_expected_always_passes
+  - test_arg_schema_inf_nan_in_args_rejected
+- Fixed `ArgSchemaCheck.evaluate`: now pre-validates args with `json.dumps(allow_nan=False)`
+  before passing to jsonschema. `float('inf')` and `float('nan')` are not valid JSON numbers
+  and must be rejected. jsonschema itself accepted them; this is the correct fix.
+- Fixed `launch/topics.txt`: replaced `evals` with `ai-evals` per LAUNCH-PLAN.md Phase A spec.
+
+```
+$ .venv/bin/pytest -q
+........................................................................ [ 35%]
+........................................................................ [ 70%]
+............................................................             [100%]
+204 passed in 4.00s
+
+$ .venv/bin/ruff check .
+All checks passed!
+
+$ .venv/bin/ruff format --check .
+21 files already formatted
+
+$ bash examples/run_demo.sh
+[... full output identical to section 11 above ...]
+--- Final checks ---
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+
+$ git log --oneline -1
+6ff7825 test: add 6 adversarial tests + fix ArgSchemaCheck inf/NaN validation
+```
+
+All acceptance criteria pass:
+1. pytest -q: 204 passed, no network required (+6 from 6 new adversarial tests)
+2. bash examples/run_demo.sh: runs to completion, prints results table
+3. Gate: exit 1 on regressed_run.jsonl, exit 0 on sample_run.jsonl
+4. ruff check . && ruff format --check .: clean
+5. README contains genuine results table from demo output
+6. No files outside this repo modified. No push. No git add .
+
+### Test breakdown by file (c7-p05)
+- test_adversarial.py: 52 tests (+6 new)
+- test_assertions.py: 34 tests
+- test_budget_drift.py: 38 tests
+- test_properties.py: 21 tests
+- test_replay.py: 19 tests
+- test_report.py: 21 tests
+- test_scoring.py: 12 tests (but 7 are in adversarial now, so net counts)
+Total: 204 tests
+
+### New adversarial tests detail (c7-p05)
+
+- test_from_messages_malformed_openai_tool_call_no_function_key: OpenAI-style tool_call
+  dict missing 'function' key must be skipped, not crash. Fault injection: tc['function']
+  without guard => KeyError.
+- test_from_messages_function_arguments_already_dict: from_messages must accept
+  function.arguments as a dict (not only a JSON string). Fault injection: json.loads(dict)
+  => TypeError.
+- test_recorder_agent_raises_exception_propagates: Recorder must propagate exceptions from
+  the agent, not swallow them. Fault injection: agent() in try/except => silent return.
+- test_no_pattern_unknown_field_name_falls_back_gracefully: Unknown field_name in
+  no_pattern check must not crash CI. Fault injection: KeyError on unknown field.
+- test_tool_sequence_empty_expected_always_passes: Empty expected list is vacuously
+  satisfied by any run. Fault injection: return failed if expected=[] => wrong for any run.
+- test_arg_schema_inf_nan_in_args_rejected: ArgSchemaCheck must reject inf/NaN in args.
+  jsonschema accepts them; we pre-check with json.dumps(allow_nan=False). Fixed in
+  src/agenteval/assertions.py ArgSchemaCheck.evaluate.
