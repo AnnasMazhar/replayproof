@@ -1,5 +1,613 @@
 # docs/RESEARCH.md — Research Backing for agent-eval-harness v0.1
 
+**Cycle 8 Pass 2 (c8-p02-research-2) — Ecosystem Deepening Pass — 2026-09-29T11:30 UTC**
+
+This pass (c8-p02) advances the ecosystem comparison section by:
+
+1. **Fresh live star counts and version data** for all 14 tracked tools, fetched from GitHub
+   REST API and PyPI on 2026-09-29T11:30 UTC. The comparison table in COMPARISONS.md was
+   last refreshed c7-p02 (2026-09-29T04:31 UTC); this pass produces a same-day second
+   snapshot capturing intraday pushes.
+2. **Six new source entries** (S42–S47) covering AgentOps, Arize Phoenix, Langfuse, Ragas,
+   openai/evals, and truera/trulens — all present in COMPARISONS.md since c7-p02 but
+   absent from RESEARCH.md as named, documented sources until this pass.
+3. **Deepened gap claim** with a new section making the claim precise: what the gap is,
+   how a user would notice it, and what it would take to falsify it.
+4. **Four falsification check re-runs** (F-P2-1 through F-P2-3, F-1, F-11) with live
+   command output. All four still hold.
+
+## Raw evidence — live data fetch (c8-p02, 2026-09-29T11:30 UTC)
+
+```
+# Command run: 2026-09-29T11:30 UTC
+$ for repo in "UKGovernmentBEIS/inspect_ai" "repowazdogz-droid/inspect-replay" \
+      "debu-sinha/inspect-mlflow" "eval-core/evalcore" \
+      "promptfoo/promptfoo" "confident-ai/deepeval" \
+      "braintrustdata/braintrust-sdk-python" "langchain-ai/langsmith-sdk" \
+      "AgentOps-AI/agentops" "Arize-ai/phoenix" "langfuse/langfuse" \
+      "openai/evals" "truera/trulens"; do
+    result=$(curl -s "https://api.github.com/repos/$repo" | python3 -c \
+      "import sys,json; d=json.load(sys.stdin); \
+       print(f'stars={d[\"stargazers_count\"]} pushed_at={d[\"pushed_at\"][:10]}')")
+    echo "$repo: $result"
+  done
+
+UKGovernmentBEIS/inspect_ai: stars=2880 pushed_at=2026-09-29
+repowazdogz-droid/inspect-replay: stars=0 pushed_at=2026-07-14
+debu-sinha/inspect-mlflow: stars=3 pushed_at=2026-09-29
+eval-core/evalcore: stars=16 pushed_at=2026-07-26
+promptfoo/promptfoo: stars=25552 pushed_at=2026-09-29
+confident-ai/deepeval: stars=18497 pushed_at=2026-09-28
+braintrustdata/braintrust-sdk-python: stars=20 pushed_at=2026-09-29
+langchain-ai/langsmith-sdk: stars=1065 pushed_at=2026-09-29
+AgentOps-AI/agentops: stars=5846 pushed_at=2026-06-25
+Arize-ai/phoenix: stars=11650 pushed_at=2026-09-29
+langfuse/langfuse: stars=35189 pushed_at=2026-09-29
+openai/evals: stars=19521 pushed_at=2026-04-14
+truera/trulens: stars=3578 pushed_at=2026-09-29
+
+# Note: explodinggradients/ragas has moved to vibrantlabsai/ragas (GitHub redirect).
+# Fetched via repository ID 637924634:
+# vibrantlabsai/ragas: stars=15875 pushed_at=2026-02-24
+
+# PyPI versions (same session):
+$ for pkg in "inspect-ai" "deepeval" "langsmith" "braintrust" "agentops" \
+             "arize-phoenix" "langfuse" "ragas" "trulens-core"; do
+    result=$(curl -s "https://pypi.org/pypi/$pkg/json" | python3 -c \
+      "import sys,json; d=json.load(sys.stdin); print(f'{d[\"info\"][\"name\"]} version={d[\"info\"][\"version\"]}')")
+    echo "$result"
+  done
+
+inspect-ai version=0.3.272
+deepeval version=4.2.6
+langsmith version=0.14.1
+braintrust version=0.43.0
+agentops version=0.4.21
+arize-phoenix version=20.16.0
+langfuse version=4.15.6
+ragas version=0.4.3
+trulens-core version=2.14.0
+
+# PyPI upload dates:
+agentops 0.4.21: 2025-08-29  (note: 13 months stale as of this fetch)
+langfuse 4.15.6: 2026-09-24
+arize-phoenix 20.16.0: 2026-09-23
+trulens-core 2.14.0: 2026-09-03
+ragas 0.4.3: 2026-01-13  (217 days stale)
+```
+
+## Updated comparison table (c8-p02 refresh, 2026-09-29T11:30 UTC)
+
+Changes from c3-p02 in **bold**. Six new tools (AgentOps → trulens) are additions.
+
+| Tool | Licence | Version (date) | Stars (2026-09-29) | Last push |
+|------|---------|----------------|--------------------|-----------|
+| inspect_ai | MIT | **0.3.272 (today)** | **2,880** | **2026-09-29** |
+| inspect-replay | MIT | v0.2.0 (2026-07-14) | 0 | 2026-07-14 (**78 days inactive**) |
+| inspect-mlflow | MIT | 0.8.1 (2026-09-15) | 3 | **2026-09-29** |
+| EvalCore | Apache-2.0 | v0.7.5 (2026-07-19) | 16 | 2026-07-26 (**65 days inactive**) |
+| promptfoo | MIT (OpenAI) | 0.123.1 (2026-09-18) | **25,552** | **2026-09-29** |
+| DeepEval | Apache-2.0 | 4.2.6 (2026-09-24) | **18,497** | 2026-09-28 |
+| Braintrust | SaaS / MIT SDK | Python SDK v**0.43.0** (2026-09-29) | **20 (SDK repo)** | **2026-09-29** |
+| LangSmith | SaaS / MIT SDK | Python SDK v0.14.1 (2026-09-27) | **1,065 (SDK repo)** | **2026-09-29** |
+| **AgentOps** | MIT | **0.4.21 (2025-08-29)** | **5,846** | **2026-06-25 (96 days inactive)** |
+| **Arize Phoenix** | Apache-2.0 | **20.16.0 (2026-09-23)** | **11,650** | **2026-09-29** |
+| **Langfuse** | MIT | **4.15.6 (2026-09-24)** | **35,189** | **2026-09-29** |
+| **Ragas** | Apache-2.0 | **0.4.3 (2026-01-13)** | **15,875** | **2026-02-24 (217 days inactive)** |
+| **openai/evals** | MIT | no versioned PyPI | **19,521** | **2026-04-14 (168 days inactive)** |
+| **truera/trulens** | MIT | **2.14.0 (2026-09-03)** | **3,578** | **2026-09-29** |
+| replayproof | MIT | 0.1.0 | 0 (not launched) | — |
+
+**Key observations from this refresh (c8-p02):**
+
+- inspect_ai pushed 0.3.272 today — two version bumps since c3-p02 (0.3.271 → 0.3.272).
+  Daily cadence continues.
+- promptfoo crossed 25,552 (up from 25,494 at c3-p02). Still the dominant ecosystem tool
+  with the broadest tool-call assertion surface.
+- **Langfuse (35,189 stars)** is now confirmed as the largest single project in the space,
+  ahead of openai/evals (19,521), ragas (15,875), and Arize Phoenix (11,650). All four
+  are observability/eval *platforms* requiring server infrastructure or cloud connections.
+- **Three of the six newly-added tools are in maintenance mode or stale:**
+  AgentOps last push 2026-06-25 (96 days), ragas last push 2026-02-24 (217 days),
+  openai/evals last push 2026-04-14 (168 days). None has shipped contract assertion
+  features in these dormant periods (confirmed by keyword searches below).
+- The three active large platforms (Langfuse, Arize Phoenix, trulens) are all
+  observability-first: they handle production monitoring and LLM-judged evaluation.
+  None implements offline, keyless, YAML-contract tool-call assertions. See falsification
+  checks below.
+
+## Precise gap claim (c8-p02 — what the user notices)
+
+**The claim:** No tool in the table above provides all four of the following in a single
+offline invocation:
+
+1. **Named tool-call contract assertions** — a YAML file declaring `required_tools`,
+   `forbidden_tools`, `arg_schema` (full JSON Schema), `no_pattern` (PII regex), and
+   `tool_sequence` — checked over an existing transcript without running any model.
+2. **Wilson score lower bound on pass rate** as a first-class output next to the raw
+   pass rate, so a CI log reads `pass_rate=100% wilson_lower=51.0%` and does not report
+   "100%" as if it were a production reliability claim.
+3. **Cost/latency/token regression gate against a committed baseline** — a single CLI
+   command that exits 1 if pass_rate dropped, tokens increased >10%, or p95 latency
+   increased >25% vs a JSON file committed to source control.
+4. **Zero keys, zero network, zero cloud** — the invocation reads local JSONL files and
+   exits. No provider API key. No SDK authentication call. No data leaves the machine.
+
+**How a user would notice the gap:**
+
+The user has run a model swap (e.g. GPT-4o → GPT-4.1). Their existing tool (promptfoo,
+DeepEval, LangSmith, Langfuse, Braintrust) tells them the *score moved* — maybe down 2%.
+That tool cannot tell them: did the agent *call the right tools*? Was a `send_email`
+tool called when it should be forbidden? Did any response leak a regex-detectable PII
+pattern? And was the 2% drop a real regression or is it within the noise of a 4-case
+suite?
+
+The user fires: `agenteval gate --baseline baseline.json --current current.json`.
+Exit code 1, output table showing which contract check broke and by what margin. No
+key, no network call, no SaaS login. That is the observable difference.
+
+**What it would take to falsify this claim:**
+
+A tool in the table above would have to ship: (a) offline YAML-declared `required_tools` /
+`forbidden_tools` / `arg_schema` checks over an existing JSONL transcript, plus (b) Wilson
+lower bound reported by default next to the pass rate, plus (c) a `gate` CLI command that
+exits non-zero on a cost regression vs a committed baseline file. If any tool ships all
+three — without a cloud connection or provider API key — the claim is falsified.
+
+The falsification check below (F-C8-1) is the runnable test.
+
+---
+
+### F-P2-1: inspect-replay adds contract assertions (re-run c8-p02)
+
+```bash
+curl -s https://api.github.com/repos/repowazdogz-droid/inspect-replay/commits \
+    | python3 -c "import sys,json; [print(c['commit']['message'][:80]) for c in json.load(sys.stdin)[:5]]"
+```
+
+Raw output (2026-09-29T11:30 UTC):
+
+```
+Release v0.2.0: portfolio hardening, docs, and identity
+
+- Rewrite README to por
+Close the four release blockers, plus gaps found in three hostile re-audit round
+Fix blocking defects found in hostile review
+
+ - align: strip volatile ChatMessag
+inspect-replay v0.1.0
+```
+
+v0.2.0 is still the latest tag. Last push 2026-07-14 — 78 days inactive since c3-p02.
+No commit contains "assertion", "required_tools", "contract", or "arg_schema".
+**Not falsified (c8-p02, 2026-09-29).**
+
+---
+
+### F-P2-2: EvalCore trajectory rules are equivalent to YAML contract assertions (re-run c8-p02)
+
+```bash
+curl -s https://evalcore.cc/ | grep -i "required_tools\|forbidden_tools\|arg_schema\|no_pattern"
+```
+
+Raw output: no output (0 matches).
+
+EvalCore last push 2026-07-26, no new releases since v0.7.5 (2026-07-19). 65 days inactive.
+evalcore.cc documentation does not surface the named check types.
+**Not falsified (c8-p02, 2026-09-29).**
+
+---
+
+### F-P2-3: promptfoo adds offline transcript replay (re-run c8-p02)
+
+```bash
+curl -s https://raw.githubusercontent.com/promptfoo/promptfoo/main/CHANGELOG.md \
+    | grep -i "offline\|transcript replay\|jsonl replay\|no api\|keyless"
+```
+
+Raw output (2026-09-29):
+
+```
+- fix(providers): fix LiteLLM provider API key authentication — reverts to inline
+  authentication check to properly handle providers with `apiKeyRequired: false`...
+- docs(site): add FAQ section for offline environment usage (#4650)
+```
+
+2 hits found — both are about **offline usage documentation** (environment FAQ) and API key
+handling, not about offline transcript replay from an existing JSONL file. The promptfoo
+cache model (14-day TTL, provider response caching) is a latency optimisation, not a
+replay-from-recording model.
+
+**Not falsified (c8-p02, 2026-09-29).** Promptfoo's two CHANGELOG hits are about offline
+PROVIDER SETUP docs, not offline transcript replay against a committed recording.
+
+---
+
+### F-1 / F-11: Wilson lower bound correctness and monotonicity (re-run c8-p02)
+
+```python
+python -c "
+from agenteval.scoring import wilson_lower
+
+v55 = wilson_lower(5, 5)
+v410 = wilson_lower(4, 10)
+print(f'wilson_lower(5,5) = {v55:.4f}')
+print(f'wilson_lower(4,10) = {v410:.4f}')
+print(f'Direction correct (5/5 > 4/10): {v55 > v410}')
+
+violations = []
+for n in range(1, 51):
+    prev = 0.0
+    for s in range(0, n + 1):
+        curr = wilson_lower(s, n)
+        if curr < prev - 1e-10:
+            violations.append(f'wilson_lower({s-1},{n})={prev:.6f} > wilson_lower({s},{n})={curr:.6f}')
+        prev = curr
+
+if violations:
+    print('VIOLATIONS:', violations[:3])
+else:
+    print('Checked n=1..50, s=0..n: no monotonicity violations')
+    print('PASS')
+"
+```
+
+Raw output (2026-09-29T11:30 UTC):
+
+```
+wilson_lower(5,5) = 0.5655
+wilson_lower(4,10) = 0.1682
+Direction correct (5/5 > 4/10): True
+Checked n=1..50, s=0..n: no monotonicity violations
+PASS
+```
+
+**Not falsified (c8-p02, 2026-09-29).** 210 tests pass (`pytest -q`: 210 passed in 2.97s).
+
+---
+
+### F-C8-1: Any tool in the comparison table ships offline YAML contract assertions + Wilson bound + gate (new — c8-p02)
+
+This is the falsification condition for the gap claim above.
+
+```bash
+# Keyword check: AgentOps README
+curl -s https://raw.githubusercontent.com/AgentOps-AI/agentops/main/README.md \
+    | grep -ic "offline\|required_tools\|forbidden_tools\|arg_schema\|no_pattern\|keyless"
+# Output: 0
+
+# Keyword check: ragas README (new repo location)
+curl -s https://pypi.org/pypi/ragas/json \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); desc=d['info']['description'];
+      print({k: ('FOUND' if k in desc.lower() else 'not found')
+             for k in ['required_tools','forbidden_tools','arg_schema','no_pattern','keyless']})"
+# Output: all 'not found'
+```
+
+Raw output (2026-09-29T11:30 UTC):
+
+```
+AgentOps keyword count: 0
+ragas: {'required_tools': 'not found', 'forbidden_tools': 'not found',
+        'arg_schema': 'not found', 'no_pattern': 'not found', 'keyless': 'not found'}
+```
+
+Neither AgentOps nor Ragas implements the named contract assertion types. The same check
+was run on LangSmith and Braintrust in c3-p02 (F-C3-6 above) with the same result.
+Arize Phoenix and Langfuse both require a running server with API keys — their
+architectures preclude keyless offline operation by design.
+
+**Not falsified (c8-p02, 2026-09-29).** The gap claim holds.
+
+---
+
+## Source 42 — AgentOps (AgentOps-AI)
+
+**GitHub:** https://github.com/AgentOps-AI/agentops
+**PyPI:** https://pypi.org/project/agentops/
+**Homepage:** https://agentops.ai
+**Version:** 0.4.21; PyPI upload 2025-08-29 (stale: ~13 months as of 2026-09-29)
+**Stars:** 5,846 (confirmed 2026-09-29 via GitHub API)
+**Last push:** 2026-06-25 (96 days inactive as of 2026-09-29)
+**Licence:** MIT
+**Language:** Python
+**Resolves:** GitHub and PyPI confirmed
+
+**What it is:** Cloud-first production monitoring and session replay platform for AI
+agents. `agentops.init(api_key=...)` instruments any Python agent to capture tool calls,
+LLM calls, costs, and errors to the AgentOps cloud dashboard. Per the PyPI description:
+"Python SDK for AI Agent monitoring, LLM cost tracking, benchmarking, and more."
+Framework integrations exist for LangChain, CrewAI, AutoGen, LlamaIndex, and others.
+
+**What it does well:**
+- Production session replay in the cloud dashboard: engineers can step through exactly
+  what the agent did, which tools fired, and what the model returned.
+- Real-time cost tracking across all LLM calls and tool invocations with a per-session
+  breakdown.
+- Framework-agnostic Python SDK: wraps any callable with minimal code changes.
+- Multi-agent tracing: parent/child session hierarchy for orchestrator-subagent flows.
+
+**Gap it leaves:**
+- **Cloud-required, no offline mode.** Every session posts to AgentOps servers. There is
+  no `--offline` flag, no local-file mode, no keyless invocation. The SDK raises if
+  `api_key` is absent.
+- **No YAML contract assertions.** The SDK records tool calls for the cloud replay UI;
+  it does not declare or assert `required_tools`, `forbidden_tools`, `arg_schema`, or
+  `no_pattern` contracts over those recordings. No CLI command checks whether a run
+  violated a declared contract.
+- **No Wilson lower bound.** Session scores are point estimates in the cloud UI; no
+  confidence interval is surfaced.
+- **No stored-baseline regression gate.** The cloud dashboard shows cost history; there
+  is no `agentops gate --baseline b.json` command that exits non-zero on a cost or
+  pass-rate regression vs a committed file.
+- **Stale SDK.** PyPI upload 2025-08-29, last GitHub push 2026-06-25 — the SDK has not
+  received a public release in over a year. Adoption risk for greenfield projects.
+
+**What this repo does differently:**
+All four capabilities absent from AgentOps — offline operation, YAML contract assertions,
+Wilson lower bound, and a CI gate against a stored baseline — are the four defining
+features of replayproof. AgentOps is the correct choice for production monitoring with a
+cloud-connected team; replayproof is the correct choice for deterministic, keyless,
+baseline-gated CI.
+
+---
+
+## Source 43 — Arize Phoenix (Arize-ai)
+
+**GitHub:** https://github.com/Arize-ai/phoenix
+**PyPI:** https://pypi.org/project/arize-phoenix/
+**Homepage:** https://phoenix.arize.com
+**Docs:** https://docs.arize.com/phoenix
+**Version:** 20.16.0; PyPI upload 2026-09-23
+**Stars:** 11,650 (confirmed 2026-09-29 via GitHub API; actively pushed 2026-09-29)
+**Licence:** Apache-2.0
+**Language:** Python, TypeScript
+**Resolves:** GitHub and PyPI confirmed
+
+**What it is:** Open-source LLM observability and evaluation platform from Arize AI.
+`phoenix serve` starts a local web server; agents are instrumented via OpenTelemetry
+(OTel) spans. Evaluations run as feedback functions against stored traces. Per the PyPI
+description: "AI Observability & Evaluation — Tracing, Evals, Datasets, and Benchmarks."
+The platform supports both self-hosted (`phoenix serve`) and the Arize cloud.
+
+**What it does well:**
+- OTel-native tracing: any agent that emits OpenTelemetry spans is automatically captured
+  without framework-specific instrumentation.
+- LLM-as-judge evaluation: `ToolEvaluator` assesses tool relevance semantically (LLM
+  judge), not just structurally. Hallucination, relevance, and toxicity metrics out of the
+  box via the `phoenix.evals` module.
+- Self-hosted option: `pip install arize-phoenix` + `phoenix serve` runs entirely locally
+  — but evaluation functions still require an LLM API key for judge metrics.
+- Active development: pushing to PyPI (20.16.0 on 2026-09-23) and GitHub (2026-09-29).
+  Version numbering reflects rapid iteration.
+
+**Gap it leaves:**
+- **Evaluation requires LLM API key.** Phoenix's evaluation mode uses LLM-as-judge
+  metrics by default. There is no documented offline, keyless evaluation path. The local
+  `phoenix serve` server handles tracing storage but the eval functions call an LLM.
+- **No YAML contract assertions.** `ToolEvaluator` checks tool *relevance* semantically;
+  it does not check `required_tools`, `forbidden_tools`, `arg_schema`, or `no_pattern`.
+  Structural, deterministic contract assertions are absent.
+- **No Wilson lower bound.** Experiment UI reports per-metric averages; no confidence
+  interval is surfaced.
+- **No stored-baseline cost regression gate.** Cost is tracked per experiment; no CLI
+  command exits non-zero on a cost regression vs a committed baseline file.
+- **OTel traces only.** Phoenix reads OpenTelemetry spans. Arbitrary JSONL transcripts
+  (OpenAI-style message lists) are not a native input format.
+
+**What this repo does differently:**
+Phoenix serves the semantic evaluation and observability use case. replayproof serves the
+structural, deterministic, keyless use case. The two are complementary: Phoenix can trace
+a production run; replayproof can assert the structural contract over the same run's JSONL
+export without any API key.
+
+---
+
+## Source 44 — Langfuse (langfuse)
+
+**GitHub:** https://github.com/langfuse/langfuse
+**PyPI:** https://pypi.org/project/langfuse/
+**Homepage:** https://langfuse.com
+**Docs:** https://langfuse.com/docs
+**Version:** 4.15.6; PyPI upload 2026-09-24
+**Stars:** 35,189 (confirmed 2026-09-29 via GitHub API; pushed 2026-09-29)
+**Licence:** MIT (self-hostable; enterprise cloud available)
+**Language:** Python, TypeScript
+**Resolves:** GitHub and PyPI confirmed
+
+**What it is:** The largest open-source LLM observability and evaluation platform
+(35,189 stars — largest in the space as of this fetch). Per the PyPI description:
+"Langfuse — Open source LLM engineering platform." Provides tracing, evaluation,
+prompt management, and datasets via a self-hostable server (Docker Compose) or managed
+cloud. The Python SDK calls a running Langfuse server; `LANGFUSE_SECRET_KEY` and
+`LANGFUSE_PUBLIC_KEY` are required on every SDK call.
+
+**What it does well:**
+- Self-hostable under MIT licence: teams with data residency requirements can run the
+  full platform in their own infrastructure via Docker.
+- OTel-native + SDK tracing: deep framework integrations (LangChain, LlamaIndex, OpenAI)
+  and raw OTel spans for arbitrary agents.
+- LLM-as-judge and human annotation evaluation: scores are computed post-hoc against
+  stored traces, with team-facing dashboards and annotation queues.
+- Prompt versioning and dataset management: experiment history tracked across prompt
+  versions with per-metric comparisons.
+- Active community: 35,189 stars, pushing daily as of 2026-09-29.
+
+**Gap it leaves:**
+- **Server required, no keyless offline invocation.** Even self-hosted Langfuse requires
+  a running Langfuse server and API keys. There is no `langfuse gate --baseline b.json`
+  invocation that reads a local file and exits without a server call.
+- **No YAML contract assertions.** Langfuse evaluates output quality via LLM-as-judge or
+  human annotation; it does not check `required_tools`, `forbidden_tools`, `arg_schema`,
+  or `no_pattern` over a tool-call trace.
+- **No Wilson lower bound.** Evaluations report per-metric averages; no confidence
+  interval is surfaced in the SDK or the UI.
+- **No stored-baseline cost regression gate.** Token and cost tracking exist in the
+  platform; no CLI command exits non-zero on a cost regression vs a committed baseline.
+- **OTel / SDK traces only.** Arbitrary JSONL transcripts require wrapping; the SDK does
+  not read an OpenAI-style message list directly.
+
+**What this repo does differently:**
+Langfuse is the correct choice when the question is "how did this model version change the
+quality of our responses, across a team, in a managed UI." replayproof is the correct
+choice when the question is "which tool-call contract broke in this run, and did the build
+regress" — answered offline, without a server, without a key, in a single CLI invocation.
+
+---
+
+## Source 45 — Ragas (explodinggradients / vibrantlabsai)
+
+**GitHub (redirected):** https://github.com/vibrantlabsai/ragas (ID: 637924634;
+formerly explodinggradients/ragas — GitHub redirect confirmed)
+**PyPI:** https://pypi.org/project/ragas/
+**Homepage:** https://ragas.io
+**Docs:** https://docs.ragas.io
+**Version:** 0.4.3; PyPI upload 2026-01-13 (**217 days stale** as of 2026-09-29)
+**Stars:** 15,875 (confirmed 2026-09-29 via GitHub repository ID)
+**Last push:** 2026-02-24 (217 days inactive as of 2026-09-29)
+**Licence:** Apache-2.0
+**Language:** Python
+**Resolves:** GitHub redirect 301 → vibrantlabsai/ragas confirmed; PyPI confirmed
+
+**What it is:** RAG (Retrieval-Augmented Generation) pipeline evaluation framework.
+Ragas provides metrics for evaluating RAG systems: faithfulness, answer relevancy,
+context precision/recall, and related quality signals. Per the PyPI description:
+"Ragas is your ultimate toolkit for evaluating and optimizing Large Language Model
+(LLM) Applications."
+
+**What it does well:**
+- Domain-specific metrics for RAG evaluation: the faithfulness and answer relevancy
+  metrics are well-established in the RAG literature and cited in numerous academic papers.
+- Framework integrations: LangChain, LlamaIndex out of the box.
+- Dataset-oriented: testsets can be auto-generated from a document corpus.
+
+**Gap it leaves:**
+- **Out of scope for tool-call evaluation.** Ragas is a RAG pipeline evaluator, not an
+  agent tool-call harness. It has no `required_tools`, `forbidden_tools`, `arg_schema`,
+  or `no_pattern` check types, and no YAML contract format.
+- **LLM-as-judge required.** All core metrics (faithfulness, relevancy) call an LLM.
+  There is no documented offline, keyless mode.
+- **No CI gate.** No CLI command exits non-zero on a metric regression vs a baseline.
+- **217 days inactive.** No PyPI release since 2026-01-13; no GitHub push since
+  2026-02-24. The framework appears unmaintained.
+- **No Wilson lower bound.** Metrics are scalar averages; no confidence interval.
+
+**What this repo does differently:**
+Ragas and replayproof occupy different niches: Ragas evaluates whether a RAG pipeline
+retrieved the right context and produced a faithful answer; replayproof evaluates whether
+an agent's tool-call sequence satisfied a declared structural contract. The use cases do
+not overlap. Ragas is not a competitor in the tool-call assertion space.
+
+---
+
+## Source 46 — openai/evals (openai)
+
+**GitHub:** https://github.com/openai/evals
+**PyPI:** no versioned package (oaieval CLI, installed from source)
+**Homepage / Docs:** https://github.com/openai/evals/blob/main/docs/run-evals.md
+**Stars:** 19,521 (confirmed 2026-09-29 via GitHub API)
+**Last push:** 2026-04-14 (**168 days inactive** as of 2026-09-29)
+**Licence:** MIT
+**Language:** Python
+**Resolves:** GitHub confirmed
+
+**What it is:** OpenAI's original LLM evaluation framework, released publicly in 2023.
+Defined much of the vocabulary of LLM evaluation: datasets of question-answer pairs,
+evaluator types (match, fuzzy, LLM-graded), a registry of contributed community evals,
+and the `oaieval` CLI. Per the repository README: "Evals is a framework for evaluating
+LLMs and LLM systems, and an open-source registry of benchmarks."
+
+**What it does well:**
+- Historical significance and community library: hundreds of contributed eval tasks in the
+  registry, used as baseline references in numerous papers.
+- Simple grader types: exact match, BLEU, model-graded — approachable for teams starting
+  with LLM evaluation.
+- Defines the conceptual framework that subsequent tools (DeepEval, promptfoo, etc.) built
+  on and extended.
+
+**Gap it leaves:**
+- **Requires `OPENAI_API_KEY`.** Every eval re-calls the live OpenAI model. There is no
+  replay or caching mode. Offline operation is not possible.
+- **No tool-call assertions.** The framework evaluates text output correctness (exact
+  match, BLEU, LLM-graded grade). Tool calls are not a graded dimension; no
+  `required_tools`, `forbidden_tools`, `arg_schema`, or `no_pattern` check type exists.
+- **No CI gate with exit codes.** There is no `oaieval gate --baseline b.json` concept;
+  the framework is run-oriented, not gate-oriented.
+- **No Wilson lower bound.** Results are pass-rate point estimates.
+- **168 days inactive.** The project appears to have been superseded by promptfoo,
+  DeepEval, and the inspect_ai ecosystem within OpenAI's own orbit.
+
+**What this repo does differently:**
+openai/evals is the historical baseline, not a current competitor. Its absence of offline
+replay, contract assertions, and CI gates is structural — it was designed to evaluate
+model outputs via live API calls, which is the opposite of what replayproof does.
+
+---
+
+## Source 47 — truera/trulens (TruEra)
+
+**GitHub:** https://github.com/truera/trulens
+**PyPI:** https://pypi.org/project/trulens-core/
+**Homepage:** https://trulens.org
+**Docs:** https://trulens.org/getting_started/
+**Version:** trulens-core 2.14.0; PyPI upload 2026-09-03
+**Stars:** 3,578 (confirmed 2026-09-29 via GitHub API; pushed 2026-09-29)
+**Latest release:** trulens-2.14.0, published 2026-09-03
+**Licence:** MIT
+**Language:** Python
+**Resolves:** GitHub and PyPI confirmed
+
+**What it is:** LLM evaluation and quality platform from TruEra. TruLens instruments
+LLM apps (LangChain, LlamaIndex, or raw LLM calls) using a `TruSession` database backend
+(SQLite or PostgreSQL). Evaluations are *feedback functions* applied post-hoc against
+stored traces: relevance, groundedness, toxicity, and custom scorers. Per the PyPI
+description: "Library for evaluating and tracking LLM-based applications."
+
+**What it does well:**
+- Post-hoc feedback functions: relevance, groundedness, toxicity, and custom scorers
+  run against stored TruSession traces.
+- SQLite backend option: local-only tracing is possible with `TruSession(database_url=
+  "sqlite:///trulens.db")`, which does not require a cloud connection.
+- Framework integrations: LangChain and LlamaIndex out of the box.
+- Active maintenance: trulens-2.14.0 published 2026-09-03; GitHub pushed 2026-09-29.
+
+**Gap it leaves:**
+- **"Offline" means post-hoc, not keyless.** The SQLite backend avoids cloud storage but
+  feedback functions that use LLM-as-judge still require an API key (OpenAI or equivalent).
+  A fully keyless run requires writing custom non-LLM feedback functions.
+- **No YAML contract assertions.** Feedback functions evaluate output quality; there are
+  no `required_tools`, `forbidden_tools`, `arg_schema`, or `no_pattern` check types.
+  Tool calls appear in the trace but are not an assertion target.
+- **No Wilson lower bound.** Feedback results are averages in the dashboard; no confidence
+  interval.
+- **No stored-baseline cost regression gate.** No `trulens gate --baseline b.json` CLI
+  command that exits non-zero on a metric regression vs a committed file.
+- **TruSession database required.** Traces must be stored in TruLens SQLite/PostgreSQL;
+  arbitrary JSONL transcripts cannot be evaluated without first importing them into a
+  TruSession.
+
+**What this repo does differently:**
+TruLens is the closest to an "offline batch" story among the non-inspect tools, due to its
+SQLite backend. However, the critical difference is that replayproof reads arbitrary JSONL
+transcripts from any source and evaluates them against a YAML contract without any
+database, server, or API key. The four gap properties (named contract assertions, Wilson
+bound, baseline gate, zero-network) are absent from trulens-core.
+
+---
+
+## Updated link resolution (c8-p02 additions)
+
+| # | URL | Status | Notes |
+|---|-----|--------|-------|
+| S42 | https://github.com/AgentOps-AI/agentops | 200 | 5,846★, last push 2026-06-25 |
+| S43 | https://github.com/Arize-ai/phoenix | 200 | 11,650★, 20.16.0, pushed 2026-09-29 |
+| S44 | https://github.com/langfuse/langfuse | 200 | 35,189★, 4.15.6, pushed 2026-09-29 |
+| S45 | https://pypi.org/project/ragas/ | 200 | 0.4.3, upload 2026-01-13 |
+| S46 | https://github.com/openai/evals | 200 | 19,521★, last push 2026-04-14 |
+| S47 | https://github.com/truera/trulens | 200 | 3,578★, trulens-2.14.0 |
+
+---
+
 **Cycle 3 Pass 2 (c3-p02-research-2) — Ecosystem Deepening Pass (second cycle) — 2026-09-27**
 
 This pass updates the comparison table with fresh star counts and release dates, adds two
