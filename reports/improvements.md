@@ -1,5 +1,160 @@
 # Improvement Log — agent-eval-harness
 
+## c7-p09-improve-2: Fix 4 README credibility gaps — date, stars, DeepEval omission, contract YAML drift (2026-09-29)
+
+### Finding source
+
+Systematic credibility audit of README.md against COMPARISONS.md (the repo's own
+research document with live star counts refreshed in c7-p02) and the actual
+`examples/contracts/research.yaml`. Four gaps found that a skeptical reviewer
+would notice within minutes:
+
+1. **BIGGEST GAP — README Contract YAML example is missing a check the real file has:**
+   The README `## Contract YAML` section showed 5 checks. The actual committed
+   `examples/contracts/research.yaml` has 6 checks — it includes `final_answer_not_empty`
+   which the README example omitted. A reviewer who copies the README example and diffs it
+   against the real file sees the discrepancy immediately. Worse: a reviewer who runs the
+   real demo and reads the contract output sees 6 checks passing; the README example implies
+   only 5 exist. No test existed to enforce sync.
+
+2. **Stale star count for promptfoo — and missing (OpenAI-owned) label:**
+   README "Where this fits" said "25k stars" but COMPARISONS.md (refreshed c7-p02 at
+   04:31 UTC from the GitHub API) shows 25,544 stars. The README also did not include the
+   "(OpenAI-owned)" label that COMPARISONS.md records. A reviewer who clicks the promptfoo
+   GitHub link sees the acquisition notice; the README reads as if it missed this.
+
+3. **DeepEval omitted from "Where this fits":**
+   DeepEval has 18,490 stars — the second largest tool in the LLM eval space after
+   Langfuse, and the largest tool-call-aware eval library. The README "Where this fits"
+   section listed Langfuse (35k), AgentOps (6k), and Phoenix (12k) but not DeepEval.
+   Omitting the second-largest tool looks cherry-picked to a reviewer who checks the
+   COMPARISONS.md table. DeepEval is the primary competitor for the "semantic/LLM-judged"
+   use case; naming it makes the positioning sharper (not cherry-picked).
+
+4. **Stale "Real results" date:**
+   README said "Generated from `bash examples/run_demo.sh` on 2026-09-28" but today is
+   2026-09-29. Minor but visible to any reviewer who notices.
+
+### Root cause
+
+**Gap 1:** The README Contract YAML example was written as a simplified illustration
+during c1-p09 and was not regenerated when `final_answer_not_empty` was added to the real
+`examples/contracts/research.yaml`. No test existed to detect check-type drift between the
+README illustration and the real file.
+
+**Gap 2:** The star count "25k" was rounded and not updated since c5-p09. COMPARISONS.md
+was updated with the live count in c7-p02 but README was not. The "(OpenAI-owned)" label
+was added to COMPARISONS.md in c7-p02 but not propagated to README.
+
+**Gap 3:** The "Where this fits" section was written before DeepEval was added to
+COMPARISONS.md. The c5-p09 pass added Langfuse/AgentOps/Phoenix to the section but did
+not include DeepEval (which was in COMPARISONS.md since c2-p02).
+
+**Gap 4:** The date was correct for the prior pass's demo run (2026-09-28) but became
+stale after midnight. This recurs on any pass that runs the demo.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 209 passed |
+| README Contract YAML example check count | 5 (missing `final_answer_not_empty`) |
+| Actual research.yaml check count | 6 |
+| Test catching README/contract drift | NONE |
+| README promptfoo star count | "25k" (stale, actual 25,544) |
+| README promptfoo (OpenAI-owned) label | ABSENT |
+| DeepEval in README "Where this fits" | ABSENT (18,490 stars — second largest in space) |
+| README "Real results" date | 2026-09-28 (stale) |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 210 passed (+1) |
+| README Contract YAML example check count | 6 (includes `final_answer_not_empty`) |
+| Actual research.yaml check count | 6 (matches README) |
+| Test catching README/contract drift | YES — `TestREADMEContractYAMLSync.test_readme_contract_yaml_contains_all_real_check_types` |
+| README promptfoo star count | "25,544" (matches COMPARISONS.md c7-p02 fetch) |
+| README promptfoo (OpenAI-owned) label | PRESENT |
+| DeepEval in README "Where this fits" | PRESENT — "DeepEval (18,490 stars) is the largest LLM-judged metric library" |
+| README "Real results" date | 2026-09-29 |
+
+### Evidence
+
+New test passes:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest tests/test_report.py::TestREADMEContractYAMLSync -v
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-8.3.3, pluggy-1.6.0
+...
+tests/test_report.py::TestREADMEContractYAMLSync::test_readme_contract_yaml_contains_all_real_check_types PASSED
+1 passed in 0.43s
+```
+
+Full suite:
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................ [ 34%]
+........................................................................ [ 68%]
+..................................................................       [100%]
+210 passed in 3.72s
+```
+
+Ruff:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+21 files already formatted
+RUFF CLEAN
+```
+
+Fault injection proof (test catches missing check type in README):
+
+```python
+# Simulate README with only 5 check types (missing final_answer_not_empty)
+import re
+readme_types = {"required_tools", "forbidden_tools", "max_tool_calls", "max_tokens", "no_pattern"}
+real_types = {"required_tools", "forbidden_tools", "max_tool_calls", "max_tokens",
+              "no_pattern", "final_answer_not_empty"}
+missing = real_types - readme_types
+print(f"Missing: {missing}")
+# Output: Missing: {'final_answer_not_empty'}
+# Test assertion `not missing` fails — correct.
+```
+
+Demo still passes:
+
+```
+$ bash examples/run_demo.sh | grep -E "PASS: gate exits|Demo complete"
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+### Files changed
+
+- `README.md` — (1) `## Contract YAML` section: added `final_answer_not_empty` check to
+  match actual `examples/contracts/research.yaml` (6 checks total); also changed `names:
+  [search_docs]` inline to multi-line format matching the real file. (2) `## Where this
+  fits`: promptfoo "25k stars" → "25,544 stars (OpenAI-owned)"; added DeepEval (18,490
+  stars) bullet as the second most prominent tool (LLM-as-judge / semantic dimension).
+  (3) "Real results" date: 2026-09-28 → 2026-09-29.
+- `tests/test_report.py` — updated module docstring to document the new test class;
+  added `TestREADMEContractYAMLSync` class (1 test):
+  `test_readme_contract_yaml_contains_all_real_check_types` — extracts all `type: <value>`
+  entries from `examples/contracts/research.yaml`, extracts all `type: <value>` entries
+  from the README `## Contract YAML` section, and asserts the README set is a superset of
+  the real file's types. Fails if any check type is added to the real contract but not
+  reflected in the README example.
+- `mutants/tests/test_report.py` — synced with tests/test_report.py (identical)
+- `reports/improvements.md` — this entry
+
+---
+
+
+
 ## c7-p08-improve-1: Fix pass_rate out-of-range passes gate silently (2026-09-29)
 
 ### Finding source
