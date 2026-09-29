@@ -1,5 +1,149 @@
 # Improvement Log — agent-eval-harness
 
+## c8-p09-improve-2: Fix COMPARISONS.md internal star count inconsistency (2026-09-29)
+
+### Finding source
+
+Systematic credibility audit of COMPARISONS.md. The narrative text at line 75 contained
+star counts that contradicted the authoritative table in the same document:
+
+```
+# Table row (lines 26-27):
+| AgentOps (`AgentOps-AI/agentops`) | MIT | **5,846** | ...
+| Arize Phoenix (`Arize-ai/phoenix`) | Apache-2.0 | **11,644** | ...
+
+# Narrative text (line 75), same file:
+- **AgentOps (5,847 stars) and Arize Phoenix (11,642 stars) are established in the
+```
+
+5,847 vs 5,846 for AgentOps. 11,642 vs 11,644 for Phoenix. Two different numbers for
+the same tool, within the same document, separated by fewer than 50 lines. A reviewer
+reading COMPARISONS.md top-to-bottom encounters the contradiction before reaching the
+second page.
+
+Additionally, COMPARISONS.md table still used c7-p02 star counts (04:31 UTC) while
+RESEARCH.md had been refreshed to c8-p02 data (11:30 UTC) — the two documents were
+out of sync. Same-day fetches but still inconsistent.
+
+### Root cause
+
+The COMPARISONS.md table was refreshed in c7-p02 from the GitHub API (04:31 UTC) but
+the narrative text at line 75 was not updated in the same pass. The narrative had been
+written in an earlier cycle and was not treated as data that needed to match the table.
+No test existed to detect this class of drift.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 216 passed |
+| COMPARISONS.md AgentOps — table | 5,846 |
+| COMPARISONS.md AgentOps — narrative (line 75) | 5,847 (wrong) |
+| COMPARISONS.md Phoenix — table | 11,644 |
+| COMPARISONS.md Phoenix — narrative (line 75) | 11,642 (wrong) |
+| COMPARISONS.md data source | c7-p02 (04:31 UTC) |
+| RESEARCH.md data source | c8-p02 (11:30 UTC) |
+| Test catching COMPARISONS.md narrative vs table drift | NONE |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 217 passed (+1) |
+| COMPARISONS.md AgentOps — table | 5,846 (c8-p02) |
+| COMPARISONS.md AgentOps — narrative | 5,846 (matches table) |
+| COMPARISONS.md Phoenix — table | 11,650 (c8-p02) |
+| COMPARISONS.md Phoenix — narrative | 11,650 (matches table) |
+| COMPARISONS.md data source | c8-p02 (11:30 UTC) — all 14 tools updated |
+| README promptfoo stars | 25,552 (c8-p02, was 25,544) |
+| README DeepEval stars | 18,497 (c8-p02, was 18,490) |
+| Test catching narrative vs table drift | YES — `TestCOMPARISONSInternalConsistency` |
+
+### Evidence
+
+New test passes:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest \
+    tests/test_report.py::TestCOMPARISONSInternalConsistency -v
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-8.3.3, pluggy-1.6.0
+...
+tests/test_report.py::TestCOMPARISONSInternalConsistency::test_comparisons_narrative_star_counts_match_table PASSED
+1 passed in 0.25s
+```
+
+Full suite:
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................ [ 33%]
+........................................................................ [ 66%]
+........................................................................ [ 99%]
+.                                                                        [100%]
+217 passed in 2.80s
+```
+
+Ruff:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+21 files already formatted
+RUFF CLEAN
+```
+
+Fault injection proof (test catches the old COMPARISONS.md narrative vs table mismatch):
+
+```python
+# Simulate the old COMPARISONS.md with 5,847 in narrative vs 5,846 in table
+import re
+old_narrative_line = '- **AgentOps (5,847 stars) and Arize Phoenix (11,642 stars) are established'
+table_counts = {'5,846', '11,650', '25,552', '35,189', '18,497', '15,875', '19,521', '3,578', '2,880'}
+
+violations = []
+for m in re.finditer(r'(\d{1,3}(?:,\d{3})+)\s+stars', old_narrative_line):
+    count = m.group(1)
+    if count not in table_counts:
+        violations.append(f'narrative says {count} stars but not in table')
+
+print(f'Violations: {violations}')
+```
+
+Output:
+```
+Violations: ['narrative says 5,847 stars but not in table', 'narrative says 11,642 stars but not in table']
+# Test assertion `not violations` fails — correct.
+```
+
+Demo still passes:
+
+```
+$ bash examples/run_demo.sh | grep -E "PASS: gate exits|Demo complete"
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+### Files changed
+
+- `COMPARISONS.md` — (1) Header timestamp: c7-p02 04:31 UTC → c8-p02 11:30 UTC.
+  (2) Table refreshed to c8-p02 data for all 14 tools: promptfoo 25,544→25,552;
+  inspect_ai 2,877→2,880; Phoenix 11,644→11,650; Langfuse 35,168→35,189;
+  Ragas 15,869→15,875; openai/evals 19,520→19,521; trulens 3,577→3,578.
+  (3) Narrative text line 75: AgentOps 5,847→5,846; Phoenix 11,642→11,650;
+  Langfuse 35,168→35,189 (choose section + detailed table cell).
+  (4) All inline star-count references in detailed comparison rows aligned to table.
+- `README.md` — promptfoo 25,544→25,552 (c8-p02); DeepEval 18,490→18,497 (c8-p02).
+- `tests/test_report.py` — module docstring updated with new test entry; added
+  `TestCOMPARISONSInternalConsistency` class (1 test):
+  `test_comparisons_narrative_star_counts_match_table` — builds the set of all
+  comma-formatted numbers in table rows, then checks that every comma-formatted `N stars`
+  reference in narrative text appears in that set. Fails if narrative and table diverge.
+- `mutants/tests/test_report.py` — synced with tests/test_report.py (identical)
+- `reports/improvements.md` — this entry
+
+---
+
 ## c8-p08-improve-1: Kill 4 surviving mutants in scoring.py — error message and default param coverage (2026-09-29)
 
 ### Finding source
