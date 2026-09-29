@@ -16,10 +16,10 @@ bash examples/run_demo.sh   # no keys needed — output below is from this comma
 
 If this is useful, star the repo — it is how others find it.
 
-Note: `pip install agent-eval-harness` installs a **different, unrelated package** on PyPI
-(Franck Ndzomga, 2026-02-09). Install from source as shown above — the PyPI name
-`replayproof` is reserved for the v0.2 release. If the repo is not yet public, see the
-**Install** section below for the offline install path that requires no network access.
+> **Note:** `pip install agent-eval-harness` installs a **different, unrelated package** on PyPI
+> (Franck Ndzomga, 2026-02-09). Install from source as shown above — the PyPI name
+> `replayproof` is reserved for the v0.2 release. If the repo is not yet public, see the
+> **Install** section below for the offline install path that requires no network access.
 
 ## What problem this solves
 

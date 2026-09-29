@@ -717,3 +717,59 @@ All acceptance criteria pass:
 4. ruff check . && ruff format --check .: clean
 5. README contains genuine results table from demo output (51% Wilson lower bound for 4/4)
 6. No files outside this repo modified. No push.
+
+---
+
+## c8-p05 (implement-2, 2026-09-29)
+
+### New Byzantine tests added
+
+4 new tests added in `tests/test_adversarial.py`:
+
+1. `test_warn_only_contract_passes_bad_run_correctly` — verifies severity semantics:
+   a contract with only warn-severity failures must report `CheckResults.passed=True`.
+
+2. `test_duplicate_check_ids_in_yaml_raises` — verifies `Contract.from_yaml` raises
+   `ValueError` on duplicate check IDs. Without this guard, a hostile contract could
+   shadow a failing security check (forbidden_tools) with a passing check of the same id.
+   **Fix in `Contract.__init__`: added duplicate-id validation.**
+
+3. `test_no_pattern_check_regex_is_actually_applied` — verifies no_pattern applies the
+   regex to content and does not short-circuit to `passed=True`.
+
+4. `test_gate_warn_only_violations_do_not_deflate_pass_rate` — verifies that warn-severity
+   check failures do not deflate the suite pass_rate below the correct value.
+
+### Spec gap closed: duplicate check ID validation
+
+`Contract.__init__` now raises `ValueError` for duplicate check IDs. This closes a
+bypass path where a shadowed check would silently drop a security constraint.
+
+### Full test suite (214 tests)
+
+```
+$ pytest -q
+214 passed in 4.03s
+```
+
+### Lint
+
+```
+$ ruff check .
+All checks passed!
+$ ruff format --check .
+21 files already formatted
+```
+
+### README first screen
+
+Star prompt moved to after the quickstart (per LAUNCH-PLAN.md). PyPI note converted to
+a blockquote so it does not interrupt the install-and-run flow.
+
+All acceptance criteria pass:
+1. pytest -q: 214 passed (+4 from new Byzantine tests)
+2. bash examples/run_demo.sh: runs to completion, prints results table
+3. Gate: exit 1 on regressed_run.jsonl, exit 0 on sample_run.jsonl
+4. ruff check . && ruff format --check .: clean
+5. README contains genuine results table from demo output
+6. No files outside this repo modified. No push.

@@ -422,6 +422,14 @@ class Contract:
     """
 
     def __init__(self, checks: list[Check], name: str = "") -> None:
+        seen_ids: set[str] = set()
+        for check in checks:
+            if check.id in seen_ids:
+                raise ValueError(
+                    f"Duplicate check id {check.id!r} in contract {name!r}. "
+                    "Each check must have a unique id so reports can identify which check fired."
+                )
+            seen_ids.add(check.id)
         self.checks = checks
         self.name = name
 

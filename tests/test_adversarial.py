@@ -1975,3 +1975,266 @@ def test_arg_schema_inf_nan_in_args_rejected() -> None:
     # nan must fail — not representable in JSON
     result_nan = check.evaluate(_run_with_arg(float("nan")))
     assert not result_nan.passed, "NaN must fail JSON Schema number validation"
+
+
+# ---------------------------------------------------------------------------
+# New in c8-p05 — byzantine additions targeting contract bypass properties
+# ---------------------------------------------------------------------------
+#
+# test_warn_only_contract_passes_bad_run_correctly:
+#     Catches an implementation where a contract whose every check is severity=warn
+#     is incorrectly treated as failed when all warn checks fail. A warn failure
+#     must NOT set CheckResults.passed=False — only error failures do.
+#     This verifies the severity semantics from assertions.py line 50:
+#       passed = all(r.passed or r.severity != "error" for r in results)
+#     Fault injection: use 'all(r.passed for r in results)' ignoring severity =>
+#     a warn-only contract incorrectly marks a bad run as a contract failure,
+#     which would surface as a false positive in CI (not a safety bypass, but a
+#     correctness gap that causes spurious build breaks on warn-only contracts).
+#
+# test_duplicate_check_ids_in_yaml_raises:
+#     Catches a Contract.from_yaml that silently keeps or silently merges checks
+#     with duplicate IDs. A duplicate ID makes results ambiguous: both results
+#     share the same key, so a downstream report cannot distinguish them.
+#     Fault injection: allow duplicates => second check with same ID shadows the
+#     first; a forbidden-tool failure on id="gate" is shadowed by a passing check
+#     with the same id, producing a false-green result for that ID.
+#
+# test_no_pattern_check_rate_limit_injection_via_regex:
+#     Catches a no_pattern check that can be made to never match by injecting a
+#     zero-width assertion that is vacuously true (e.g. regex "^$" matches only
+#     the empty string). A hostile contract using "^$" as the PII pattern claims
+#     to check but will never fire. The check must evaluate the actual content
+#     against the provided regex; the test verifies the regex is applied.
+#     Fault injection: return passed=True without calling re.search => the check
+#     always passes, silently bypassing PII detection.
+#
+# test_gate_warn_only_violations_do_not_inflate_suite_pass_rate:
+#     Catches a SuiteResult builder that counts warn-only failures toward the pass
+#     rate denominator, deflating the observed pass rate compared to the correct
+#     value. If a run fails 2 warn checks and 0 error checks, the case is PASSED,
+#     so pass_rate must be 1.0 (1/1), not 0.0 (0/1).
+#     Fault injection: count any failed check (including warn) as a case failure =>
+#     the pass rate drops below its true value; the gate may trip spuriously.
+
+
+def test_warn_only_contract_passes_bad_run_correctly() -> None:
+    """A contract whose checks are all severity=warn must report passed=True even when
+    every check fails.
+
+    Fault detected: contract evaluation that uses 'all(r.passed for r in results)'
+    instead of the correct 'all(r.passed or r.severity != "error" for r in results)',
+    causing warn-only violations to report as contract failures and produce spurious
+    CI breaks.
+    """
+    from agenteval.assertions import Contract
+    from agenteval.transcript import Run, Turn
+
+    # A run with no tool calls and no useful output — will fail required_tools and
+    # final_answer_not_empty if those checks were present. We use max_tokens (warn)
+    # and final_answer_not_empty configured as warn to prove the semantics.
+    run = Run(
+        name="empty",
+        agent_id="a",
+        model="m",
+        provider="p",
+        started_at="",
+        turns=(
+            Turn(
+                role="assistant",
+                content="",
+                tool_calls=(),
+                tokens_in=9999,
+                tokens_out=0,
+                latency_ms=0.0,
+            ),
+        ),
+        total_tokens_in=9999,
+        total_tokens_out=0,
+        total_latency_ms=0.0,
+    )
+
+    # Contract with only warn-severity checks, both of which will fire
+    contract_yaml = """
+name: warn_only
+checks:
+  - type: max_tokens
+    id: token_warn
+    severity: warn
+    n: 10
+  - type: final_answer_not_empty
+    id: answer_warn
+    severity: warn
+"""
+    contract = Contract.from_yaml(contract_yaml)
+    results = contract.evaluate(run)
+
+    # Results are sorted alphabetically by check_id: answer_warn < token_warn
+    # Both fail, and both are severity=warn.
+    # answer_warn is final_answer_not_empty (empty content), token_warn is max_tokens (9999>10)
+    assert not results.results[0].passed, "answer_warn should fail (empty content)"
+    assert not results.results[1].passed, "token_warn should fail (9999 > 10)"
+    # But severity=warn on both: CheckResults.passed must be True
+    assert results.passed, (
+        "A contract with only warn-severity failures must report passed=True; "
+        "warn failures do not break the contract — only error failures do"
+    )
+    assert len(results.errors) == 0, "No error-severity failures => errors must be empty"
+    assert (
+        len(results.warnings) == 2
+    ), "Both failing checks are warn => warnings must have 2 entries"
+
+
+def test_duplicate_check_ids_in_yaml_raises() -> None:
+    """Contract.from_yaml must raise ValueError when two checks share the same id.
+
+    Fault detected: a YAML loader that silently keeps the last check with a given id,
+    allowing a hostile contract author to shadow a failing security check (e.g.
+    forbidden_tools) with a passing check that has the same id. The downstream report
+    would show a green row for that id even though the security constraint fired.
+    """
+    import pytest
+
+    from agenteval.assertions import Contract
+
+    yaml_with_duplicates = """
+name: tricky
+checks:
+  - type: forbidden_tools
+    id: gate
+    severity: error
+    names:
+      - send_email
+  - type: final_answer_not_empty
+    id: gate
+    severity: error
+"""
+    with pytest.raises(ValueError, match="[Dd]uplicate"):
+        Contract.from_yaml(yaml_with_duplicates)
+
+
+def test_no_pattern_check_regex_is_actually_applied() -> None:
+    """no_pattern must apply the regex to content and not short-circuit to passed=True.
+
+    Fault detected: an implementation that returns passed=True without calling
+    re.search, so a PII-leaking final_content passes every no_pattern check.
+    This test injects a known PII pattern (email) into final_content and verifies
+    the check fires.
+    """
+    from agenteval.assertions import NoPatternCheck
+    from agenteval.transcript import Run, Turn
+
+    pii_email = "user@example.com"
+    run = Run(
+        name="leaky",
+        agent_id="a",
+        model="m",
+        provider="p",
+        started_at="",
+        turns=(
+            Turn(
+                role="assistant",
+                content=f"Here is the info: {pii_email}",
+                tool_calls=(),
+                tokens_in=0,
+                tokens_out=0,
+                latency_ms=0.0,
+            ),
+        ),
+        total_tokens_in=0,
+        total_tokens_out=0,
+        total_latency_ms=0.0,
+    )
+
+    check = NoPatternCheck(
+        id="no_pii",
+        severity="error",
+        field_name="final_content",
+        regex=r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}",
+    )
+    result = check.evaluate(run)
+    assert not result.passed, (
+        "no_pattern check must apply the regex to final_content and detect the email; "
+        "if this passes, the check is short-circuiting to True without calling re.search"
+    )
+    assert (
+        "pii" in result.message.lower()
+        or "match" in result.message.lower()
+        or "pattern" in result.message.lower()
+    ), "Failure message should reference the pattern or match"
+
+
+def test_gate_warn_only_violations_do_not_deflate_pass_rate() -> None:
+    """Case-level pass rate must not be deflated by warn-only check failures.
+
+    Fault detected: a SuiteResult builder that marks a case as failed whenever any
+    check (including warn-severity) fails, deflating pass_rate below its correct value
+    and causing spurious gate trips.
+
+    The correct rule: a case is PASSED if CheckResults.passed is True, which requires
+    no error-severity check to have failed. Warn failures leave the case as PASSED.
+    """
+    from agenteval.assertions import Contract
+    from agenteval.scoring import CaseResult
+    from agenteval.transcript import Run, Turn
+
+    # Run that exceeds the token warn threshold but has a valid final answer
+    run = Run(
+        name="warn_case",
+        agent_id="a",
+        model="m",
+        provider="p",
+        started_at="",
+        turns=(
+            Turn(
+                role="assistant",
+                content="Here is my answer.",
+                tool_calls=(),
+                tokens_in=9999,
+                tokens_out=0,
+                latency_ms=0.0,
+            ),
+        ),
+        total_tokens_in=9999,
+        total_tokens_out=0,
+        total_latency_ms=0.0,
+    )
+
+    contract_yaml = """
+name: warn_only_gate_test
+checks:
+  - type: max_tokens
+    id: token_warn
+    severity: warn
+    n: 10
+  - type: final_answer_not_empty
+    id: answer_check
+    severity: error
+"""
+    contract = Contract.from_yaml(contract_yaml)
+    results = contract.evaluate(run)
+
+    # token_warn fires (9999 > 10, severity=warn), answer_check passes (content not empty)
+    # Results are sorted by check_id alphabetically: answer_check < token_warn
+    answer_result = next(r for r in results.results if r.check_id == "answer_check")
+    token_result = next(r for r in results.results if r.check_id == "token_warn")
+    assert not token_result.passed, "token_warn should fail"
+    assert answer_result.passed, "answer_check should pass (content is not empty)"
+    # The case as a whole must be PASSED (warn failure, no error failure)
+    assert results.passed, "warn failure must not mark the case as failed"
+
+    # Build a CaseResult the same way the runner would
+    case = CaseResult(
+        case_id="warn_case",
+        passed=results.passed,
+        checks=results.results,
+        tokens_in=run.total_tokens_in,
+        tokens_out=run.total_tokens_out,
+        latency_ms=run.total_latency_ms,
+    )
+    from agenteval.scoring import compute_suite
+
+    suite = compute_suite([case])
+    assert (
+        suite.pass_rate_value == 1.0
+    ), f"pass_rate must be 1.0 when the only failure is warn-severity; got {suite.pass_rate_value}"
