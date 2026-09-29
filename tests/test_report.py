@@ -44,6 +44,13 @@ Faults detected:
   confused when `import agenteval` fails. Root cause (c6-p09): the ADOPTION.md install
   step was written before the PyPI name collision was discovered in c2-p08. Fault
   injection: restore 'pip install agent-eval-harness' in ADOPTION.md => this test fails.
+
+- test_readme_contract_yaml_contains_all_real_check_types (TestREADMEContractYAMLSync):
+  catches the README 'Contract YAML' section being out of sync with the actual
+  examples/contracts/research.yaml. Root cause (c7-p09): the README example was a
+  simplified illustration missing the 'final_answer_not_empty' check added to the real
+  contract file. Fault injection: add a new check type to research.yaml without updating
+  the README => this test fails because the new type is absent from the README section.
 """
 
 import os
@@ -448,4 +455,80 @@ class TestAdoptionInstallContract:
             "The PyPI name 'agent-eval-harness' is occupied by a different, unrelated "
             "package (Franck Ndzomga, 2026-02-09). Use source install instead: "
             "'git clone https://github.com/AnnasMazhar/replayproof && pip install -e .'."
+        )
+
+
+class TestREADMEContractYAMLSync:
+    """Fault: README 'Contract YAML' section shows an example that is missing checks
+    present in the actual examples/contracts/research.yaml.
+
+    Root cause (c7-p09): The README example was a simplified illustration. When the
+    real research.yaml gained the 'final_answer_not_empty' check, the README example
+    was not updated. A skeptical reviewer who copies the README example and compares it
+    to the file will see the discrepancy immediately.
+
+    This test verifies that every 'type:' value that appears in the real
+    examples/contracts/research.yaml also appears in the README 'Contract YAML' section.
+
+    Fault injection: add a new check type to examples/contracts/research.yaml without
+    updating the README example => this test fails because the new type is not found in
+    the README code block.
+    """
+
+    def _find_repo_root(self) -> str:
+        import os
+        import pathlib
+
+        env_root = os.environ.get("REPO_ROOT")
+        if env_root:
+            return env_root
+        candidate = pathlib.Path(__file__).resolve().parent
+        while not (candidate / "docs").is_dir() and candidate.parent != candidate:
+            candidate = candidate.parent
+        return str(candidate)
+
+    def test_readme_contract_yaml_contains_all_real_check_types(self) -> None:
+        """README Contract YAML section must include all check types from research.yaml.
+
+        The README shows a 'Contract YAML' code block as an example. If the real
+        examples/contracts/research.yaml contains a check type that the README example
+        omits, a reviewer copying from the README will produce a weaker contract than
+        the committed example. The discrepancy also signals that the README is out of sync
+        with the code.
+
+        Fault injection: remove 'final_answer_not_empty' from the README Contract YAML
+        section => this test fails because 'final_answer_not_empty' is found in
+        research.yaml but not in the README Contract YAML block.
+        """
+        import pathlib
+        import re
+
+        repo_root = pathlib.Path(self._find_repo_root())
+        readme = (repo_root / "README.md").read_text(encoding="utf-8")
+        research_yaml = (repo_root / "examples" / "contracts" / "research.yaml").read_text(
+            encoding="utf-8"
+        )
+
+        # Extract all 'type: <value>' from research.yaml
+        real_types = set(re.findall(r"^\s*type:\s*(\S+)", research_yaml, re.MULTILINE))
+
+        # Extract the README's 'Contract YAML' section: the code block between
+        # '## Contract YAML' and the next '## ' header.
+        contract_section_match = re.search(
+            r"## Contract YAML\n(.*?)(?=\n## |\Z)", readme, re.DOTALL
+        )
+        assert (
+            contract_section_match
+        ), "README.md must contain a '## Contract YAML' section showing the YAML format."
+        contract_section = contract_section_match.group(1)
+
+        # Find all 'type: <value>' in that section
+        readme_types = set(re.findall(r"type:\s*(\S+)", contract_section))
+
+        missing = real_types - readme_types
+        assert not missing, (
+            f"README 'Contract YAML' section is missing check type(s) that appear in "
+            f"examples/contracts/research.yaml: {sorted(missing)}. "
+            "Update the README example to include all check types from the real contract. "
+            "This prevents README-code drift that misleads engineers who copy the example."
         )

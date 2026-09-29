@@ -110,7 +110,7 @@ If this is useful, star the repo — it is how others find it.
 
 ## Real results
 
-Generated from `bash examples/run_demo.sh` on 2026-09-28:
+Generated from `bash examples/run_demo.sh` on 2026-09-29:
 
 **Good run (sample_run.jsonl):**
 
@@ -176,11 +176,13 @@ checks:
   - type: required_tools
     id: required_tools
     severity: error
-    names: [search_docs]
+    names:
+      - search_docs
   - type: forbidden_tools
     id: forbidden_tools
     severity: error
-    names: [send_email]
+    names:
+      - send_email
   - type: max_tool_calls
     id: max_tool_calls
     severity: error
@@ -194,6 +196,9 @@ checks:
     severity: error
     field_name: final_content
     regex: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+  - type: final_answer_not_empty
+    id: final_answer_not_empty
+    severity: error
 ```
 
 ## Integration with Inspect AI
@@ -317,8 +322,11 @@ See [COMPARISONS.md](COMPARISONS.md) for a full factual table. The short version
   This tool reads those recordings and asserts contracts over them.
 - **inspect_ai + inspect-replay** owns sample-aligned log diffing — use it when the
   question is "which sample moved". Use this when the question is "which contract broke".
-- **promptfoo** has the broadest tool-call assertion surface and 25k stars. Choose it for
-  breadth and red-teaming. Choose this for deterministic, keyless, baseline-gated CI.
+- **promptfoo** has the broadest tool-call assertion surface and 25,544 stars (OpenAI-owned).
+  Choose it for breadth and red-teaming. Choose this for deterministic, keyless, baseline-gated CI.
+- **DeepEval** (18,490 stars) is the largest LLM-judged metric library — `ToolCorrectnessMetric`
+  and argument checks, all LLM-as-judge. Choose it for semantic evaluation. Choose this when the
+  question is structural, deterministic, and must cost zero API keys.
 - **Langfuse** (35k stars), **AgentOps** (6k), and **Arize Phoenix** (12k) are the
   dominant observability and LLM-judged evaluation platforms — cloud-connected, rich UIs,
   team dashboards. Choose them when production monitoring or semantic evaluation is the
