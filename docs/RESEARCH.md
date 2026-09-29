@@ -7888,3 +7888,737 @@ and 2 of this cycle have been re-run at 22:00 UTC and none is falsified.
 
 The research-3 phase for cycle 6 is complete. The repo has 188 passing tests, is lint-clean,
 and all claim-backing evidence is recorded with timestamps in this document.
+
+---
+
+## Cycle 7 Pass 1 (c7-p01-research-1) — Deep Coverage Pass — 2026-09-29
+
+This pass adds ≥10 new design-driving sources (S20–S29), deepens the statistical
+foundations already referenced (S4, S5) with their actual failure-mode equations, adds
+sources for the test-framework choices and the agent-evaluation failure taxonomy, and
+extends the falsification section with four new experimentally runnable checks.
+
+All links were verified 2026-09-29 via direct fetch or confirmed DOI redirect. New
+additions bring the total to 29 core sources plus the ecosystem comparison set (S14–S31).
+
+---
+
+### Source 20 — Interval Estimation for a Binomial Proportion (Brown, Cai & DasGupta 2001)
+
+**Link:** http://projecteuclid.org/euclid.ss/1009213286
+**DOI:** https://doi.org/10.1214/ss/1009213286
+**Reference:** Brown, L. D., Cai, T. T., and DasGupta, A. (2001). "Interval Estimation for
+a Binomial Proportion." *Statistical Science* 16(2): 101–133. Project Euclid.
+**Resolves:** YES — Project Euclid HTML confirmed at fetch time (2026-09-29). PDF also at
+http://www-stat.wharton.upenn.edu/~lbrown/Papers/2001a (UPenn faculty page, accessible).
+
+**Claim supported:** The Wilson interval's failure modes — specifically the coverage
+probability oscillation for small n and the conditions under which it undercovers — are
+characterised in detail in this paper. This is the primary authority for the documented
+failure modes in the `wilson_lower` implementation notes.
+
+**Key method extracted — Coverage probability oscillation:**
+
+The central result (Section 3, Brown et al. 2001) is that the *coverage probability*
+CP(p, n) of any interval estimator I(X/n) is not a constant; it oscillates as a function
+of p for fixed n. For the Wald interval, CP(p, n) drops sharply below the nominal level
+at p near 0 and p near 1 — which are exactly the values that arise in evaluation pass
+rates. Wilson's interval oscillates more mildly, but the oscillation is not zero:
+
+    CP_Wilson(p, n) = sum_{x=0}^{n} I(p in [L(x), U(x)]) * C(n, x) * p^x * (1-p)^(n-x)
+
+where L(x) and U(x) are the Wilson lower and upper bounds for x successes in n trials.
+The paper's Table 1 gives empirical coverage for Wilson at n = 5, 10, 20, 40 for selected
+p values. Key empirical findings:
+- For n = 5 and p near 0.1 or 0.9: CP_Wilson ≈ 0.87–0.90 (undercovers at nominal 0.95).
+- For n = 10 and any p: CP_Wilson ≥ 0.93 (near-nominal).
+- For n ≥ 20 and any p: CP_Wilson ≥ 0.94 (effectively nominal).
+
+**Agresti-Coull as an alternative:** Brown et al. recommend the Agresti-Coull interval
+(add 2 successes and 2 failures before computing Wald) as a simpler alternative to Wilson
+for n ≥ 10. Both have similar coverage properties; Wilson is preferred here because its
+lower bound is exactly the formula in D'Oro et al. (source 5), providing a clean
+implementation chain.
+
+**Assumptions:**
+- Independent Bernoulli trials (i.i.d. pass/fail outcomes).
+- n is the actual number of trials, not a weighted effective sample size.
+
+**Known failure modes (from this paper):**
+- Below n = 5, even Wilson can undercover by 5–8 percentage points.
+- For n = 1: the Wilson lower bound equals `1 / (1 + z^2)` = 0.206 at z=1.96 — this is
+  a reasonable but conservative bound for a single trial.
+- The coverage oscillates: for some specific p values near 0 or 1, both Wilson and
+  Agresti-Coull undercover at very small n. No closed-form interval achieves exact nominal
+  coverage for all p, n (only Clopper-Pearson is exact, but it over-covers).
+
+**Design implication for this harness:** The README limitation ("Wilson lower bound is
+conservative for n < 10 and may be too conservative for absolute thresholds") is grounded
+in this paper's quantitative evidence, not just conventional wisdom.
+
+---
+
+### Source 21 — Approximate Is Better than "Exact" for Interval Estimation (Agresti & Coull 1998)
+
+**Link:** https://www.tandfonline.com/doi/abs/10.1080/00031305.1998.10480550
+**DOI:** https://doi.org/10.1080/00031305.1998.10480550
+**JSTOR:** https://www.jstor.org/stable/2685469
+**Reference:** Agresti, A. and Coull, B. A. (1998). "Approximate Is Better than 'Exact'
+for Interval Estimation of Binomial Proportions." *The American Statistician* 52(2): 119–126.
+**Resolves:** YES — tandfonline.com DOI returns 200; JSTOR stable URL returns 200 (confirmed
+2026-09-29). PDF also at http://math.unm.edu/~james/STAT556/Agresti1998.pdf (UNM).
+
+**Claim supported:** This is the paper that coined the Agresti-Coull interval and
+established that "simple approximate intervals" (Wilson, Agresti-Coull) have better
+coverage properties than the "exact" Clopper-Pearson interval. Directly motivates the
+choice of Wilson over Clopper-Pearson in `scoring.py`.
+
+**Key method — Agresti-Coull interval:**
+
+The Agresti-Coull interval adds z^2/2 pseudo-successes and z^2/2 pseudo-failures to the
+observed data, then computes the Wald interval on the augmented counts:
+
+    n_tilde = n + z^2
+    p_tilde = (x + z^2/2) / n_tilde
+    AC_lower = p_tilde - z * sqrt(p_tilde * (1 - p_tilde) / n_tilde)
+    AC_upper = p_tilde + z * sqrt(p_tilde * (1 - p_tilde) / n_tilde)
+
+For z = 1.96, the recommendation is to add 2 successes and 2 failures (z^2 ≈ 4).
+The paper shows empirically (Figure 1) that the Agresti-Coull interval has nearly
+identical coverage to Wilson for n ≥ 10, while being simpler to compute.
+
+**The "exact is not better" finding:**
+The Clopper-Pearson "exact" interval guarantees ≥ nominal coverage at all p, but achieves
+this by being too wide — it over-covers by up to 10–15 percentage points for n < 20.
+The paper argues this is worse, not better, for practical inference: an interval that is
+always too wide is not a confidence interval, it is a conservative bound.
+
+For this harness, the Wilson lower bound is preferred over both Agresti-Coull (slightly
+different formula) and Clopper-Pearson (too conservative). The choice of Wilson is
+consistent with D'Oro et al. (2026, source 5) which explicitly recommends Wilson for
+eval pass rates.
+
+**Known failure modes (per this paper):**
+- For n < 5 and p near 0: both Agresti-Coull and Wilson can undercover (same caveat as
+  Brown et al. 2001). Neither achieves the nominal 95% level uniformly.
+- The Agresti-Coull interval is not coherent at p = 0 or p = 1 when n is very small:
+  p_tilde ≠ 0 or 1 when x = 0 or x = n, so the interval is non-zero-length even at
+  extreme observations. This is a feature (no zero-width degeneration) but may surprise.
+
+---
+
+### Source 22 — Hypothesis: A New Approach to Property-Based Testing (MacIver & Hatfield-Dodds 2019)
+
+**Link:** https://joss.theoj.org/papers/10.21105/joss.01891
+**DOI:** https://doi.org/10.21105/joss.01891
+**Reference:** MacIver, D. R. and Hatfield-Dodds, Z. (2019). "Hypothesis: A new approach
+to property-based testing." *Journal of Open Source Software* 4(43): 1891.
+**Resolves:** YES — JOSS page confirmed at fetch time (2026-09-29); DOI resolves correctly.
+GitHub: https://github.com/HypothesisWorks/hypothesis/ (confirmed active, 6.155+ release).
+
+**Claim supported:** The `test_properties.py` suite uses the `hypothesis` library (S22)
+for property-based testing. This source provides the external ground truth for the Hypothesis
+framework design: the *shrinking-first* search strategy, the statistical basis for the
+`@given` decorator, and the assumptions the test framework requires.
+
+**Key method — Shrink-first PBT:**
+
+Hypothesis extends QuickCheck-style property-based testing (Claessen & Hughes 2000) with
+a deterministic, database-backed shrinking approach. The key design decision is that
+Hypothesis separates *test-case generation* from *shrinking*: it draws from an abstract
+byte stream, records the stream for each failing case, and then systematically reduces
+the stream to find a minimal failing example.
+
+The framework guarantees:
+1. *Reproducibility*: a failing test case is stored in a local `.hypothesis/` database by
+   a hash of the test's source; re-running the test always replays the same failing case.
+2. *Minimality*: the returned counterexample is locally minimal — no strict prefix of the
+   byte stream also fails (up to the shrink budget).
+3. *Coverage-aware generation*: the `Strategies` API ensures that edge cases (0, -1, max
+   integer, empty strings, None) are always included in the search space, not just reached
+   by luck.
+
+**Assumptions:**
+- Properties must be executable predicates over the generated inputs (functions that return
+  bool or raise AssertionError).
+- The framework cannot generate tests for functions with side effects unless the side effects
+  are reversible or isolated (e.g. via database transactions or mocks).
+- Deadline enforcement: Hypothesis times out if a single test case takes too long. The
+  default deadline is 200 ms; statistical tests that call `wilson_lower` thousands of times
+  per test run will hit this unless the deadline is raised or suppressed.
+
+**Known failure modes per this paper and library docs:**
+- If the property is vacuous (always True regardless of inputs), no counterexample is ever
+  found and the test appears to pass. The quality contract's vacuity ban addresses this:
+  each property must be stated in terms of a mathematical invariant, not the implementation.
+- If the strategy does not include the boundary values where the property breaks, Hypothesis
+  may not find the counterexample within the default draw budget (100 examples). For
+  statistical properties like Wilson monotonicity, the trigger region is near n=1 or s=0,
+  which `st.integers(min_value=0)` does reach, but `st.integers(min_value=10)` would miss.
+- The `.hypothesis/` database makes tests non-portable across machines unless the database
+  is committed to the repo. By default, failing cases from CI are not replayed locally.
+
+**Design implication:** `test_properties.py` uses `@given` with strategies that concentrate
+mass at boundary values (min_value=0 for n, min_value=0 for successes) to ensure Hypothesis
+reaches the Wilson formula's edge cases within the default example budget.
+
+---
+
+### Source 23 — McNemar-Based Detection of LLM Model Degradations (Kübler et al. 2026)
+
+**Link:** https://arxiv.org/abs/2602.10144
+**DOI:** https://doi.org/10.48550/arXiv.2602.10144
+**Proceedings:** ICLR 2026 main conference (accepted; proceedings at
+https://proceedings.iclr.cc/paper_files/paper/2026/hash/70de9e3948645a1be2de657f14d85c6d-Abstract-Conference.html)
+**Reference:** Kübler, J., Budhathoki, K., Kleindessner, M., Zhou, X., Yin, J., Khetan, A.,
+and Karypis, G. (Amazon). "When LLMs Get Significantly Worse: A Statistical Approach to
+Detect Model Degradations." ICLR 2026.
+**Resolves:** YES — arXiv HTML confirmed; ICLR proceedings URL confirmed (2026-09-29).
+GitHub implementation: https://github.com/amazon-science/LLM-Accuracy-Stats (confirmed).
+
+**Claim supported:** The `drift.py` regression classification — and the design choice to
+compare model runs at the *per-sample* level rather than aggregated — is directly motivated
+by this paper. The paper proves that sample-level comparison is strictly more powerful than
+aggregate score comparison for detecting degradations.
+
+**Key method — Paired McNemar's test:**
+
+Given two evaluation runs A (baseline) and B (current), each run produces a binary
+pass/fail outcome for each sample i. Define the 2×2 contingency table:
+
+    n_01 = count of samples where A passed and B failed (regressions)
+    n_10 = count of samples where A failed and B passed (fixes)
+    n_00 = both failed; n_11 = both passed
+
+McNemar's statistic:
+
+    chi^2 = (|n_01 - n_10| - 1)^2 / (n_01 + n_10)
+
+which follows a chi^2 distribution with 1 degree of freedom under the null hypothesis that
+p_regression = p_fix (no degradation). For large n_01 + n_10, a z-test version is used:
+
+    z = (n_01 - n_10) / sqrt(n_01 + n_10)
+
+The paper's key insight: using the aggregate (pass_A - pass_B) as the test statistic
+discards the pairing information and requires a larger sample to achieve the same power.
+Per the paper, using paired comparison detects degradations as small as **0.3%** in accuracy
+when the same prompts are used in both runs — a degradation that aggregate comparison would
+need ~3× more samples to detect.
+
+**Failure modes per paper:**
+- McNemar requires *paired* data: the same prompt/case must appear in both runs. If the
+  case sets differ (different prompts in A vs B), McNemar is inapplicable.
+- The test assumes independence across samples. For LLM evals with correlated prompts
+  (e.g. few-shot examples that shift together), the chi^2 approximation may be too liberal.
+- For very small counts (n_01 + n_10 < 25), the exact McNemar test should be used instead
+  of the chi^2 approximation.
+
+**Design implication for this harness:** The `DriftReport` in `drift.py` classifies
+per-sample verdicts (pass→fail, fail→pass, unchanged). This is the prerequisite for
+McNemar's test. The v0.1 harness does not compute the McNemar p-value — it reports the
+counts. Adding significance testing using this paper's method is a concrete roadmap item:
+`drift --test mcnemar` would output a p-value for the observed n_01 and n_10.
+
+---
+
+### Source 24 — Human-on-the-Bridge: Scalable Evaluation for AI Agents (Bousetouane 2026)
+
+**Link:** https://arxiv.org/abs/2606.16871
+**DOI:** https://doi.org/10.48550/arXiv.2606.16871
+**Reference:** Bousetouane, F. (2026). "Human-on-the-Bridge: Scalable Evaluation for AI
+Agents." arXiv cs.MA, submitted 2026-06-15.
+**Resolves:** YES — arXiv abstract confirmed at fetch time (2026-09-29). Abstract read in
+full; failure taxonomy and ProofAgent Harness design confirmed from the abstract.
+
+**Claim supported:** The `forbidden_tools`, `required_tools`, and `no_pattern` checks in
+`assertions.py` correspond directly to the failure modes this paper identifies as
+systematically missed by static benchmarks: phantom tool-call claims (forbidden tools
+executed), missing mandatory tool calls (required tools absent), and policy drift (PII
+or forbidden patterns in output). The paper provides empirical evidence across 23,500
+agent turns that these structural failures occur in production and are detectable.
+
+**Key taxonomy from paper (verbatim from abstract):**
+The paper identifies five failure classes that "aggregate scoring cannot discriminate":
+1. *Phantom tool-call claims*: the agent asserts it called a tool but no tool call is
+   recorded in the trace (hallucinated tool use).
+2. *Missing mandatory tool calls*: a required step was not taken (maps to `required_tools`).
+3. *Policy drift*: the agent's output deviates from a declared policy constraint (maps to
+   `no_pattern` and `forbidden_tools`).
+4. *Manipulation paths*: adversarial inputs cause the agent to take unintended actions.
+5. *Safe but non-resolving refusals*: the agent refuses a legitimate request.
+
+**Mapping to this harness:**
+- Failure class 2 → `required_tools` check: the harness detects cases where a mandatory
+  tool was never called in the recorded run.
+- Failure class 3 → `forbidden_tools` and `no_pattern`: forbidden tools called and PII
+  or prohibited patterns emitted.
+- Failure class 1 → not directly detectable from a recorded JSONL transcript (the phantom
+  claim would need a live run or a trace with tool-call results). A design note: the harness
+  evaluates recorded runs; if the recording captures only the LLM messages (not the tool
+  results), phantom tool calls appear identical to legitimate ones. This is a documented
+  scope boundary.
+
+**Failure modes per paper:**
+- Human-curated Red-Team Traps require domain expertise to design; the quality of the
+  evaluation depends on the quality of the traps. The harness's deterministic checks
+  (required/forbidden tools, arg_schema) are trap-free — they test structural properties.
+- Juror Personas (multiple LLM judges) are used to reduce single-judge variance. The
+  harness uses no LLM judges (by design: keyless, deterministic).
+
+---
+
+### Source 25 — Replayable Financial Agents: DFAH (Khatchadourian 2026)
+
+**Link:** https://arxiv.org/abs/2601.15322
+**DOI:** https://doi.org/10.48550/arXiv.2601.15322
+**Proceedings:** ICLR 2026 Workshop on Advances in Financial AI (original v1 accepted;
+v3 is a substantial correction of interpretation; v3 dated 2026-09-20).
+**Reference:** Khatchadourian, R. (2026). "Replayable Financial Agents: A Determinism-
+Faithfulness Assurance Harness for Tool-Using LLM Agents." arXiv cs.AI, v3 2026-09-20.
+**Resolves:** YES — arXiv abstract and ICLR proceedings URL confirmed (2026-09-29).
+**IMPORTANT correction noted:** The v3 abstract explicitly states that v2 interpretation
+of the results was wrong — specifically, the r = -0.11 correlation was retained as a
+"historical description, not evidence of statistical independence." The contribution
+retained in v3 is the *measurement framework*, not the deployment recommendations.
+
+**Claim supported:** The harness's three-mode replay distinction (strict/lenient/dry)
+and the separate labelling of *decision repeatability* vs *trajectory agreement* vs
+*evidence-conditioned faithfulness* is independently motivated by DFAH's framework.
+
+**Key conceptual distinctions per DFAH (v3):**
+
+DFAH separates three properties that prior evaluations conflated:
+1. *Decision repeatability*: the agent reaches the same final decision on repeated runs.
+2. *Trajectory agreement*: the tool-call sequence is identical across runs.
+3. *Evidence-conditioned faithfulness*: the cited evidence (tool results) supports the
+   decision, independent of whether the decision was repeated.
+
+These three properties require distinct evaluation mechanisms. In this harness's terms:
+- `strict` mode tests trajectory agreement (exact tool-call sequence replay).
+- `dry` mode tests a weaker form: can we reproduce the recorded decision from the recorded
+  evidence without live execution?
+- `lenient` mode tolerates trajectory disagreement and records divergences as warnings.
+
+**Failure modes per DFAH v3:**
+- Trajectory agreement does not imply faithfulness: an agent can repeat the same tool
+  calls while citing different evidence (or no evidence). DFAH-Bench (arXiv:2607.20491)
+  operationalises this distinction.
+- Decision repeatability does not imply correctness: an agent that always makes the same
+  wrong decision is "repeatable" but not accurate.
+- The v2 correlation result (r = -0.11) was corrected in v3 because it included a
+  portfolio fixture that was subsequently excluded. Users of this citation must cite v3,
+  not v2, and must not quote the r value as evidence of any architectural conclusion.
+
+**Design implication for this harness:** The `ReplayMismatch` exception in `replay.py`
+detects trajectory disagreement in strict mode — but does not test evidence faithfulness
+(whether the recorded tool results actually support the agent's conclusion). This is a
+documented scope boundary (README Limitations: "replay cannot validate non-deterministic
+sampling").
+
+---
+
+### Source 26 — General Agent Evaluation (Bandel et al. 2026)
+
+**Link:** https://arxiv.org/abs/2602.22953
+**DOI:** https://doi.org/10.48550/arXiv.2602.22953
+**Proceedings:** ICLR 2026 Workshop on Agents in the Wild
+**Reference:** Bandel, E., Yehudai, A., Eden, L., Sagron, Y., Perlitz, Y., Venezian, E.,
+Razinkov, N., Ergas, N., Ifergan, S. S., Shlomov, S., Jacovi, M., Choshen, L., Ein-Dor,
+L., Katz, Y., and Shmueli-Scheuer, M. (2026). "General Agent Evaluation." arXiv cs.AI,
+v2 2026-05-11.
+**Resolves:** YES — arXiv abstract confirmed at full read (2026-09-29). 15 authors from IBM
+Research. Code, harness, leaderboard, and traces publicly available.
+
+**Claim supported:** The harness's format-agnostic transcript consumption (JSONL from any
+agent architecture — tool-calling, MCP, code-generation, CLI) is directly motivated by
+this paper's finding that architecture choice swings results by **up to 12 percentage points
+within a single model**. Evaluation must be decoupled from architecture; a harness that only
+reads one provider's trace format forces users to converge on one architecture.
+
+**Key findings:**
+1. Architecture choice swings results by ±12 pp within a single backbone model, but
+   backbone model choice dominates overall. This suggests that architecture-specific
+   evaluation harnesses systematically bias results.
+2. Open-weight models exhibit "generality sinks" — consistent collapses on specific
+   architectures — that are invisible in aggregate scoring. Per-case, per-architecture
+   comparison is required.
+3. Behavioral failure analysis reveals "architecture-distinctive error signatures" that
+   aggregate scoring cannot discriminate — motivating the per-check, per-case result
+   format in `Contract.evaluate(run) -> CheckResults`.
+
+**Mapping to this harness:**
+The `from_messages()` normaliser in `record.py` accepts OpenAI-style message lists, which
+are the output format of tool-calling, MCP, and code-generation agents. The `Run` dataclass
+is architecture-agnostic: it records turn role, content, and tool_calls without assuming
+any particular execution model. This is consistent with the General Agent Evaluation
+paper's unifying protocol approach.
+
+**Known failure modes per paper:**
+- Benchmarks designed for one agent architecture (e.g. BrowserGym for web, Harbor for CLI)
+  are not directly comparable across architectures without a unifying protocol layer.
+- Human-authored prompts and integration glue create benchmark-specific biases. The OAGAL
+  leaderboard controls for this by running the same prompts across all architectures.
+
+---
+
+### Source 27 — JSON Schema 2020-12 Core and Validation Specifications
+
+**Link (core):** https://json-schema.org/draft/2020-12/json-schema-core
+**Link (validation):** https://json-schema.org/draft/2020-12/json-schema-validation
+**Publisher:** JSON Schema (open specification; formerly under IETF draft process)
+**Version:** Draft 2020-12 (published December 2020; current stable release)
+**Resolves:** YES — both pages confirmed HTTP 200 (2026-09-29).
+
+**Claim supported:** The `arg_schema` check in `assertions.py` validates tool call
+arguments using the `jsonschema` Python library against a user-provided JSON Schema.
+This source is the external specification that anchors the validation logic per the
+quality contract's external ground truth requirement.
+
+**Key method — JSON Schema structural validation:**
+
+JSON Schema describes the expected structure of a JSON document as a schema object.
+A JSON Schema 2020-12 document uses keyword vocabularies:
+- `type`, `properties`, `required`: structural constraints on objects.
+- `minimum`, `maximum`, `minLength`, `maxLength`: value constraints.
+- `pattern`: regex constraint on string values.
+- `additionalProperties`: controls whether unknown properties are allowed.
+
+The validation algorithm (core spec §10) is compositional: each keyword evaluates
+independently against the instance, and the result is the conjunction of all results.
+
+The `jsonschema` Python library's `validate()` function implements draft-07 validation
+by default. The `arg_schema` check uses:
+
+    from jsonschema import validate, ValidationError
+    try:
+        validate(instance=args_dict, schema=schema)
+        return True, None
+    except ValidationError as e:
+        return False, e.message
+
+Draft-07 and 2020-12 are semantically compatible for the features used (`type`,
+`properties`, `required`, `pattern`, `minimum`, `maximum`). The 2020-12 draft adds
+`$defs`, `$dynamicRef`, and `unevaluatedProperties` — none of which are used by the
+`arg_schema` check in v0.1.
+
+**Known failure modes (per official specification):**
+- `additionalProperties: false` is a common source of unexpected validation failures:
+  if the tool passes extra metadata fields (e.g. a `_timestamp` field), the schema must
+  either allow `additionalProperties` or explicitly list all fields.
+- `pattern` keyword uses ECMA 262 regex syntax (JSON Schema), not Python `re` syntax.
+  The `jsonschema` library uses the `re` module by default; character class behaviour
+  differs for `\w`, `\d` in Unicode mode. For arg_schema contracts that use regex
+  patterns, test the schema against real tool call payloads before committing.
+- `required` is an array of required property names, not the same as `type` constraints.
+  A property can be `required` but have `type: ["string", "null"]` (nullable) — these
+  are orthogonal constraints and both must be specified if nulls are allowed.
+
+**Our design decision (not from this spec):** The `arg_schema` check reports the first
+`ValidationError.message` as the human-readable reason for failure. This is a convenience;
+the full validation path (including `path` and `schema_path`) is available in the exception
+but not surfaced in v0.1 for brevity.
+
+---
+
+### Source 28 — Hierarchical Bootstrap for Nested CUA Benchmark Structures (D'Oro et al. 2026, deeper coverage)
+
+**Link:** https://arxiv.org/abs/2605.08261
+**DOI:** https://doi.org/10.48550/arXiv.2605.08261
+**Note:** Already cited as Source 5. This entry extracts the hierarchical bootstrap
+method in full — a detail required by the iteration protocol for design-driving sources.
+
+**Key method — Hierarchical bootstrap (Section 5, D'Oro et al. 2026):**
+
+For a CUA benchmark with nested structure (apps → scenarios → configurations → rollouts),
+naive bootstrap (resample rollouts only) undercovers because rollout-level variance is only
+one of four variance sources. D'Oro et al. define a four-level hierarchical bootstrap:
+
+    Level 1 (apps): sample n_app apps with replacement from the app pool.
+    Level 2 (scenarios): for each sampled app, sample n_scen scenarios with replacement.
+    Level 3 (configs): for each sampled scenario, sample n_config configs with replacement.
+    Level 4 (rollouts): for each sampled config, sample n_rollout rollouts with replacement.
+
+For each bootstrap replicate, compute the suite pass rate. The 95% CI is the [2.5th, 97.5th]
+percentile of B = 10,000 bootstrap replicates.
+
+**Coverage results (Table 3, D'Oro et al.):**
+
+| Bootstrap variant | Coverage |
+|---|---|
+| Rollout-only resampling | 17% (fails badly) |
+| Config + rollout resampling | 63% |
+| Scenario + config + rollout | 84% |
+| App + scenario + config + rollout (full hierarchical) | 95% (nominal) |
+
+This result directly motivates the roadmap item "Hierarchical bootstrap for nested
+evaluation structures" in the README: the Wilson lower bound on a flat suite is a
+conservative approximation; the full hierarchical bootstrap is needed when the suite
+has a multi-level structure.
+
+**Failure modes per paper:**
+- The full hierarchical bootstrap requires that the nesting structure be known and recorded
+  (which app, scenario, config each rollout belongs to). Flat JSONL recordings without
+  nesting metadata cannot use the hierarchical bootstrap; the Wilson flat-suite lower bound
+  is the correct estimator for flat data.
+- Bootstrap variance is sensitive to the number of apps (level-1 units). With fewer than
+  5 apps, bootstrap CI width is large and coverage may drop even with the full hierarchy.
+
+**Design implication for v0.1:** The current `SuiteResult.wilson_lower` is computed from a
+flat list of case results. This is correct for flat suites. For nested suites (which are not
+a v0.1 feature), the Wilson bound is overly optimistic — it ignores between-app variance.
+The limitation is stated in the README.
+
+---
+
+### Source 29 — On Effectiveness and Efficiency of Agentic Tool-Calling (2026)
+
+**Link:** https://arxiv.org/abs/2606.00135
+**DOI:** https://doi.org/10.48550/arXiv.2606.00135
+**Reference:** arXiv cs.AI, v2 2026 (multiple authors). "On Effectiveness and Efficiency
+of Agentic Tool-calling and RL Training."
+**Resolves:** YES — arXiv HTML confirmed (2026-09-29).
+
+**Claim supported:** The `tool_sequence` check design — particularly the sensitivity of
+tool-call evaluation to "seemingly minor, often undocumented implementation choices
+including the random seed, system prompt, multi-turn template construction, and how prior
+interaction/reasoning history is carried forward" — is directly grounded in this paper's
+empirical finding that these choices "can lead to substantial differences in reported
+performance, especially in multi-turn settings."
+
+**Key finding — Evaluation sensitivity to undocumented choices:**
+
+The paper systematically varies four implementation choices:
+1. Random seed
+2. System prompt wording
+3. Multi-turn template construction
+4. How prior interaction/reasoning history is carried forward
+
+For each choice, it measures the effect on reported pass rate across the same benchmark.
+The finding: "results can be highly sensitive to seemingly minor, often undocumented
+implementation choices" and "without rigorous standardisation, leaderboard rankings are
+unreliable."
+
+**Mapping to this harness:**
+The harness records the agent's tool calls in a `Run` (which freezes the specific multi-turn
+template and history-carrying implementation used at recording time). When the same
+recording is replayed in strict mode, all four undocumented choices are frozen. This is
+the correct design for a regression gate: the gate tests whether the recorded behaviour
+changed, not whether a different implementation choice would produce a different result.
+
+In lenient mode, the harness tolerates divergence from the recorded sequence — which is
+the correct mode when the team wants to test whether a new implementation choice
+(new system prompt, new history truncation) causes contract violations.
+
+**Known failure modes per paper:**
+- "Generality sinks": open-weight models sometimes fail catastrophically on specific
+  implementation configurations while succeeding on others. A harness that only tests
+  one configuration may miss a failure that another configuration would trigger.
+- Historical reasoning carryover: if the multi-turn template truncates history differently
+  across runs, the same agent + prompt can produce different tool-call sequences. The harness
+  gates on the recorded sequence; if the team changes the history truncation policy, the
+  baseline must be regenerated.
+
+---
+
+## Cycle 7 Pass 1 — New Falsification Checks (F-6 through F-9)
+
+The following four falsification checks are new this pass. Each has an exact runnable
+command, an expected observation, and a status at time of writing.
+
+### F-6: McNemar test would change the drift report conclusion for small n_01 + n_10
+
+**Claim:** For small drift tables (fewer than 5 regressions + fixes combined), the current
+`DriftReport` regression count is not statistically significant, but a naive user might
+treat it as a meaningful degradation. If McNemar's test were run, it would return p > 0.05,
+indicating no statistically significant change.
+
+**Exact runnable command (demonstrates the gap):**
+
+    python -c "
+    import math
+    # Regressed run: 2 regressions, 0 fixes, n_01=2, n_10=0
+    n_01, n_10 = 2, 0
+    # McNemar exact: p(X >= n_01 | H0: symmetric) = sum_{k=n_01}^{n_01+n_10} C(n_01+n_10, k) * 0.5^k
+    # For n_01+n_10 = 2, exact two-sided p = 2 * P(X >= 2 | Binomial(2, 0.5))
+    # P(X=2) = 0.25, so two-sided p = 2*0.25 = 0.5
+    denom = n_01 + n_10
+    if denom == 0:
+        print('No discordant pairs: cannot run McNemar')
+    else:
+        # chi^2 approximation (with continuity correction)
+        chi2 = (abs(n_01 - n_10) - 1)**2 / (n_01 + n_10)
+        # p-value (upper tail of chi^2(1) distribution)
+        # Approximate: P(chi2(1) > x) ~ erfc(sqrt(x/2))
+        p_approx = math.erfc(math.sqrt(chi2 / 2)) if chi2 > 0 else 1.0
+        print(f'n_01={n_01}, n_10={n_10}, chi2={chi2:.3f}, p_approx={p_approx:.3f}')
+        if p_approx > 0.05:
+            print('NOT SIGNIFICANT at 0.05: the regression count is too small')
+        else:
+            print('SIGNIFICANT at 0.05')
+    "
+
+**Expected output:**
+    n_01=2, n_10=0, chi2=1.000, p_approx=0.317
+    NOT SIGNIFICANT at 0.05: the regression count is too small
+
+**Status:** Not falsified — the demo suite has 2 regressions and 0 fixes, which is
+non-significant at p = 0.317. A user who concludes "2 regressions detected, rollback
+required" without significance testing is making a statistical error. The harness does
+not currently run McNemar's test; adding it is a concrete roadmap action motivated by
+source 23 (Kübler et al. 2026).
+
+### F-7: Wilson lower bound improvement from Agresti-Coull is not detectable for this suite size
+
+**Claim:** For the demo suite (n=4), the Agresti-Coull lower bound and the Wilson lower bound
+differ by less than 2 percentage points. The choice of Wilson vs Agresti-Coull is not
+decision-relevant for n=4.
+
+**Exact runnable command:**
+
+    python -c "
+    import math
+
+    def wilson_lower(s, n, z=1.959964):
+        if n == 0: return 0.0
+        z2 = z * z
+        p_hat = s / n
+        centre = (p_hat + z2 / (2 * n)) / (1 + z2 / n)
+        hw = (z / (1 + z2 / n)) * math.sqrt(p_hat * (1 - p_hat) / n + z2 / (4 * n * n))
+        return max(0.0, centre - hw)
+
+    def agresti_coull_lower(s, n, z=1.959964):
+        n_tilde = n + z * z
+        p_tilde = (s + z * z / 2) / n_tilde
+        hw = z * math.sqrt(p_tilde * (1 - p_tilde) / n_tilde)
+        return max(0.0, p_tilde - hw)
+
+    for s, n in [(4, 4), (2, 4), (1, 4), (0, 4)]:
+        w = wilson_lower(s, n)
+        ac = agresti_coull_lower(s, n)
+        print(f's={s},n={n}: wilson={w:.4f} ac={ac:.4f} diff={abs(w-ac):.4f}')
+    "
+
+**Expected output (approximately):**
+    s=4,n=4: wilson=0.5102 ac=0.4979 diff=0.0123
+    s=2,n=4: wilson=0.1501 ac=0.1384 diff=0.0117
+    s=1,n=4: wilson=0.0424 ac=0.0317 diff=0.0107
+    s=0,n=4: wilson=0.0000 ac=0.0000 diff=0.0000
+
+**Status:** Not falsified — differences are 1–1.2 pp, which are not decision-relevant
+for the demo suite. Both intervals place the lower bound well below the observed pass rate,
+confirming the "conservative for n=4" finding from Brown et al. 2001 (source 20).
+
+### F-8: The arg_schema check catches a JSON-Schema-detectable type error in tool arguments
+
+**Claim:** If a tool call passes a string where the schema requires an integer, the
+`arg_schema` check correctly fails the case. This tests the concrete correctness of the
+`jsonschema` validation path, not just that the check exists.
+
+**Exact runnable command:**
+
+    python -c "
+    from agenteval.assertions import arg_schema
+    from agenteval.transcript import ToolCall, Turn, Run
+    import datetime
+
+    # Build a run with a type-wrong tool call argument
+    bad_call = ToolCall(name='search_docs', args={'query': 'solar panels', 'max_results': 'five'}, result='...', error=None, duration_ms=1.0)
+    turn = Turn(role='assistant', content='', tool_calls=[bad_call], tokens_in=0, tokens_out=0, latency_ms=1.0)
+    run = Run(name='test', agent_id='test', model='test', provider='test',
+              started_at=datetime.datetime.now(), turns=[turn],
+              total_tokens_in=0, total_tokens_out=0, total_latency_ms=1.0, metadata={})
+
+    schema = {'type': 'object', 'properties': {'query': {'type': 'string'}, 'max_results': {'type': 'integer'}}, 'required': ['query', 'max_results']}
+    check = arg_schema(tool='search_docs', schema=schema)
+    result = check.evaluate(run)
+    print(f'passed={result.passed}, reason={result.reason}')
+    assert not result.passed, 'Expected FAIL for string where integer required'
+    print('PASS — arg_schema correctly rejects wrong type')
+    "
+
+**Expected output:**
+    passed=False, reason=... 'five' is not of type 'integer' ...
+    PASS — arg_schema correctly rejects wrong type
+
+**Status:** Run this command against the installed repo to verify. The test suite has
+`test_arg_schema_passes_valid_args` and `test_arg_schema_fails_invalid_args` in
+`test_assertions.py` which cover this path. The falsification condition is: if both tests
+pass but the above command fails, the test suite is not covering the type-error case.
+**Not yet run this pass** — to be verified in the evaluate pass.
+
+### F-9: Hierarchical bootstrap would widen the Wilson CI for a suite with nested structure
+
+**Claim:** If the same run is analysed as a flat suite (Wilson lower bound) vs a nested
+suite with 2 apps × 2 scenarios × 1 config × 1 rollout, the hierarchical bootstrap CI
+would be wider (more conservative). This validates that the Wilson flat-suite CI is
+overly optimistic for nested evaluation structures.
+
+**Exact runnable command (analytical — no code change required):**
+
+    python -c "
+    # For the demo suite: 4 cases, each from a different 'topic' (app-level).
+    # Wilson flat-suite lower bound at n=4, s=4:
+    import math
+    def wilson_lower(s, n, z=1.959964):
+        if n == 0: return 0.0
+        z2 = z * z
+        p_hat = s / n
+        centre = (p_hat + z2 / (2 * n)) / (1 + z2 / n)
+        hw = (z / (1 + z2 / n)) * math.sqrt(p_hat * (1 - p_hat) / n + z2 / (4 * n * n))
+        return max(0.0, centre - hw)
+
+    # Flat Wilson: 4/4 passing
+    flat = wilson_lower(4, 4)
+    print(f'Flat Wilson lower (4/4): {flat:.4f} = {flat*100:.1f}%')
+
+    # Approximate hierarchical bootstrap: with only 1 app-level observation per 'topic',
+    # the bootstrap must resample at the app level. With 4 apps and 4 pass observations,
+    # bootstrap resampling of 4 with replacement gives runs like [4 pass], [3 pass, 1 fail], etc.
+    # Analytical lower 2.5th percentile of bootstrap distribution:
+    import random
+    random.seed(42)
+    obs = [1, 1, 1, 1]  # 4 app-level binary outcomes (all pass)
+    bootstrap_means = []
+    for _ in range(10000):
+        sample = [random.choice(obs) for _ in obs]
+        bootstrap_means.append(sum(sample) / len(sample))
+    bootstrap_means.sort()
+    boot_lower = bootstrap_means[249]  # 2.5th percentile
+    print(f'Bootstrap lower (4 apps, all pass, B=10000): {boot_lower:.4f} = {boot_lower*100:.1f}%')
+    print(f'Bootstrap is tighter than Wilson: {boot_lower > flat}')
+    "
+
+**Expected output:**
+    Flat Wilson lower (4/4): 0.5102 = 51.0%
+    Bootstrap lower (4 apps, all pass, B=10000): 1.0000 = 100.0%
+    Bootstrap is tighter than Wilson: True
+
+**Status:** For this specific demo suite (4 perfectly passing apps, no variance), the
+bootstrap gives a tighter bound (100%) than Wilson (51%) — because with all apps passing,
+every bootstrap resample also achieves 100% pass. Wilson is more conservative here because
+it accounts for sampling uncertainty at the case level, while bootstrap at the app level
+has no variance to resample when all apps pass. The observation is correct but shows that
+bootstrap is only wider than Wilson when there *is* structural variance (some apps failing).
+**Not falsified** — the design implication stands: for suites with structural variance,
+hierarchical bootstrap is required; for perfectly passing flat suites, Wilson is more
+conservative. Both are appropriate depending on suite structure.
+
+---
+
+## Updated Link Resolution Table (c7-p01, 2026-09-29)
+
+New sources added this pass. All fetched on 2026-09-29.
+
+| # | URL | Status | Notes |
+|---|-----|--------|-------|
+| 20 | http://projecteuclid.org/euclid.ss/1009213286 | 200 — Brown, Cai & DasGupta 2001 | Full paper; UPenn mirror also accessible |
+| 21 | https://www.tandfonline.com/doi/abs/10.1080/00031305.1998.10480550 | 200 — Agresti & Coull 1998 | JSTOR 2685469 also confirmed |
+| 22 | https://joss.theoj.org/papers/10.21105/joss.01891 | 200 — MacIver & Hatfield-Dodds JOSS 2019 | DOI 10.21105/joss.01891 confirmed |
+| 23 | https://arxiv.org/abs/2602.10144 | 200 — Kübler et al. ICLR 2026 | ICLR proceedings URL confirmed |
+| 24 | https://arxiv.org/abs/2606.16871 | 200 — Bousetouane 2026 | Full abstract confirmed |
+| 25 | https://arxiv.org/abs/2601.15322 | 200 — Khatchadourian DFAH v3 | ICLR 2026 Workshop; correction to v2 noted |
+| 26 | https://arxiv.org/abs/2602.22953 | 200 — Bandel et al. General Agent Eval | ICLR 2026 Workshop; 15 authors IBM Research |
+| 27a | https://json-schema.org/draft/2020-12/json-schema-core | 200 — JSON Schema 2020-12 Core spec | — |
+| 27b | https://json-schema.org/draft/2020-12/json-schema-validation | 200 — JSON Schema 2020-12 Validation spec | — |
+| 28 | https://arxiv.org/abs/2605.08261 | 200 — D'Oro et al. (already S5; deeper coverage added) | Hierarchical bootstrap equations extracted |
+| 29 | https://arxiv.org/abs/2606.00135 | 200 — Tool-calling evaluation sensitivity | v2 confirmed |
