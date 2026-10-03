@@ -6,9 +6,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 PYTHON="$REPO_ROOT/.venv/bin/python"
-AGENTEVAL="$REPO_ROOT/.venv/bin/agenteval"
+AGENTEVAL="${AGENTEVAL:-$REPO_ROOT/.venv/bin/agenteval}"
 
-echo "=== agent-eval-harness demo ==="
+echo "=== replayproof demo ==="
 echo ""
 
 # Step 1: run the contract against the sample (good) run

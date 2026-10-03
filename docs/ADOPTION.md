@@ -33,8 +33,15 @@ Requirements:
 # Install from source (works today, no network dependency beyond git):
 git clone https://github.com/AnnasMazhar/replayproof
 cd replayproof
-uv pip install -e '.[dev]'
+uv venv && uv pip install -e '.[dev]'
 cd ../your-project/
+```
+
+Or with the git URL (requires the repo to be publicly accessible):
+
+```bash
+# Requires the repo to be publicly accessible:
+pip install git+https://github.com/AnnasMazhar/replayproof
 ```
 
 Or, once the repo is public, directly from the git URL (no local clone needed):
@@ -529,7 +536,7 @@ Does your team have eval recordings already?
 
 ---
 
-## Cycle 2 deepening — c2-p03-research-3 (2026-09-27)
+## Cycle 2 deepening (2026-09-27)
 
 This section adds:
 1. A second integration target: **EvalCore** (the nearest tool with overlapping replay/gate features)
@@ -703,7 +710,7 @@ Does your team have eval recordings?
 
 ---
 
-## Cycle 3 deepening — c3-p03-research-3 (2026-09-27)
+## Cycle 3 deepening (2026-09-27)
 
 This pass executes the whole Tuesday recipe for real (50-case suite, gate exit codes,
 drift) and runs the Step 1 bridge against **real inspect_ai `.eval` fixtures fetched

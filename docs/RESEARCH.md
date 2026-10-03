@@ -1,4 +1,4 @@
-# docs/RESEARCH.md — Research Backing for agent-eval-harness v0.1
+# docs/RESEARCH.md — Research Backing for replayproof v0.1
 
 **Cycle 9 Pass 2 (c9-p02-research-2) — Ecosystem and Competition Pass — 2026-09-29T17:30 UTC**
 

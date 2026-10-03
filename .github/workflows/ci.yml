@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["main", "feat/**"]
+    branches: ["main", "feat/**", "proof/**"]
   pull_request:
     branches: ["main"]
 
@@ -34,3 +34,46 @@ jobs:
 
       - name: Test
         run: .venv/bin/python -m pytest -q
+
+      - name: Paper traceability check
+        run: .venv/bin/python scripts/check_research_traceability.py
+
+  build-wheel:
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tools
+        run: pip install build==1.2.2
+
+      - name: Build wheel and sdist
+        run: python -m build
+
+      - name: Verify wheel installs and runs
+        run: |
+          pip install dist/*.whl
+          agenteval run \
+            --contract contracts/research.yaml \
+            --runs recordings/real_run.jsonl \
+            --output /tmp/wheel_smoke.json
+          agenteval gate \
+            --baseline recordings/real_run_baseline.json \
+            --current /tmp/wheel_smoke.json
+          echo "Wheel smoke test PASS"
+
+      - name: Print SHA256 of wheel
+        run: sha256sum dist/*.whl
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: replayproof-wheel
+          path: dist/*.whl
+          if-no-files-found: error

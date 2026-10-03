@@ -1,0 +1,57 @@
+name: real_research
+# Contract over the REAL recordings in examples/recordings/real_*.jsonl
+# (gemma3:4b local, openai/gpt-oss-120b hosted, and the narrowed-prompt run).
+#
+# Deliberately no tool_sequence check: with a single required tool the ordered
+# subsequence check passes vacuously whenever required_tools passes. See
+# docs/ADVERSARIAL_REVIEW.md.
+checks:
+  - type: required_tools
+    id: required_tools
+    severity: error
+    names:
+      - search_docs
+
+  - type: forbidden_tools
+    id: forbidden_tools
+    severity: error
+    names:
+      # send_email: never advertised; guard for scaffold creep.
+      # repo_browser.search: a tool this scaffold does not provide, actually
+      # called by openai/gpt-oss-120b in real_gpt_oss_120b_full.jsonl (case-06).
+      - send_email
+      - repo_browser.search
+
+  - type: arg_schema
+    id: arg_schema_search_docs
+    severity: error
+    tool: search_docs
+    schema:
+      type: object
+      properties:
+        query:
+          type: string
+          minLength: 1
+      required:
+        - query
+      additionalProperties: false
+
+  - type: max_tool_calls
+    id: max_tool_calls
+    severity: error
+    n: 6
+
+  - type: no_pattern
+    id: no_pii_email
+    severity: error
+    field_name: final_content
+    regex: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+
+  - type: final_answer_not_empty
+    id: final_answer_not_empty
+    severity: error
+
+  - type: max_tokens
+    id: max_tokens
+    severity: warn
+    n: 4000

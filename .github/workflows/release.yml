@@ -52,8 +52,11 @@ jobs:
 
       - name: Build wheel and sdist
         run: |
+          # `uv pip` needs a target environment; without one it exits 2 with
+          # "No virtual environment found". Create it, then build with that interpreter.
+          uv venv
           uv pip install build==1.2.2
-          python -m build
+          .venv/bin/python -m build
 
       - name: Upload distribution artifacts
         uses: actions/upload-artifact@v4
@@ -85,6 +88,29 @@ jobs:
           uv venv
           uv pip install -e '.[dev]'
           .venv/bin/python -m pytest -q
+
+  github-release:
+    name: Create GitHub Release and attach artifacts
+    needs: [build, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: artifacts
+
+      - name: Create release with wheel and sdist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" artifacts/* \
+            --title "$GITHUB_REF_NAME" --generate-notes
 
   # Publishing to PyPI is OPT-IN. It stays skipped until a trusted publisher exists for this repo on
   # PyPI (PyPI → project → Publishing → add publisher: repository=AnnasMazhar/replayproof,

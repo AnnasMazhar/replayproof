@@ -1,0 +1,63 @@
+{
+  "suite_name": "research",
+  "pass_rate": 1.0,
+  "wilson_lower": 0.6096657119861439,
+  "total_tokens_in": 0,
+  "total_tokens_out": 0,
+  "total_cost_usd": 0.0,
+  "p50_latency_ms": 0.03693049802677706,
+  "p95_latency_ms": 0.07797975558787584,
+  "n_cases": 6,
+  "n_passed": 6,
+  "cases": [
+    {
+      "case_id": "How do solar panels work",
+      "passed": true,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "latency_ms": 0.08885000715963542,
+      "failure_reason": ""
+    },
+    {
+      "case_id": "How long does solar installation take",
+      "passed": true,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "latency_ms": 0.03231999289710075,
+      "failure_reason": ""
+    },
+    {
+      "case_id": "How many kilowatts does a residential solar system produce",
+      "passed": true,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "latency_ms": 0.030907001928426325,
+      "failure_reason": ""
+    },
+    {
+      "case_id": "What is net metering and how does it relate to solar energy",
+      "passed": true,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "latency_ms": 0.0453690008725971,
+      "failure_reason": ""
+    },
+    {
+      "case_id": "What is the efficiency of lithium-ion batteries",
+      "passed": true,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "latency_ms": 0.03003899473696947,
+      "failure_reason": ""
+    },
+    {
+      "case_id": "What types of batteries are used for solar storage",
+      "passed": true,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "latency_ms": 0.04154100315645337,
+      "failure_reason": ""
+    }
+  ],
+  "metadata": {}
+}

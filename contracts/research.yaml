@@ -1,0 +1,33 @@
+name: research
+checks:
+  - type: required_tools
+    id: required_tools
+    severity: error
+    names:
+      - search_docs
+
+  - type: forbidden_tools
+    id: forbidden_tools
+    severity: error
+    names:
+      - send_email
+
+  - type: max_tool_calls
+    id: max_tool_calls
+    severity: error
+    n: 6
+
+  - type: max_tokens
+    id: max_tokens
+    severity: warn
+    n: 4000
+
+  - type: no_pattern
+    id: no_pii_email
+    severity: error
+    field_name: final_content
+    regex: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+
+  - type: final_answer_not_empty
+    id: final_answer_not_empty
+    severity: error
