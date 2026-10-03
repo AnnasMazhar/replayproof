@@ -8,6 +8,11 @@ percentage-increase gate for that metric cannot compute a meaningful ratio and
 is skipped.  This is expected on the first run (no prior data).  The skipped
 gates are recorded in GateReport.skipped_zero_baseline so callers can surface
 them in CI output and avoid silent pass-throughs on corrupted baselines.
+
+Non-finite metric behaviour: if any float metric extracted from the current
+dict is NaN or infinite, compare() raises ValueError immediately.  A corrupted
+run file containing NaN/inf must never silently pass the gate — the gate's core
+safety property is that it fails closed on bad input, not open.
 """
 
 from __future__ import annotations
@@ -158,6 +163,9 @@ def compare(
     the first run.  Skipped gates are listed in GateReport.skipped_zero_baseline
     so CI can surface them rather than silently passing.
 
+    Non-finite values in ``current`` raise ValueError immediately — the gate
+    must fail closed on corrupted run files, not silently return ok=True.
+
     Args:
         current: Dict produced by ``SuiteResult.to_dict()``.
         baseline: The stored Baseline to compare against.
@@ -174,6 +182,56 @@ def compare(
     tol = tolerances if tolerances is not None else Tolerances()
     trips: list[GateTripDetail] = []
     skipped: list[str] = []
+
+    # Guard: reject corrupted run files that contain NaN or infinite values.
+    # NaN comparisons always return False, so `drop > threshold` would be False
+    # for a NaN pass_rate — silently returning ok=True on a corrupted file.
+    _float_metrics = ("pass_rate", "p95_latency_ms", "total_cost_usd")
+    for _metric in _float_metrics:
+        _val = current.get(_metric)
+        if _val is not None:
+            _fval = float(_val)
+            if not math.isfinite(_fval):
+                raise ValueError(
+                    f"current['{_metric}'] is not finite ({_fval!r}); "
+                    "corrupted run files must not be passed to the gate"
+                )
+
+    # Guard: pass_rate must be in [0.0, 1.0].  A value outside this range can
+    # only arise from a corrupted or hand-crafted run file.  Critically, a
+    # pass_rate > 1.0 causes the drop calculation (baseline - current) to yield
+    # a negative value, which is never > max_pass_rate_drop, so the gate
+    # silently returns ok=True even though the value is physically impossible.
+    _pr_val = current.get("pass_rate")
+    if _pr_val is not None:
+        _pr = float(_pr_val)
+        if math.isfinite(_pr) and not (0.0 <= _pr <= 1.0):
+            raise ValueError(f"current['pass_rate'] is {_pr!r}; pass_rate must be in [0.0, 1.0]")
+
+    # Guard: reject negative token/cost/latency counts.  A negative token count
+    # can only arise from a corrupted or hand-crafted run file.  Allowing it
+    # silently would make the token-increase gate pass (negative < baseline,
+    # so the delta is negative and the threshold check is never tripped).
+    _nonneg_int_metrics = ("total_tokens_in", "total_tokens_out")
+    for _metric in _nonneg_int_metrics:
+        _val = current.get(_metric)
+        if _val is not None:
+            _ival = int(_val)
+            if _ival < 0:
+                raise ValueError(
+                    f"current['{_metric}'] is negative ({_ival!r}); "
+                    "token counts must be non-negative"
+                )
+    _nonneg_float_metrics = ("p95_latency_ms", "total_cost_usd")
+    for _metric in _nonneg_float_metrics:
+        _val = current.get(_metric)
+        if _val is not None:
+            _fval = float(_val)
+            if math.isfinite(_fval) and _fval < 0.0:
+                raise ValueError(
+                    f"current['{_metric}'] is negative ({_fval!r}); "
+                    "latency and cost metrics must be non-negative"
+                )
 
     # Pass-rate gate: trip if pass rate drops more than allowed.
     cur_pass = _finite_number(current.get("pass_rate", 0.0), "current.pass_rate")

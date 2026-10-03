@@ -9,6 +9,26 @@ description = "Deterministic, offline-replayable regression testing for LLM agen
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.11"
+keywords = [
+    "llm-evaluation",
+    "ai-agents",
+    "testing",
+    "regression-testing",
+    "llmops",
+    "agent-evaluation",
+    "model-drift",
+    "ci",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+]
 dependencies = [
     "pyyaml==6.0.2",
     "jsonschema==4.23.0",
@@ -20,6 +40,7 @@ agenteval = "agenteval.cli:main"
 [project.urls]
 Homepage = "https://github.com/AnnasMazhar/replayproof"
 Repository = "https://github.com/AnnasMazhar/replayproof"
+Documentation = "https://github.com/AnnasMazhar/replayproof/blob/main/docs/DESIGN.md"
 "Bug Tracker" = "https://github.com/AnnasMazhar/replayproof/issues"
 Changelog = "https://github.com/AnnasMazhar/replayproof/blob/main/CHANGELOG.md"
 

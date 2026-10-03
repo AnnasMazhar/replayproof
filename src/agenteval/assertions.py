@@ -71,7 +71,7 @@ class Check:
         raise NotImplementedError
 
 
-@dataclass
+@dataclass(frozen=True)
 class ToolSequenceCheck(Check):
     """Assert that required tools appear (as a subsequence or subset).
 
@@ -121,7 +121,7 @@ class ToolSequenceCheck(Check):
         return CheckResult(check_id=self.id, passed=True, severity=self.severity, message="ok")
 
 
-@dataclass
+@dataclass(frozen=True)
 class RequiredToolsCheck(Check):
     """Assert that all named tools were called at least once.
 
@@ -147,7 +147,7 @@ class RequiredToolsCheck(Check):
         return CheckResult(check_id=self.id, passed=True, severity=self.severity, message="ok")
 
 
-@dataclass
+@dataclass(frozen=True)
 class ForbiddenToolsCheck(Check):
     """Assert that no named tools were called.
 
@@ -173,7 +173,7 @@ class ForbiddenToolsCheck(Check):
         return CheckResult(check_id=self.id, passed=True, severity=self.severity, message="ok")
 
 
-@dataclass
+@dataclass(frozen=True)
 class ArgSchemaCheck(Check):
     """Assert that a named tool's args conform to a JSON Schema.
 
@@ -187,10 +187,24 @@ class ArgSchemaCheck(Check):
     schema: dict[str, Any] = field(default_factory=dict)
 
     def evaluate(self, run: Run) -> CheckResult:
-        """Fault detected: args fail JSON Schema validation."""
+        """Fault detected: args fail JSON Schema validation or contain non-JSON values."""
+        import json as _json
+
         for tc in run.all_tool_calls():
             if tc.name != self.tool:
                 continue
+            # Pre-validate that args are JSON-serialisable (rejects inf, NaN, etc.).
+            # JSON has no Infinity or NaN; passing them to a downstream tool that
+            # serialises args would produce invalid JSON.
+            try:
+                _json.dumps(tc.args, allow_nan=False)
+            except (TypeError, ValueError) as exc:
+                return CheckResult(
+                    check_id=self.id,
+                    passed=False,
+                    severity=self.severity,
+                    message=f"Tool '{self.tool}' args contain non-JSON-serialisable values: {exc}",
+                )
             try:
                 jsonschema.validate(instance=tc.args, schema=self.schema)
             except jsonschema.ValidationError as exc:
@@ -203,7 +217,7 @@ class ArgSchemaCheck(Check):
         return CheckResult(check_id=self.id, passed=True, severity=self.severity, message="ok")
 
 
-@dataclass
+@dataclass(frozen=True)
 class MaxToolCallsCheck(Check):
     """Assert that the total number of tool calls does not exceed a limit.
 
@@ -228,7 +242,7 @@ class MaxToolCallsCheck(Check):
         return CheckResult(check_id=self.id, passed=True, severity=self.severity, message="ok")
 
 
-@dataclass
+@dataclass(frozen=True)
 class MaxTokensCheck(Check):
     """Assert that total tokens consumed do not exceed a limit.
 
@@ -253,7 +267,7 @@ class MaxTokensCheck(Check):
         return CheckResult(check_id=self.id, passed=True, severity=self.severity, message="ok")
 
 
-@dataclass
+@dataclass(frozen=True)
 class MaxLatencyCheck(Check):
     """Assert that total latency does not exceed a limit in milliseconds.
 
@@ -277,7 +291,7 @@ class MaxLatencyCheck(Check):
         return CheckResult(check_id=self.id, passed=True, severity=self.severity, message="ok")
 
 
-@dataclass
+@dataclass(frozen=True)
 class NoPatternCheck(Check):
     """Assert that a field does not match a regex (e.g. PII or secret leakage).
 
@@ -323,7 +337,7 @@ class NoPatternCheck(Check):
         return CheckResult(check_id=self.id, passed=True, severity=self.severity, message="ok")
 
 
-@dataclass
+@dataclass(frozen=True)
 class FinalAnswerMatchesCheck(Check):
     """Assert that the final assistant response matches a regex.
 
@@ -351,7 +365,7 @@ class FinalAnswerMatchesCheck(Check):
         return CheckResult(check_id=self.id, passed=True, severity=self.severity, message="ok")
 
 
-@dataclass
+@dataclass(frozen=True)
 class FinalAnswerNotEmptyCheck(Check):
     """Assert that the agent produced a non-empty final answer.
 
@@ -408,6 +422,14 @@ class Contract:
     """
 
     def __init__(self, checks: list[Check], name: str = "") -> None:
+        seen_ids: set[str] = set()
+        for check in checks:
+            if check.id in seen_ids:
+                raise ValueError(
+                    f"Duplicate check id {check.id!r} in contract {name!r}. "
+                    "Each check must have a unique id so reports can identify which check fired."
+                )
+            seen_ids.add(check.id)
         self.checks = checks
         self.name = name
 

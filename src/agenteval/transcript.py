@@ -176,7 +176,10 @@ class Run:
             "metadata",
         }
         extra = {k: v for k, v in d.items() if k not in known_keys}
-        base_metadata = dict(d.get("metadata", {}))
+        # metadata may be absent or explicitly null in a forward-compatible recording;
+        # default to an empty dict in both cases.
+        raw_meta = d.get("metadata") or {}
+        base_metadata = dict(raw_meta)
         base_metadata.update(extra)
 
         return cls(

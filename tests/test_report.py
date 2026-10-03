@@ -19,6 +19,46 @@ Faults detected:
   Fault injection: add <script> tag => test fails.
 
 - test_contract_yaml_round_trip: catches a Contract serialiser that loses type or fields.
+
+- test_readme_git_url_install_has_availability_note (TestREADMEInstallContract): catches
+  a README where `pip install git+` appears without a caveat that the command requires
+  the repo to be publicly accessible. Root cause of ADV2-3 (major, c2-p10): the primary
+  install instruction failed for every user because the repo was private; anyone following
+  the README hit `fatal: Authentication failed`. Fault injection: remove the
+  "# Requires the repo to be publicly accessible:" comment line immediately preceding
+  the `pip install git+` command => this test fails (no qualifying note found near the
+  bare `pip install git+` line).
+
+- test_mutation_report_has_real_data (TestMutationReportIntegrity): catches a mutation
+  report JSON that records a failed run (rc != 0, killed/total/kill_rate = null) but is
+  cited in EVIDENCE.md as containing real kill-rate numbers. Root cause of c5-p08
+  finding: EVIDENCE.md section 9 claimed "Kill rate: 94.9%" from reports/mutation-c4.json
+  but that file had rc=1 and null values from a runner failure. Fault injection: write
+  a mutation report JSON with rc=1 and killed=null => this test fails because the most
+  recent successful mutation report is expected to have rc=0 and numeric killed/total.
+
+- test_adoption_install_uses_correct_package_name (TestAdoptionInstallContract): catches
+  ADOPTION.md using the wrong PyPI package name 'agent-eval-harness>=0.1.0'. The PyPI
+  slot is occupied by a different, unrelated package (Franck Ndzomga, 2026-02-09). Any
+  stranger following the adoption guide would install the wrong package and then be
+  confused when `import agenteval` fails. Root cause (c6-p09): the ADOPTION.md install
+  step was written before the PyPI name collision was discovered in c2-p08. Fault
+  injection: restore 'pip install agent-eval-harness' in ADOPTION.md => this test fails.
+
+- test_readme_contract_yaml_contains_all_real_check_types (TestREADMEContractYAMLSync):
+  catches the README 'Contract YAML' section being out of sync with the actual
+  examples/contracts/research.yaml. Root cause (c7-p09): the README example was a
+  simplified illustration missing the 'final_answer_not_empty' check added to the real
+  contract file. Fault injection: add a new check type to research.yaml without updating
+  the README => this test fails because the new type is absent from the README section.
+
+- test_comparisons_narrative_star_counts_match_table (TestCOMPARISONSInternalConsistency):
+  catches COMPARISONS.md narrative text that contradicts the data table in the same
+  document for the same tool. Root cause (c8-p09): the narrative "AgentOps (5,847 stars)"
+  disagreed with the table row "5,846" and "Arize Phoenix (11,642)" disagreed with "11,644"
+  in the same file. A reviewer reading top-to-bottom finds contradictory numbers within
+  50 lines. Fault injection: change the narrative to a number that does not match any
+  table row => this test fails.
 """
 
 import os
@@ -191,3 +231,448 @@ checks:
         assert contract.checks[1].id == "no_pii"
         # Verify the no_pattern check has the right field_name.
         assert contract.checks[1].field_name == "final_content"  # type: ignore[attr-defined]
+
+
+class TestREADMEInstallContract:
+    """Fault: README's pip install git+ appears without an availability disclaimer.
+
+    Root cause of ADV2-3 (major, c2-p10): the primary install instruction failed for
+    every user because the repo was private. Anyone following the README hit
+    fatal: Authentication failed for https://github.com/...
+
+    This test enforces the invariant: every `pip install git+` line in README.md must
+    have a qualifying note - on the immediately preceding line, within the same code
+    block, or within 2 lines above - that indicates the command requires the repo to
+    be publicly accessible.
+
+    Fault injection: removing the `# Requires the repo to be publicly accessible:`
+    comment line from README.md causes this test to fail, because the bare
+    `pip install git+` line no longer has a qualifying note.
+    """
+
+    # Phrases that constitute an acceptable availability note.
+    _NOTES = (
+        "requires the repo to be publicly accessible",
+        "requires the repo to be public",
+        "only works when the repo is public",
+        "only when the repo is public",
+        "once the repo is public",
+    )
+
+    def _has_qualifying_note(self, lines: list, git_url_lineno: int) -> bool:
+        """Return True if any of the 3 lines preceding git_url_lineno contain a note."""
+        window = lines[max(0, git_url_lineno - 3) : git_url_lineno]
+        combined = " ".join(line.lower() for line in window)
+        return any(note in combined for note in self._NOTES)
+
+    def test_readme_git_url_install_has_availability_note(self) -> None:
+        """Every pip install git+ line in README.md must be preceded by a note.
+
+        Fault injection: remove the qualifying comment above the pip install git+ line
+        => the window above the command no longer contains any qualifying phrase
+        => this assertion fails.
+        """
+        import os
+        import pathlib
+
+        # Walk up from this file's directory until we find README.md.
+        # This handles both the normal layout (tests/test_report.py → repo root)
+        # and the mutmut layout (mutants/tests/test_report.py → mutants/ → repo root).
+        env_root = os.environ.get("REPO_ROOT")
+        if env_root:
+            readme_path = pathlib.Path(env_root) / "README.md"
+        else:
+            candidate = pathlib.Path(__file__).resolve().parent
+            readme_path = candidate / "README.md"
+            while not readme_path.exists() and candidate.parent != candidate:
+                candidate = candidate.parent
+                readme_path = candidate / "README.md"
+        assert (
+            readme_path.exists()
+        ), f"README.md not found (searched up from {pathlib.Path(__file__).resolve()})"
+        lines = readme_path.read_text(encoding="utf-8").splitlines()
+
+        violations: list = []
+        for i, line in enumerate(lines):
+            if "pip install git+" in line:
+                if not self._has_qualifying_note(lines, i):
+                    violations.append(i + 1)  # 1-indexed line number
+
+        assert not violations, (
+            "README.md has `pip install git+` on line(s) "
+            + str(violations)
+            + " without a preceding note that the command requires the repo to be publicly "
+            "accessible. Add a comment like '# Requires the repo to be publicly accessible:' "
+            "on the line immediately before each `pip install git+` command, or reorder the "
+            "Install section so the source-install path (git clone + pip install .) comes first."
+        )
+
+
+class TestMutationReportIntegrity:
+    """Fault: a mutation report JSON has rc != 0 and killed/total = null (runner failure),
+    but EVIDENCE.md cites it as containing real kill-rate numbers.
+
+    Root cause (c5-p08): EVIDENCE.md section 9 claimed "Kill rate: 94.9%" from
+    reports/mutation-c4.json, but that file recorded rc=1 and null values because
+    the mutmut subprocess failed (README path issue, fixed in c5-p04 via conftest.py).
+    The c5-p05 EVIDENCE refresh wrote the historical 94.8% number without reading
+    the committed JSON, so the claim and the file were out of sync.
+
+    This test enforces the invariant: the most recent successful mutation report
+    (reports/mutation-c5.json) must exist, have rc=0, and contain integer killed/total
+    and a float kill_rate above the 70% target. Any run that writes null values or rc!=0
+    fails this test.
+
+    Fault injection: write a mutation report with rc=1 and killed=null (as mutation-c4.json
+    does) and point this test at it => the assertions on rc==0 and isinstance(killed, int)
+    would fail, catching the fabricated evidence immediately.
+    """
+
+    def _find_repo_root(self) -> str:
+        import pathlib as _pathlib
+
+        env_root = os.environ.get("REPO_ROOT")
+        if env_root:
+            return env_root
+        candidate = _pathlib.Path(__file__).resolve().parent
+        while not (candidate / "reports").is_dir() and candidate.parent != candidate:
+            candidate = candidate.parent
+        return str(candidate)
+
+    def test_mutation_report_has_real_data(self) -> None:
+        """reports/mutation-c5.json must exist, have rc=0, and contain numeric kill data.
+
+        Fault injection: replace reports/mutation-c5.json with {"rc": 1, "killed": null,
+        "total": null, "kill_rate": null} (as mutation-c4.json looks) => this test fails
+        on rc == 0 assertion and isinstance(killed, int) assertion.
+        """
+        import json
+        import pathlib
+
+        repo_root = pathlib.Path(self._find_repo_root())
+        report_path = repo_root / "reports" / "mutation-c5.json"
+        assert report_path.exists(), (
+            f"reports/mutation-c5.json not found at {report_path}. "
+            "The mutation pass must produce a report with real (non-null) data."
+        )
+        data = json.loads(report_path.read_text(encoding="utf-8"))
+
+        assert data.get("rc") == 0, (
+            f"reports/mutation-c5.json has rc={data.get('rc')} (expected 0). "
+            "A non-zero rc means the mutation runner failed; null kill data cannot "
+            "be cited in EVIDENCE.md as a real mutation score."
+        )
+        killed = data.get("killed")
+        total = data.get("total")
+        kill_rate = data.get("kill_rate")
+        assert isinstance(killed, int) and killed > 0, (
+            f"reports/mutation-c5.json killed={killed!r} is not a positive integer. "
+            "The file records a runner failure, not a real mutation run."
+        )
+        assert (
+            isinstance(total, int) and total > 0
+        ), f"reports/mutation-c5.json total={total!r} is not a positive integer."
+        assert isinstance(kill_rate, float) and kill_rate > 0.70, (
+            f"reports/mutation-c5.json kill_rate={kill_rate!r} is below the 70% target "
+            "or not a float. Expected >=0.70."
+        )
+        # Consistency check: kill_rate must match killed/total within 1%
+        expected_rate = killed / total
+        assert abs(kill_rate - expected_rate) < 0.01, (
+            f"kill_rate={kill_rate:.4f} inconsistent with killed/total={expected_rate:.4f}. "
+            "The JSON may have been hand-edited rather than generated from a real run."
+        )
+
+
+class TestAdoptionInstallContract:
+    """Fault: ADOPTION.md uses the wrong PyPI package name 'agent-eval-harness>=0.1.0'.
+
+    Root cause (c6-p09-improve-2): ADOPTION.md was written before the PyPI name
+    collision was discovered in c2-p08. The PyPI slot 'agent-eval-harness' is occupied
+    by a different, unrelated package (Franck Ndzomga, 2026-02-09). Any engineer
+    following the adoption guide would install the wrong package and then see
+    'ImportError: No module named agenteval' with no clear explanation.
+
+    The correct install is from source (git clone + pip install .) or from the git URL
+    once the repo is public. The README already shows this correctly (fixed in c2-p08).
+
+    Fault injection: restore 'pip install agent-eval-harness' in docs/ADOPTION.md =>
+    this test fails because the bad package name is detected without a PyPI disclaimer.
+    """
+
+    _BAD_NAMES = (
+        "pip install agent-eval-harness",
+        "pip install 'agent-eval-harness",
+        'pip install "agent-eval-harness',
+        "uv pip install agent-eval-harness",
+        "uv pip install 'agent-eval-harness",
+    )
+
+    def _find_repo_root(self) -> str:
+        import os
+
+        env_root = os.environ.get("REPO_ROOT")
+        if env_root:
+            return env_root
+        import pathlib
+
+        candidate = pathlib.Path(__file__).resolve().parent
+        while not (candidate / "docs").is_dir() and candidate.parent != candidate:
+            candidate = candidate.parent
+        return str(candidate)
+
+    def test_adoption_install_uses_correct_package_name(self) -> None:
+        """ADOPTION.md must not install from the occupied PyPI name 'agent-eval-harness'.
+
+        The PyPI slot 'agent-eval-harness' is occupied by a different package. Any
+        line containing 'pip install agent-eval-harness' in ADOPTION.md (without a
+        clear disclaimer that this installs the wrong thing) will mislead engineers.
+
+        Fault injection: add 'pip install agent-eval-harness>=0.1.0' to ADOPTION.md
+        without a disclaimer => assertion fails because the bad name is detected.
+        """
+        import pathlib
+
+        adoption_path = pathlib.Path(self._find_repo_root()) / "docs" / "ADOPTION.md"
+        assert adoption_path.exists(), (
+            f"docs/ADOPTION.md not found at {adoption_path}. " "The adoption guide must exist."
+        )
+        lines = adoption_path.read_text(encoding="utf-8").splitlines()
+
+        violations: list[int] = []
+        for i, line in enumerate(lines):
+            lower = line.lower()
+            if any(bad in lower for bad in self._BAD_NAMES):
+                # Allow the line if it is inside a note/warning explaining the collision.
+                # Check whether the line itself or the 3 preceding lines contain a disclaimer.
+                window = lines[max(0, i - 3) : i + 1]
+                combined = " ".join(ln.lower() for ln in window)
+                disclaimer_phrases = (
+                    "different, unrelated package",
+                    "different package",
+                    "occupied by",
+                    "wrong package",
+                    "installs the wrong",
+                )
+                if not any(p in combined for p in disclaimer_phrases):
+                    violations.append(i + 1)  # 1-indexed
+
+        assert not violations, (
+            "docs/ADOPTION.md references the occupied PyPI name 'agent-eval-harness' "
+            "on line(s) " + str(violations) + " without a disclaimer. "
+            "The PyPI name 'agent-eval-harness' is occupied by a different, unrelated "
+            "package (Franck Ndzomga, 2026-02-09). Use source install instead: "
+            "'git clone https://github.com/AnnasMazhar/replayproof && pip install -e .'."
+        )
+
+
+class TestREADMEContractYAMLSync:
+    """Fault: README 'Contract YAML' section shows an example that is missing checks
+    present in the actual examples/contracts/research.yaml.
+
+    Root cause (c7-p09): The README example was a simplified illustration. When the
+    real research.yaml gained the 'final_answer_not_empty' check, the README example
+    was not updated. A skeptical reviewer who copies the README example and compares it
+    to the file will see the discrepancy immediately.
+
+    This test verifies that every 'type:' value that appears in the real
+    examples/contracts/research.yaml also appears in the README 'Contract YAML' section.
+
+    Fault injection: add a new check type to examples/contracts/research.yaml without
+    updating the README example => this test fails because the new type is not found in
+    the README code block.
+    """
+
+    def _find_repo_root(self) -> str:
+        import os
+        import pathlib
+
+        env_root = os.environ.get("REPO_ROOT")
+        if env_root:
+            return env_root
+        candidate = pathlib.Path(__file__).resolve().parent
+        while not (candidate / "docs").is_dir() and candidate.parent != candidate:
+            candidate = candidate.parent
+        return str(candidate)
+
+    def test_readme_contract_yaml_contains_all_real_check_types(self) -> None:
+        """README Contract YAML section must include all check types from research.yaml.
+
+        The README shows a 'Contract YAML' code block as an example. If the real
+        examples/contracts/research.yaml contains a check type that the README example
+        omits, a reviewer copying from the README will produce a weaker contract than
+        the committed example. The discrepancy also signals that the README is out of sync
+        with the code.
+
+        Fault injection: remove 'final_answer_not_empty' from the README Contract YAML
+        section => this test fails because 'final_answer_not_empty' is found in
+        research.yaml but not in the README Contract YAML block.
+        """
+        import pathlib
+        import re
+
+        repo_root = pathlib.Path(self._find_repo_root())
+        readme = (repo_root / "README.md").read_text(encoding="utf-8")
+        research_yaml = (repo_root / "examples" / "contracts" / "research.yaml").read_text(
+            encoding="utf-8"
+        )
+
+        # Extract all 'type: <value>' from research.yaml
+        real_types = set(re.findall(r"^\s*type:\s*(\S+)", research_yaml, re.MULTILINE))
+
+        # Extract the README's 'Contract YAML' section: the code block between
+        # '## Contract YAML' and the next '## ' header.
+        contract_section_match = re.search(
+            r"## Contract YAML\n(.*?)(?=\n## |\Z)", readme, re.DOTALL
+        )
+        assert (
+            contract_section_match
+        ), "README.md must contain a '## Contract YAML' section showing the YAML format."
+        contract_section = contract_section_match.group(1)
+
+        # Find all 'type: <value>' in that section
+        readme_types = set(re.findall(r"type:\s*(\S+)", contract_section))
+
+        missing = real_types - readme_types
+        assert not missing, (
+            f"README 'Contract YAML' section is missing check type(s) that appear in "
+            f"examples/contracts/research.yaml: {sorted(missing)}. "
+            "Update the README example to include all check types from the real contract. "
+            "This prevents README-code drift that misleads engineers who copy the example."
+        )
+
+
+class TestCOMPARISONSInternalConsistency:
+    """Guard against COMPARISONS.md narrative contradicting its own table.
+
+    The table contains the authoritative star counts. Narrative text (bullet lists,
+    'Choose this when...' sections) must use numbers that match the table. When a star
+    count is refreshed in the table but not in the narrative, a reviewer reads two
+    different numbers for the same tool in the same document — a credibility failure.
+    """
+
+    def _find_repo_root(self) -> str:
+        import os
+        import pathlib
+
+        env_root = os.environ.get("REPO_ROOT")
+        if env_root:
+            return env_root
+        candidate = pathlib.Path(__file__).resolve().parent
+        while not (candidate / "docs").is_dir() and candidate.parent != candidate:
+            candidate = candidate.parent
+        return str(candidate)
+
+    def test_comparisons_narrative_star_counts_match_table(self) -> None:
+        """COMPARISONS.md narrative bullet counts must equal the authoritative table row.
+
+        The table (lines beginning with '|') is the single source of truth for star
+        counts. Narrative text outside the table may reference a tool's star count using
+        the exact number that appears in the table row. If the narrative has a different
+        number for the same tool, the document is internally inconsistent.
+
+        Only tools whose narrative star count can be unambiguously linked to a table row
+        are checked; the test does not check approximate shorthands like '35k' or '6k'.
+
+        Fault injection: change COMPARISONS.md line 75 to say 'AgentOps (5,847 stars)'
+        while the table row keeps '5,846' => this test fails with a clear message naming
+        the inconsistency.
+        """
+        import pathlib
+        import re
+
+        repo_root = pathlib.Path(self._find_repo_root())
+        comp = (repo_root / "COMPARISONS.md").read_text(encoding="utf-8")
+        lines = comp.splitlines()
+
+        # Build a set of ALL star counts that appear in table rows (lines starting with |)
+        table_counts: set[str] = set()
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("|"):
+                for m in re.finditer(r"\*{0,2}(\d{1,3}(?:,\d{3})+)\*{0,2}", stripped):
+                    table_counts.add(m.group(1))
+
+        # Find all exact star counts (format: N,NNN or NN,NNN) mentioned in narrative
+        # text (lines that do NOT start with |).  Shorthand like '35k' or '6k' is
+        # intentionally excluded: the regex only matches comma-formatted numbers.
+        violations: list[str] = []
+        for lineno, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if stripped.startswith("|"):
+                continue
+            for m in re.finditer(r"(\d{1,3}(?:,\d{3})+)\s+stars", stripped):
+                count = m.group(1)
+                if count not in table_counts:
+                    violations.append(
+                        f"Line {lineno}: narrative says '{count} stars' but that exact "
+                        f"number is not in any table row. "
+                        f"Table counts found: {sorted(table_counts)[:8]}..."
+                    )
+
+        assert not violations, (
+            "COMPARISONS.md has narrative star counts that do not match the table:\n"
+            + "\n".join(violations)
+            + "\n\nUpdate the narrative to use the exact number from the table row, "
+            "or the table to match the narrative. The table is the source of truth."
+        )
+
+
+class TestCOMPARISONSPydanticEvalsPresent:
+    """Guard: pydantic-evals must appear in COMPARISONS.md.
+
+    c9-p02-research-2 documented pydantic-evals (v2.51.0, pydantic-ai 20,266★) as
+    a new entrant in the eval space (Source 50) and confirmed it does not implement
+    offline/keyless operation, YAML tool-call contract assertions, Wilson bounds, or
+    a gate CLI. The gap claim is not falsified by this tool, but it must be acknowledged
+    in COMPARISONS.md because a reviewer who discovers it independently and does not find
+    it in the table will conclude the comparison is incomplete.
+
+    Fault injection: remove the pydantic-evals row from COMPARISONS.md =>
+    this test fails, forcing the row to be restored before the next commit.
+    """
+
+    def _find_repo_root(self) -> str:
+        import os
+        import pathlib
+
+        env_root = os.environ.get("REPO_ROOT")
+        if env_root:
+            return env_root
+        candidate = pathlib.Path(__file__).resolve().parent
+        while not (candidate / "docs").is_dir() and candidate.parent != candidate:
+            candidate = candidate.parent
+        return str(candidate)
+
+    def test_comparisons_includes_pydantic_evals(self) -> None:
+        """COMPARISONS.md must include a row for pydantic-evals.
+
+        pydantic-evals is part of pydantic-ai (20,266★ as of 2026-09-29) and was
+        documented in c9-p02 as the largest new entrant in the eval space since cycle 8.
+        Its runner-bound model (requires live function calls, no offline JSONL reader,
+        no YAML contract assertions) makes the gap claim more defensible by showing that
+        even a well-resourced competitor does not cover the offline/keyless dimension.
+
+        The test checks that 'pydantic-evals' appears in the COMPARISONS.md table
+        (a line beginning with '|') so the row cannot be dropped without this test
+        failing.
+
+        Fault injection: delete the pydantic-evals row from COMPARISONS.md =>
+        this test fails because 'pydantic-evals' no longer appears in any table line.
+        """
+        import pathlib
+
+        repo_root = pathlib.Path(self._find_repo_root())
+        comp_path = repo_root / "COMPARISONS.md"
+        assert comp_path.exists(), f"COMPARISONS.md not found at {comp_path}"
+
+        comp = comp_path.read_text(encoding="utf-8")
+        table_lines = [line.strip() for line in comp.splitlines() if line.strip().startswith("|")]
+        found = any("pydantic-evals" in line.lower() for line in table_lines)
+        assert found, (
+            "COMPARISONS.md is missing a table row for pydantic-evals. "
+            "pydantic-evals (pydantic-ai 20,266★, v2.51.0 released 2026-09-25) was "
+            "documented in c9-p02 as a new entrant in the eval space. Its runner-bound "
+            "model (requires live calls, no offline replay, no YAML contracts) "
+            "substantiates the gap claim. Add a row before pushing."
+        )

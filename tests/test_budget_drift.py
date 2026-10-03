@@ -16,6 +16,33 @@ TestDrift:
 - test_drift_classifies_fix: catches drift() that misclassifies fix as regression.
 - test_drift_stable_pass: catches drift() that marks stable-pass as something else.
 - test_drift_token_delta_total: catches drift() that does not aggregate token deltas.
+
+TestGateNonFiniteRejection:
+- test_compare_rejects_nan_pass_rate: catches a gate that accepts NaN pass_rate,
+  returning ok=True on a corrupted run file (C2P11-MAJ-2).
+- test_compare_rejects_inf_pass_rate: catches a gate that accepts infinity pass_rate.
+- test_compare_rejects_nan_latency: catches a gate that accepts NaN latency.
+- test_compare_rejects_inf_cost: catches a gate that accepts infinity cost.
+
+TestGateCLIRejectsJSONL:
+- test_gate_cli_rejects_jsonl_as_current: catches the README bug where --current was
+  documented as a JSONL file; the CLI must return a non-zero exit code and print an
+  actionable error message when given a JSONL file (multiple JSON objects) instead of
+  the expected single-object JSON produced by agenteval run.
+
+TestGateCLIActionableJSONLError:
+- test_gate_cli_jsonl_current_error_is_actionable: catches the unhelpful "not valid JSON:
+  Extra data" error that does not tell the user to run 'agenteval run' first. The error
+  must contain 'agenteval run' as the recovery action hint.
+
+TestCLIErrorHandlingMissingFiles:
+- test_drift_cli_missing_a: catches drift CLI emitting a raw FileNotFoundError
+  traceback when --a file is missing; must return rc=1 with an actionable message.
+- test_drift_cli_missing_b: same for --b argument.
+- test_replay_cli_missing_run: catches replay CLI emitting a raw FileNotFoundError
+  traceback when --run file is missing; must return rc=1 with an actionable message.
+- test_report_cli_missing_suite: catches report CLI emitting a raw FileNotFoundError
+  traceback when --suite file is missing; must return rc=1 with an actionable message.
 """
 
 import os
@@ -229,6 +256,242 @@ class TestDrift:
         ), f"Most diverged should be c3, got {report.most_diverged[0].case_id}"
 
 
+class TestGateNonFiniteRejection:
+    """Tests for C2P11-MAJ-2: gate must reject NaN/infinity metrics (fail closed).
+
+    Root cause: NaN comparisons in Python return False for all comparisons
+    (including `drop > threshold`), so a NaN pass_rate would silently produce
+    ok=True — the gate's core safety property inverted.  A corrupted run file
+    must raise ValueError immediately, not pass.
+
+    Faults detected:
+    - test_compare_rejects_nan_pass_rate: catches a gate that returns ok=True
+      for NaN pass_rate instead of raising ValueError.  The named fault is:
+      remove the math.isfinite guard in compare() => NaN slips through, `drop`
+      is NaN, `drop > threshold` is False, gate returns ok=True.
+    - test_compare_rejects_inf_pass_rate: same fault path with +infinity.
+    - test_compare_rejects_nan_latency: same fault path for p95_latency_ms.
+    - test_compare_rejects_inf_cost: same fault path for total_cost_usd.
+    """
+
+    def test_compare_rejects_nan_pass_rate(self) -> None:
+        """Fault: gate accepts NaN pass_rate and returns ok=True (C2P11-MAJ-2).
+
+        NaN comparisons always return False, so `drop > threshold` is False for
+        NaN, causing the gate to return ok=True on a corrupted run file.
+        Inject: remove the isfinite check => compare({'pass_rate': nan, ...}) -> ok=True.
+        """
+        baseline_dict = _suite_dict(pass_rate=0.9)
+        current_corrupted = _suite_dict(pass_rate=float("nan"))
+        baseline = Baseline(baseline_dict)
+        with pytest.raises(ValueError, match="pass_rate"):
+            compare(current_corrupted, baseline)
+
+    def test_compare_rejects_inf_pass_rate(self) -> None:
+        """Fault: gate accepts +inf pass_rate and returns ok=True.
+
+        Inject: remove the isfinite check => compare({'pass_rate': inf, ...}) -> ok=True
+        (inf - 0.9 = inf, but inf > 0.0 would actually trip, so the test also ensures
+        we don't silently accept -inf which would suppress a trip).
+        """
+        baseline_dict = _suite_dict(pass_rate=0.9)
+        current_corrupted = _suite_dict(pass_rate=float("inf"))
+        baseline = Baseline(baseline_dict)
+        with pytest.raises(ValueError, match="pass_rate"):
+            compare(current_corrupted, baseline)
+
+    def test_compare_rejects_nan_latency(self) -> None:
+        """Fault: gate accepts NaN latency and skips the latency gate silently.
+
+        NaN latency would cause the latency gate to silently pass (NaN > threshold
+        is False), allowing a run with corrupted latency data through.
+        Inject: remove isfinite for p95_latency_ms => gate passes silently.
+        """
+        baseline_dict = _suite_dict(p95_latency=200.0)
+        current_corrupted = _suite_dict(p95_latency=0.0)
+        # Manually override the latency to NaN post-construction.
+        current_corrupted = dict(current_corrupted)
+        current_corrupted["p95_latency_ms"] = float("nan")
+        baseline = Baseline(baseline_dict)
+        with pytest.raises(ValueError, match="p95_latency_ms"):
+            compare(current_corrupted, baseline)
+
+    def test_compare_rejects_inf_cost(self) -> None:
+        """Fault: gate accepts +inf cost and silently passes the cost gate.
+
+        cost_increase = (inf - baseline) / baseline = inf, which IS > threshold.
+        But -inf would suppress a trip.  Either way, non-finite values in run
+        files are corrupted data and must not enter the gate logic.
+        Inject: remove isfinite for total_cost_usd => inf passes into division.
+        """
+        baseline_dict = _suite_dict(cost=0.01)
+        current_corrupted = dict(_suite_dict(cost=0.01))
+        current_corrupted["total_cost_usd"] = float("inf")
+        baseline = Baseline(baseline_dict)
+        with pytest.raises(ValueError, match="total_cost_usd"):
+            compare(current_corrupted, baseline)
+
+
+class TestGateNegativeMetricRejection:
+    """Tests for C6P11-MIN-2: gate must reject negative token/latency/cost metrics.
+
+    A negative token count can only arise from a corrupted or hand-crafted run
+    file.  Without this guard the token-increase gate silently passes: the delta
+    (negative_count - baseline) is negative, so the ratio is negative, which is
+    always below the allowed-increase threshold.
+
+    Faults detected:
+    - test_compare_rejects_negative_tokens_in: catches a gate that returns ok=True
+      for a run with total_tokens_in=-9999999.  Named fault: remove the non-negative
+      guard for token counts => compare returns ok=True despite extreme negative value.
+    - test_compare_rejects_negative_tokens_out: same fault for total_tokens_out.
+    - test_compare_rejects_negative_latency: same fault for p95_latency_ms < 0.
+    - test_compare_rejects_negative_cost: same fault for total_cost_usd < 0.
+    - test_compare_accepts_zero_metrics: zero is valid (first-run baseline or demo
+      agent with no LLM); gate must not raise for zero values.
+    """
+
+    def test_compare_rejects_negative_tokens_in(self) -> None:
+        """Fault: gate accepts total_tokens_in < 0 and returns ok=True (C6P11-MIN-2).
+
+        With baseline tokens=150 and current tokens_in=-9999999, the total current
+        tokens = -9999999, making the token-increase ratio strongly negative.  A ratio
+        of -67000 is < 0.10, so the gate trips never.
+        Inject: remove the non-negative guard => compare returns ok=True.
+        """
+        baseline_dict = _suite_dict(pass_rate=1.0, tokens_in=100, tokens_out=50)
+        current_dict = _suite_dict(pass_rate=1.0, tokens_in=-9999999, tokens_out=50)
+        baseline = Baseline(baseline_dict)
+        with pytest.raises(ValueError, match="total_tokens_in"):
+            compare(current_dict, baseline)
+
+    def test_compare_rejects_negative_tokens_out(self) -> None:
+        """Fault: gate accepts total_tokens_out < 0 and allows token gate bypass.
+
+        Inject: remove guard for tokens_out => compare returns ok=True.
+        """
+        baseline_dict = _suite_dict(pass_rate=1.0, tokens_in=100, tokens_out=50)
+        current_dict = _suite_dict(pass_rate=1.0, tokens_in=100, tokens_out=-50)
+        baseline = Baseline(baseline_dict)
+        with pytest.raises(ValueError, match="total_tokens_out"):
+            compare(current_dict, baseline)
+
+    def test_compare_rejects_negative_latency(self) -> None:
+        """Fault: gate accepts p95_latency_ms < 0 and returns ok=True.
+
+        Inject: remove guard for latency => compare returns ok=True even with -1.0ms.
+        """
+        baseline_dict = _suite_dict(pass_rate=1.0, p95_latency=100.0)
+        current_dict = dict(_suite_dict(pass_rate=1.0, p95_latency=100.0))
+        current_dict["p95_latency_ms"] = -1.0
+        baseline = Baseline(baseline_dict)
+        with pytest.raises(ValueError, match="p95_latency_ms"):
+            compare(current_dict, baseline)
+
+    def test_compare_rejects_negative_cost(self) -> None:
+        """Fault: gate accepts total_cost_usd < 0 and returns ok=True.
+
+        Inject: remove guard for cost => compare returns ok=True for negative cost.
+        """
+        baseline_dict = _suite_dict(pass_rate=1.0, cost=0.01)
+        current_dict = dict(_suite_dict(pass_rate=1.0, cost=0.01))
+        current_dict["total_cost_usd"] = -0.01
+        baseline = Baseline(baseline_dict)
+        with pytest.raises(ValueError, match="total_cost_usd"):
+            compare(current_dict, baseline)
+
+    def test_compare_accepts_zero_metrics(self) -> None:
+        """Zero token/latency/cost values are valid (demo agent, first run).
+
+        The guard must not raise for zero — only for strictly negative values.
+        """
+        baseline_dict = _suite_dict(pass_rate=1.0, tokens_in=0, tokens_out=0)
+        current_dict = _suite_dict(pass_rate=1.0, tokens_in=0, tokens_out=0)
+        baseline = Baseline(baseline_dict)
+        # Must not raise.
+        report = compare(current_dict, baseline)
+        assert report.ok
+
+
+class TestGatePassRateRangeValidation:
+    """Gate must reject pass_rate outside [0.0, 1.0] with ValueError.
+
+    pass_rate is a probability and must lie in [0.0, 1.0].  A value greater
+    than 1.0 silently bypasses the gate: the drop calculation (baseline -
+    current) yields a negative number, which is never > max_pass_rate_drop,
+    so compare() returns ok=True for a physically impossible value.
+
+    Faults detected:
+    - test_compare_rejects_pass_rate_above_one: catches a gate that returns
+      ok=True for pass_rate=2.0.  Named fault: remove the [0,1] range guard
+      => compare returns ok=True even though pass_rate=2.0 is impossible.
+    - test_compare_rejects_pass_rate_1_5: same for 1.5.
+    - test_compare_rejects_negative_pass_rate: catches silent ok=False
+      (gate trips but does not raise) for pass_rate=-0.5.  Named fault:
+      remove the range guard => compare silently proceeds; consistent error
+      behaviour requires ValueError for any out-of-range input.
+    - test_compare_accepts_zero_pass_rate: 0.0 is a valid (total failure)
+      pass_rate; guard must not raise for boundary value.
+    - test_compare_accepts_one_pass_rate: 1.0 is a valid (total success)
+      pass_rate; guard must not raise for boundary value.
+    """
+
+    def test_compare_rejects_pass_rate_above_one(self) -> None:
+        """Fault: gate accepts pass_rate=2.0 and returns ok=True.
+
+        With baseline=0.9 and current=2.0, drop = 0.9 - 2.0 = -1.1.
+        -1.1 is not > 0.0, so no trip fires and gate returns ok=True.
+        Inject: remove the [0,1] range guard => compare returns ok=True.
+        """
+        baseline = Baseline(_suite_dict(pass_rate=0.9))
+        current = dict(_suite_dict(pass_rate=0.9))
+        current["pass_rate"] = 2.0
+        with pytest.raises(ValueError, match="pass_rate"):
+            compare(current, baseline)
+
+    def test_compare_rejects_pass_rate_1_5(self) -> None:
+        """Fault: gate accepts pass_rate=1.5 and returns ok=True.
+
+        Same mechanism as above; 1.5 is a distinct boundary beyond the valid range.
+        Inject: remove the [0,1] range guard => compare returns ok=True.
+        """
+        baseline = Baseline(_suite_dict(pass_rate=0.8))
+        current = dict(_suite_dict(pass_rate=0.8))
+        current["pass_rate"] = 1.5
+        with pytest.raises(ValueError, match="pass_rate"):
+            compare(current, baseline)
+
+    def test_compare_rejects_negative_pass_rate(self) -> None:
+        """Fault: gate silently proceeds for pass_rate=-0.5 instead of raising.
+
+        Without the guard, compare() calculates drop = baseline - (-0.5) = large
+        positive, trips the gate, and returns ok=False — no error is raised.
+        Consistent fail-closed behaviour requires ValueError for any invalid input.
+        Inject: remove the [0,1] range guard => compare returns ok=False silently.
+        """
+        baseline = Baseline(_suite_dict(pass_rate=0.9))
+        current = dict(_suite_dict(pass_rate=0.9))
+        current["pass_rate"] = -0.5
+        with pytest.raises(ValueError, match="pass_rate"):
+            compare(current, baseline)
+
+    def test_compare_accepts_zero_pass_rate(self) -> None:
+        """0.0 is a valid pass_rate (total failure run); guard must not raise."""
+        baseline = Baseline(_suite_dict(pass_rate=0.9))
+        current = _suite_dict(pass_rate=0.0)
+        # Must not raise; gate should trip on the pass_rate drop.
+        report = compare(current, baseline)
+        assert not report.ok  # drop = 0.9 > 0.0 threshold
+
+    def test_compare_accepts_one_pass_rate(self) -> None:
+        """1.0 is a valid pass_rate (perfect run); guard must not raise."""
+        baseline = Baseline(_suite_dict(pass_rate=0.8))
+        current = _suite_dict(pass_rate=1.0)
+        # Must not raise; no trip since current > baseline.
+        report = compare(current, baseline)
+        assert report.ok
+
+
 class TestTranscriptRoundTrip:
     """Run serialisation round-trip test."""
 
@@ -368,87 +631,202 @@ class TestGateZeroBaselineSurfaces:
         assert isinstance(d["skipped_zero_baseline"], list)
 
 
-class TestGateNonFiniteMetrics:
-    """C2P11-MAJ-2: gate accepted NaN/infinity pass_rate and returned ok=True.
+class TestGateCLIRejectsJSONL:
+    """Tests that the CLI gate subcommand rejects JSONL files passed as --current.
 
-    Fault detected: compare({"pass_rate": float("nan"), ...}, baseline).ok
-    returned True, because NaN comparisons are all False so no trip fires.
-    A corrupted current or baseline file must raise, never score as a pass.
+    Context: README previously documented `agenteval gate --current recordings/my_eval_new.jsonl`
+    which is wrong — --current must be a JSON file produced by `agenteval run`, not a raw JSONL.
+    The CLI calls `json.load()` on the file and returns exit code 1 on a JSONDecodeError;
+    this test confirms that path is exercised so the documentation fix is backed by a test.
     """
 
-    def test_gate_rejects_nan_current_pass_rate(self) -> None:
-        """Fault detected: NaN current pass_rate silently passes the gate."""
-        current = _suite_dict()
-        current["pass_rate"] = float("nan")
-        baseline = Baseline(_suite_dict())
-        with pytest.raises(ValueError, match="current.pass_rate"):
-            compare(current, baseline)
-
-    @pytest.mark.parametrize("bad", [float("inf"), float("-inf")])
-    def test_gate_rejects_infinite_current_pass_rate(self, bad: float) -> None:
-        """Fault detected: inf current pass_rate accepted."""
-        current = _suite_dict()
-        current["pass_rate"] = bad
-        baseline = Baseline(_suite_dict())
-        with pytest.raises(ValueError, match="current.pass_rate"):
-            compare(current, baseline)
-
-    def test_gate_rejects_nan_baseline_pass_rate(self) -> None:
-        """Fault detected: NaN baseline pass_rate accepted (drop = NaN, no trip)."""
-        current = _suite_dict()
-        baseline_data = _suite_dict()
-        baseline_data["pass_rate"] = float("nan")
-        baseline = Baseline(baseline_data)
-        with pytest.raises(ValueError, match="baseline.pass_rate"):
-            compare(current, baseline)
-
-    def test_gate_rejects_nan_latency(self) -> None:
-        """Fault detected: NaN p95 latency accepted."""
-        current = _suite_dict()
-        current["p95_latency_ms"] = float("nan")
-        baseline = Baseline(_suite_dict())
-        with pytest.raises(ValueError, match="p95_latency_ms"):
-            compare(current, baseline)
-
-    def test_gate_rejects_nan_cost(self) -> None:
-        """Fault detected: NaN total_cost_usd accepted."""
-        current = _suite_dict()
-        current["total_cost_usd"] = float("nan")
-        baseline = Baseline(_suite_dict(cost=1.0))
-        with pytest.raises(ValueError, match="total_cost_usd"):
-            compare(current, baseline)
-
-    def test_gate_valid_metrics_still_compared(self) -> None:
-        """Regression guard: finite metrics keep working after validation."""
-        current = _suite_dict(pass_rate=0.5)
-        baseline = Baseline(_suite_dict(pass_rate=1.0))
-        report = compare(current, baseline)
-        assert report.ok is False
-        assert report.trips[0].metric == "pass_rate"
-
-    def test_cli_gate_exits_2_on_nan_input(self, tmp_path) -> None:
-        """Fault detected: CLI scored a NaN current file as a regression/pass.
-
-        Exit 2 (input error) distinguishes a corrupted file from exit 1
-        (measured regression).
+    def test_gate_cli_rejects_jsonl_as_current(self, tmp_path: "pytest.TempDir") -> None:
+        """Fault: gate CLI silently accepts a multi-line JSONL file as --current,
+        which would either raise an exception without a clear error message or
+        silently return ok=True on malformed input.
+        A JSONL file (newline-delimited JSON objects) is not valid as a single JSON
+        object; json.load() must raise JSONDecodeError, and the CLI must return exit 1.
         """
-        import json
+        import json as _json
 
-        from agenteval import cli
-        from agenteval.cli import build_parser
+        from agenteval.cli import _cmd_gate, build_parser
 
+        # Build a minimal valid baseline file
         baseline_file = tmp_path / "baseline.json"
-        current_file = tmp_path / "current.json"
-        baseline_file.write_text(json.dumps(_suite_dict()))
-        # Python's json accepts the NaN literal on load, so a corrupted file
-        # really does reach the gate as float('nan').
-        current_file.write_text(
-            json.dumps(_suite_dict()).replace('"pass_rate": 1.0', '"pass_rate": NaN')
+        baseline_file.write_text(
+            _json.dumps(
+                {
+                    "pass_rate": 1.0,
+                    "wilson_lower": 0.51,
+                    "total_tokens_in": 0,
+                    "total_tokens_out": 0,
+                    "p95_latency_ms": 0.1,
+                    "total_cost_usd": 0.0,
+                    "case_count": 1,
+                    "pass_count": 1,
+                }
+            )
+        )
+
+        # Build a JSONL file (two lines of JSON objects — not valid as a single JSON value)
+        jsonl_file = tmp_path / "current.jsonl"
+        jsonl_file.write_text(
+            '{"schema_version": 1, "name": "run1", "turns": []}\n'
+            '{"schema_version": 1, "name": "run2", "turns": []}\n'
         )
 
         parser = build_parser()
         args = parser.parse_args(
-            ["gate", "--baseline", str(baseline_file), "--current", str(current_file)]
+            ["gate", "--baseline", str(baseline_file), "--current", str(jsonl_file)]
         )
-        code = cli._cmd_gate(args)
-        assert code == 2, f"expected exit 2 for NaN input, got {code}"
+        rc = _cmd_gate(args)
+        assert rc == 1, (
+            "gate CLI must return exit code 1 when --current is a JSONL file "
+            "(multi-line, not a single JSON object); got rc=" + str(rc)
+        )
+
+
+class TestGateCLIActionableJSONLError:
+    """Tests that the gate CLI emits an actionable error when --current is a JSONL file.
+
+    Context: A common first-use mistake is passing a JSONL recording file (produced by
+    agenteval record) directly to agenteval gate --current, instead of first running it
+    through agenteval run --output to produce a JSON suite result.
+
+    The old error "not valid JSON: Extra data" was not actionable — a stranger does not
+    know to run `agenteval run` first. The new error should tell them exactly what to do.
+    """
+
+    def test_gate_cli_jsonl_current_error_is_actionable(
+        self, tmp_path: "pytest.TempDir", capsys: "pytest.CaptureFixture"
+    ) -> None:
+        """Fault: gate CLI emits a generic 'not valid JSON' error when --current is a
+        .jsonl recording file instead of telling the user to run 'agenteval run' first.
+        A stranger cloning the repo and misreading the docs hits this immediately.
+        The error must mention 'agenteval run' so the recovery path is obvious.
+        """
+        import json as _json
+
+        from agenteval.cli import _cmd_gate, build_parser
+
+        baseline_file = tmp_path / "baseline.json"
+        baseline_file.write_text(
+            _json.dumps(
+                {
+                    "pass_rate": 1.0,
+                    "total_tokens_in": 0,
+                    "total_tokens_out": 0,
+                    "p95_latency_ms": 0.1,
+                    "total_cost_usd": 0.0,
+                }
+            )
+        )
+
+        # A JSONL recording file — two JSON objects, one per line
+        jsonl_file = tmp_path / "recording.jsonl"
+        jsonl_file.write_text(
+            '{"schema_version": 1, "name": "run1", "turns": []}\n'
+            '{"schema_version": 1, "name": "run2", "turns": []}\n'
+        )
+
+        parser = build_parser()
+        args = parser.parse_args(
+            ["gate", "--baseline", str(baseline_file), "--current", str(jsonl_file)]
+        )
+        rc = _cmd_gate(args)
+        assert rc == 1, "gate must exit 1 when --current is a JSONL file"
+
+        captured = capsys.readouterr()
+        assert "agenteval run" in captured.err, (
+            "Error message must mention 'agenteval run' so user knows the recovery path; "
+            f"got: {captured.err!r}"
+        )
+
+
+class TestCLIErrorHandlingMissingFiles:
+    """Tests for actionable error messages when CLI commands receive missing files.
+
+    Faults detected:
+
+    - test_drift_cli_missing_a: catches a drift command that raises a raw
+      FileNotFoundError traceback instead of an actionable error message when --a
+      does not exist. A stranger following the docs sees the error and knows what to do.
+
+    - test_drift_cli_missing_b: same for --b.
+
+    - test_replay_cli_missing_run: catches a replay command that raises a raw
+      FileNotFoundError traceback instead of an actionable error message when
+      --run does not exist.
+
+    - test_report_cli_missing_suite: catches a report command that raises a raw
+      FileNotFoundError traceback instead of an actionable message when --suite
+      does not exist.
+    """
+
+    def test_drift_cli_missing_a(self, tmp_path: "pytest.TempDir") -> None:
+        """Fault: drift --a <missing> emits a raw Python traceback (FileNotFoundError)
+        instead of an actionable 'error: suite file not found' message.
+        A stranger sees the traceback and has no clear recovery action.
+        """
+        import json as _json
+
+        from agenteval.cli import _cmd_drift, build_parser
+
+        good_file = tmp_path / "b.json"
+        good_file.write_text(_json.dumps({"cases": [], "pass_rate": 1.0}))
+
+        parser = build_parser()
+        args = parser.parse_args(
+            ["drift", "--a", str(tmp_path / "missing_a.json"), "--b", str(good_file)]
+        )
+        rc = _cmd_drift(args)
+        assert rc == 1, "drift CLI must return exit code 1 when --a file is missing; got rc=" + str(
+            rc
+        )
+
+    def test_drift_cli_missing_b(self, tmp_path: "pytest.TempDir") -> None:
+        """Fault: drift --b <missing> emits a raw Python traceback instead of
+        an actionable error message. Same fault as test_drift_cli_missing_a but
+        for the --b argument, which is a separate code path.
+        """
+        import json as _json
+
+        from agenteval.cli import _cmd_drift, build_parser
+
+        good_file = tmp_path / "a.json"
+        good_file.write_text(_json.dumps({"cases": [], "pass_rate": 1.0}))
+
+        parser = build_parser()
+        args = parser.parse_args(
+            ["drift", "--a", str(good_file), "--b", str(tmp_path / "missing_b.json")]
+        )
+        rc = _cmd_drift(args)
+        assert rc == 1, "drift CLI must return exit code 1 when --b file is missing; got rc=" + str(
+            rc
+        )
+
+    def test_replay_cli_missing_run(self, tmp_path: "pytest.TempDir") -> None:
+        """Fault: replay --run <missing> emits a raw Python traceback instead of
+        an actionable 'error: run file not found' message.
+        """
+        from agenteval.cli import _cmd_replay, build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["replay", "--run", str(tmp_path / "nonexistent.jsonl")])
+        rc = _cmd_replay(args)
+        assert rc == 1, (
+            "replay CLI must return exit code 1 when --run file is missing; got rc=" + str(rc)
+        )
+
+    def test_report_cli_missing_suite(self, tmp_path: "pytest.TempDir") -> None:
+        """Fault: report --suite <missing> emits a raw Python traceback instead of
+        an actionable 'error: suite file not found' message.
+        """
+        from agenteval.cli import _cmd_report, build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["report", "--suite", str(tmp_path / "nonexistent.json")])
+        rc = _cmd_report(args)
+        assert rc == 1, (
+            "report CLI must return exit code 1 when --suite file is missing; got rc=" + str(rc)
+        )

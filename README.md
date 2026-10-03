@@ -4,28 +4,22 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Your eval framework tells you the score moved.
-This tells you **which tool-call contract broke**, with a 95% confidence bound,
-and **fails the build** when token cost regressed against your stored baseline.
+Assert tool-call contracts over recorded LLM agent runs and fail CI when token cost or pass rate regresses — no API keys, no live model, no non-determinism.
 
-For AI engineers who already record agent runs and want deterministic CI gates
-without paying for a live LLM on every run.
+For AI engineers who already record agent runs and want deterministic CI gates without paying for a live LLM on every run.
 
 ```bash
-pip install git+https://github.com/AnnasMazhar/replayproof
-# derive a baseline from a real recorded run, then gate a regressed run against it
-agenteval run --contract examples/contracts/real_research.yaml \
-    --runs examples/recordings/real_gemma3_4b_full.jsonl --output baseline.json
-agenteval run --contract examples/contracts/real_research.yaml \
-    --runs examples/recordings/real_gemma3_4b_narrowed.jsonl --output result.json
-agenteval gate --baseline baseline.json --current result.json   # exit 1 on regression
+git clone https://github.com/AnnasMazhar/replayproof && cd replayproof
+python3 -m venv .venv && . .venv/bin/activate && pip install .
+bash examples/run_demo.sh   # no keys needed — output below is from this command
 ```
 
-The distribution is `replayproof`; the command is `agenteval`.
+If this is useful, star the repo — it is how others find it.
 
-Note: `pip install agent-eval-harness` installs a **different, unrelated package** on PyPI
-(Franck Ndzomga, 2026-02-09). Install from the git URL above or from source — the PyPI name
-`replayproof` is reserved for the v0.2 release.
+> **Note:** `pip install agent-eval-harness` installs a **different, unrelated package** on PyPI
+> (Franck Ndzomga, 2026-02-09). Install from source as shown above — the PyPI name
+> `replayproof` is reserved for the v0.2 release. If the repo is not yet public, see the
+> **Install** section below for the offline install path that requires no network access.
 
 ## What problem this solves
 
@@ -63,15 +57,24 @@ Record agent run  ──►  Run.jsonl  ──►  Contract.evaluate  ──► 
 ## Install
 
 ```bash
-pip install git+https://github.com/AnnasMazhar/replayproof
+git clone https://github.com/AnnasMazhar/replayproof
+cd replayproof
+uv venv && uv pip install -e '.[dev]'
 ```
 
-Or from source (no API keys needed — runs entirely offline):
+Or with plain pip (no `uv` required):
 
 ```bash
 git clone https://github.com/AnnasMazhar/replayproof
 cd replayproof
-uv venv && uv pip install -e '.[dev]'
+python3 -m venv .venv && . .venv/bin/activate && pip install .
+```
+
+Once the repo is public, you can install directly from the git URL (no local clone needed):
+
+```bash
+# Requires the repo to be publicly accessible:
+pip install git+https://github.com/AnnasMazhar/replayproof
 ```
 
 ## 60-second quickstart
@@ -103,9 +106,11 @@ agenteval gate \
 # Exit code 1 — regression detected
 ```
 
+If this is useful, star the repo — it is how others find it.
+
 ## Real results
 
-Generated from `bash examples/run_demo.sh` on 2026-09-27:
+Generated from `bash examples/run_demo.sh` on 2026-09-29:
 
 **Good run (sample_run.jsonl):**
 
@@ -171,11 +176,13 @@ checks:
   - type: required_tools
     id: required_tools
     severity: error
-    names: [search_docs]
+    names:
+      - search_docs
   - type: forbidden_tools
     id: forbidden_tools
     severity: error
-    names: [send_email]
+    names:
+      - send_email
   - type: max_tool_calls
     id: max_tool_calls
     severity: error
@@ -189,7 +196,16 @@ checks:
     severity: error
     field_name: final_content
     regex: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+  - type: final_answer_not_empty
+    id: final_answer_not_empty
+    severity: error
 ```
+
+This example shows 6 of the 10 available check types. The full list, with the 4 not shown
+above: `tool_sequence` (required tool ordering, subsequence match), `arg_schema`
+(JSON-Schema validation of a tool's arguments), `max_latency_ms` (per-run latency cap),
+and `final_answer_matches` (regex on the final answer). All 10 types load from the same
+YAML format. See [docs/DESIGN.md](docs/DESIGN.md) for the full check reference.
 
 ## Integration with Inspect AI
 
@@ -242,18 +258,57 @@ def convert(eval_path, out_dir):
 
 ```bash
 python scripts/convert_inspect_log.py logs/my_eval.eval recordings/
-agenteval run --contract examples/contracts/real_research.yaml --runs recordings/my_eval.jsonl --output baseline.json
-agenteval gate --baseline baseline.json --current recordings/my_eval_new.jsonl
+agenteval run --contract examples/contracts/research.yaml --runs recordings/my_eval.jsonl --output baseline.json
+# When a newer recording is available, convert it the same way and evaluate it:
+python scripts/convert_inspect_log.py logs/my_eval_new.eval recordings/
+agenteval run --contract examples/contracts/research.yaml --runs recordings/my_eval_new.jsonl --output current.json
+agenteval gate --baseline baseline.json --current current.json
 ```
 
 See [docs/ADOPTION.md](docs/ADOPTION.md) for a full step-by-step integration guide, including
 CI YAML and a concrete failure mode walkthrough.
+
+## Integration with EvalCore
+
+[EvalCore](https://github.com/eval-core/evalcore) handles record-and-replay with a
+content-addressed cassette; `--cache replay` never calls a live model and fails the case
+on a cache miss. replayproof sits on top: assert a named YAML contract over the recordings
+and gate CI on cost regression.
+
+EvalCore outputs its own OTel/trajectory format — not OpenAI-style message JSONL. To
+compose the two tools, your agent must also write standard OpenAI-style JSONL recordings
+that `agenteval run` can read directly. The workflow:
+
+```bash
+# 1. Run EvalCore in replay mode — no model calls, no keys
+evalcore run --suite suite.yaml --cache replay
+
+# 2. Separately, evaluate your agent's JSONL recordings against a replayproof contract
+#    (produced by agenteval record, or your own agent instrumented to write JSONL)
+agenteval run \
+    --contract examples/contracts/research.yaml \
+    --runs examples/recordings/sample_run.jsonl \
+    --output /tmp/current.json
+
+# 3. Gate: exit 1 if pass_rate dropped, tokens +10%, cost +10%, or p95 latency +25%
+agenteval gate \
+    --baseline examples/recordings/sample_result.json \
+    --current /tmp/current.json
+```
+
+What EvalCore's `trajectory` rules add: `must_call`, `must_not_call`, ordering, step budget.
+What replayproof adds on top: JSON-Schema argument validation (`arg_schema`), PII-pattern
+detection (`no_pattern`), a Wilson lower bound on every pass rate, and a cost delta gate
+against a committed baseline. See [docs/ADOPTION.md](docs/ADOPTION.md) for the full
+integration walkthrough.
 
 ## Recording your own agent
 
 ```bash
 # Agent module must expose a build_tools() factory if it needs tools.
 # The --agent flag takes a dotted module path and callable name.
+# If the agent lives in a local directory (not installed), set PYTHONPATH first:
+#   PYTHONPATH=$(pwd) agenteval record ...
 agenteval record \
     --agent examples.research_agent:research_agent \
     --task "How do solar panels work" \
@@ -297,8 +352,16 @@ See [COMPARISONS.md](COMPARISONS.md) for a full factual table. The short version
   This tool reads those recordings and asserts contracts over them.
 - **inspect_ai + inspect-replay** owns sample-aligned log diffing — use it when the
   question is "which sample moved". Use this when the question is "which contract broke".
-- **promptfoo** has the broadest tool-call assertion surface and 25k stars. Choose it for
-  breadth and red-teaming. Choose this for deterministic, keyless, baseline-gated CI.
+- **promptfoo** has the broadest tool-call assertion surface and 25,558 stars (OpenAI-owned).
+  Choose it for breadth and red-teaming. Choose this for deterministic, keyless, baseline-gated CI.
+- **DeepEval** (18,502 stars) is the largest LLM-judged metric library — `ToolCorrectnessMetric`
+  and argument checks, all LLM-as-judge. Choose it for semantic evaluation. Choose this when the
+  question is structural, deterministic, and must cost zero API keys.
+- **Langfuse** (35k stars), **AgentOps** (6k), and **Arize Phoenix** (12k) are the
+  dominant observability and LLM-judged evaluation platforms — cloud-connected, rich UIs,
+  team dashboards. Choose them when production monitoring or semantic evaluation is the
+  question. None implements offline, keyless tool-call contract assertions; see
+  [COMPARISONS.md](COMPARISONS.md) for the full evidence.
 
 ## Limitations
 
@@ -331,7 +394,6 @@ See [COMPARISONS.md](COMPARISONS.md) for a full factual table. The short version
   are not surfaced. See [docs/ADOPTION.md](docs/ADOPTION.md) for a step-by-step walkthrough.
 
 ## Roadmap
-
 - Hierarchical bootstrap for nested evaluation structures
 - Judge-based scoring plugin API
 - HTML report with per-case expandable details

@@ -1,0 +1,2652 @@
+# Improvement Log — agent-eval-harness
+
+## c9-p08-improve-1: Fix C8P11-MIN-1 — check severity mutable after contract load (2026-09-29)
+
+### Finding source
+
+Adversarial pass c8-p11 (C8P11-MIN-1): check dataclasses were mutable. An attacker with
+code execution in the same process as the contract loader could write:
+
+```python
+for check in contract.checks:
+    check.severity = 'warn'
+```
+
+and flip every `error`-severity check to `warn`, causing `CheckResults.passed` to return
+`True` for a run that violated security constraints. The finding showed:
+
+```
+Before mutation: passed=False
+After mutation: passed=True
+!!! CONFIRMED VULNERABILITY: Severity mutation changes evaluation outcome !!!
+```
+
+### Root cause
+
+All 10 check subclasses (`ToolSequenceCheck`, `RequiredToolsCheck`, `ForbiddenToolsCheck`,
+`ArgSchemaCheck`, `MaxToolCallsCheck`, `MaxTokensCheck`, `MaxLatencyCheck`,
+`NoPatternCheck`, `FinalAnswerMatchesCheck`, `FinalAnswerNotEmptyCheck`) were declared as
+`@dataclass` without `frozen=True`. Python dataclasses are mutable by default; any
+attribute — including `severity` — can be reassigned after construction. No test existed
+to verify post-construction immutability.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 217 passed |
+| `check.severity = 'warn'` after load | succeeds silently |
+| `contract.evaluate(bad_run).passed` after severity mutation | `True` (bypass) |
+| Check dataclasses have `frozen=True` | NO |
+| Test verifying severity immutability | NONE |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 226 passed (+1) |
+| `check.severity = 'warn'` after load | raises `FrozenInstanceError: cannot assign to field 'severity'` |
+| `contract.evaluate(bad_run).passed` after mutation attempt | `False` (attack blocked before evaluate) |
+| Check dataclasses have `frozen=True` | YES — all 10 subclasses |
+| Test verifying severity immutability | YES — `TestCheckSeverityImmutability.test_check_severity_is_frozen_after_load` |
+
+### Evidence
+
+Attack blocked after fix:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python3 -c "
+from agenteval.transcript import Run, Turn, ToolCall
+from agenteval.assertions import Contract
+
+contract = Contract.from_yaml('''
+name: security
+checks:
+  - type: forbidden_tools
+    id: no_email
+    severity: error
+    names: [send_email]
+''')
+
+bad_run = Run(
+    name='bad_run', agent_id='test', model='test', provider='test',
+    started_at='2026-09-29T00:00:00Z',
+    turns=[Turn(role='assistant', content='Done', tool_calls=[
+        ToolCall(name='send_email', args={}, result='sent', error=None, duration_ms=0.1),
+    ], tokens_in=0, tokens_out=10, latency_ms=1.0)],
+    total_tokens_in=0, total_tokens_out=10, total_latency_ms=1.0, metadata={}
+)
+
+result_before = contract.evaluate(bad_run)
+print(f'Before mutation: passed={result_before.passed}')
+
+try:
+    for check in contract.checks:
+        check.severity = 'warn'
+    print('VULNERABLE: severity mutation succeeded')
+except Exception as e:
+    print(f'FIXED: severity mutation blocked: {e}')
+"
+Before mutation: passed=False
+FIXED: severity mutation blocked: cannot assign to field 'severity'
+```
+
+New test passes:
+
+```
+$ .venv/bin/python -m pytest tests/test_assertions.py::TestCheckSeverityImmutability -v
+tests/test_assertions.py::TestCheckSeverityImmutability::test_check_severity_is_frozen_after_load PASSED
+1 passed in 0.21s
+```
+
+Full suite:
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................ [ 31%]
+........................................................................ [ 63%]
+........................................................................ [ 95%]
+..........                                                               [100%]
+226 passed in 2.80s
+```
+
+Ruff:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+21 files already formatted
+RUFF CLEAN
+```
+
+Fault injection proof (demonstrating the old mutable code was vulnerable):
+
+```
+$ .venv/bin/python3 -c "
+# Old mutable dataclass (pre-fix simulation):
+from dataclasses import dataclass, field
+class Check: pass
+
+@dataclass  # no frozen=True
+class ForbiddenToolsCheck(Check):
+    severity: str = 'error'
+    names: list = field(default_factory=list)
+
+check = ForbiddenToolsCheck(names=['send_email'])
+check.severity = 'warn'  # attack succeeds
+print(f'OLD CODE VULNERABLE: severity={check.severity}')
+
+# New frozen dataclass (post-fix):
+from agenteval.assertions import ForbiddenToolsCheck as FixedCheck
+fixed = FixedCheck(names=['send_email'])
+try:
+    fixed.severity = 'warn'
+    print('STILL VULNERABLE')
+except Exception as e:
+    print(f'FIXED: {e}')
+"
+OLD CODE VULNERABLE: severity=warn
+FIXED: cannot assign to field 'severity'
+```
+
+### Files changed
+
+- `src/agenteval/assertions.py` — changed `@dataclass` → `@dataclass(frozen=True)` on all
+  10 check subclasses: `ToolSequenceCheck`, `RequiredToolsCheck`, `ForbiddenToolsCheck`,
+  `ArgSchemaCheck`, `MaxToolCallsCheck`, `MaxTokensCheck`, `MaxLatencyCheck`,
+  `NoPatternCheck`, `FinalAnswerMatchesCheck`, `FinalAnswerNotEmptyCheck`.
+- `tests/test_assertions.py` — updated module docstring; added `TestCheckSeverityImmutability`
+  class (1 test): `test_check_severity_is_frozen_after_load` — loads a contract with
+  `severity: error`, evaluates a bad run (asserts `passed=False`), then attempts
+  `check.severity = 'warn'` inside `pytest.raises(Exception, match="cannot assign to field")`,
+  then re-evaluates and asserts still `passed=False`.
+- `mutants/tests/test_assertions.py` — synced with tests/test_assertions.py (identical)
+- `reports/improvements.md` — this entry
+
+
+
+### Finding source
+
+Systematic credibility audit of COMPARISONS.md. The narrative text at line 75 contained
+star counts that contradicted the authoritative table in the same document:
+
+```
+# Table row (lines 26-27):
+| AgentOps (`AgentOps-AI/agentops`) | MIT | **5,846** | ...
+| Arize Phoenix (`Arize-ai/phoenix`) | Apache-2.0 | **11,644** | ...
+
+# Narrative text (line 75), same file:
+- **AgentOps (5,847 stars) and Arize Phoenix (11,642 stars) are established in the
+```
+
+5,847 vs 5,846 for AgentOps. 11,642 vs 11,644 for Phoenix. Two different numbers for
+the same tool, within the same document, separated by fewer than 50 lines. A reviewer
+reading COMPARISONS.md top-to-bottom encounters the contradiction before reaching the
+second page.
+
+Additionally, COMPARISONS.md table still used c7-p02 star counts (04:31 UTC) while
+RESEARCH.md had been refreshed to c8-p02 data (11:30 UTC) — the two documents were
+out of sync. Same-day fetches but still inconsistent.
+
+### Root cause
+
+The COMPARISONS.md table was refreshed in c7-p02 from the GitHub API (04:31 UTC) but
+the narrative text at line 75 was not updated in the same pass. The narrative had been
+written in an earlier cycle and was not treated as data that needed to match the table.
+No test existed to detect this class of drift.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 216 passed |
+| COMPARISONS.md AgentOps — table | 5,846 |
+| COMPARISONS.md AgentOps — narrative (line 75) | 5,847 (wrong) |
+| COMPARISONS.md Phoenix — table | 11,644 |
+| COMPARISONS.md Phoenix — narrative (line 75) | 11,642 (wrong) |
+| COMPARISONS.md data source | c7-p02 (04:31 UTC) |
+| RESEARCH.md data source | c8-p02 (11:30 UTC) |
+| Test catching COMPARISONS.md narrative vs table drift | NONE |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 217 passed (+1) |
+| COMPARISONS.md AgentOps — table | 5,846 (c8-p02) |
+| COMPARISONS.md AgentOps — narrative | 5,846 (matches table) |
+| COMPARISONS.md Phoenix — table | 11,650 (c8-p02) |
+| COMPARISONS.md Phoenix — narrative | 11,650 (matches table) |
+| COMPARISONS.md data source | c8-p02 (11:30 UTC) — all 14 tools updated |
+| README promptfoo stars | 25,552 (c8-p02, was 25,544) |
+| README DeepEval stars | 18,497 (c8-p02, was 18,490) |
+| Test catching narrative vs table drift | YES — `TestCOMPARISONSInternalConsistency` |
+
+### Evidence
+
+New test passes:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest \
+    tests/test_report.py::TestCOMPARISONSInternalConsistency -v
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-8.3.3, pluggy-1.6.0
+...
+tests/test_report.py::TestCOMPARISONSInternalConsistency::test_comparisons_narrative_star_counts_match_table PASSED
+1 passed in 0.25s
+```
+
+Full suite:
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................ [ 33%]
+........................................................................ [ 66%]
+........................................................................ [ 99%]
+.                                                                        [100%]
+217 passed in 2.80s
+```
+
+Ruff:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+21 files already formatted
+RUFF CLEAN
+```
+
+Fault injection proof (test catches the old COMPARISONS.md narrative vs table mismatch):
+
+```python
+# Simulate the old COMPARISONS.md with 5,847 in narrative vs 5,846 in table
+import re
+old_narrative_line = '- **AgentOps (5,847 stars) and Arize Phoenix (11,642 stars) are established'
+table_counts = {'5,846', '11,650', '25,552', '35,189', '18,497', '15,875', '19,521', '3,578', '2,880'}
+
+violations = []
+for m in re.finditer(r'(\d{1,3}(?:,\d{3})+)\s+stars', old_narrative_line):
+    count = m.group(1)
+    if count not in table_counts:
+        violations.append(f'narrative says {count} stars but not in table')
+
+print(f'Violations: {violations}')
+```
+
+Output:
+```
+Violations: ['narrative says 5,847 stars but not in table', 'narrative says 11,642 stars but not in table']
+# Test assertion `not violations` fails — correct.
+```
+
+Demo still passes:
+
+```
+$ bash examples/run_demo.sh | grep -E "PASS: gate exits|Demo complete"
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+### Files changed
+
+- `COMPARISONS.md` — (1) Header timestamp: c7-p02 04:31 UTC → c8-p02 11:30 UTC.
+  (2) Table refreshed to c8-p02 data for all 14 tools: promptfoo 25,544→25,552;
+  inspect_ai 2,877→2,880; Phoenix 11,644→11,650; Langfuse 35,168→35,189;
+  Ragas 15,869→15,875; openai/evals 19,520→19,521; trulens 3,577→3,578.
+  (3) Narrative text line 75: AgentOps 5,847→5,846; Phoenix 11,642→11,650;
+  Langfuse 35,168→35,189 (choose section + detailed table cell).
+  (4) All inline star-count references in detailed comparison rows aligned to table.
+- `README.md` — promptfoo 25,544→25,552 (c8-p02); DeepEval 18,490→18,497 (c8-p02).
+- `tests/test_report.py` — module docstring updated with new test entry; added
+  `TestCOMPARISONSInternalConsistency` class (1 test):
+  `test_comparisons_narrative_star_counts_match_table` — builds the set of all
+  comma-formatted numbers in table rows, then checks that every comma-formatted `N stars`
+  reference in narrative text appears in that set. Fails if narrative and table diverge.
+- `mutants/tests/test_report.py` — synced with tests/test_report.py (identical)
+- `reports/improvements.md` — this entry
+
+---
+
+## c8-p08-improve-1: Kill 4 surviving mutants in scoring.py — error message and default param coverage (2026-09-29)
+
+### Finding source
+
+Mutation pass c7-p12 (`reports/mutation-c7.json`): 7 surviving mutants in `scoring.py`
+after the c6-p08 improvement pass. The c6-p08 pass killed 5 of 12 survivors (the
+`_normal_quantile` guard mutations). The remaining 7 were:
+
+```
+agenteval.scoring.x_wilson_lower__mutmut_10: survived   (string mutation in error message)
+agenteval.scoring.x_wilson_lower__mutmut_11: survived   (string mutation in error message)
+agenteval.scoring.x_wilson_lower__mutmut_12: survived   (string mutation in error message)
+agenteval.scoring.x_wilson_lower__mutmut_69: survived   (min(1.0) -> min(2.0), unreachable)
+agenteval.scoring.x__normal_quantile__mutmut_19: survived   (sign at p=0.5, diff=2e-7)
+agenteval.scoring.x__normal_quantile__mutmut_24: survived   (q at p=0.5, identical result)
+agenteval.scoring.x_compute_suite__mutmut_1: survived   (default param string)
+```
+
+This pass targets the 4 fixable survivors:
+- **mutmut_10/11/12**: error message second clause mutations (highest-severity fixable)
+- **mutmut_1**: default `suite_name=""` changed to `suite_name="XXXX"`
+
+Remaining 3 (mutmut_69, mutmut_19, mutmut_24) are documented equivalent mutants —
+no test can kill them without observing physically impossible behavior.
+
+### Root cause
+
+**mutmut_10/11/12** survive because the existing test
+`test_wilson_lower_rejects_successes_gt_n` uses the match pattern
+`"successes.*<=.*n|more successes than total"`. The alternation operator means the
+test tries the first branch first: `"successes.*<=.*n"` matches the first clause of
+the error message (`"successes (10) must be <= n (5)"`) regardless of what the second
+clause says. The second clause `"received more successes than total trials"` can be
+changed to any variation without the test failing:
+
+```python
+# mutmut_10: second clause → 'XXreceived more successes than total trialsXX'
+# The message: 'successes (10) must be <= n (5); XXreceived more successes than total trialsXX'
+# Pattern 'successes.*<=.*n' matches the first part → test still passes
+```
+
+**mutmut_1** survives because `test_compute_suite_name_preserved` always calls
+`compute_suite(cases, suite_name="cycle2-test-suite")` with an explicit argument,
+making the default value irrelevant to that test.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 214 passed |
+| Surviving mutants (c7-p12) | 7 |
+| Actionable surviving mutants | 4 (mutmut_10/11/12/1) |
+| Equivalent surviving mutants | 3 (mutmut_69/19/24, documented) |
+| Test verifying second error clause | NONE |
+| Test verifying default suite_name="" | NONE |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 216 passed (+2) |
+| Surviving mutants (c8, fixable) | 0 of 4 previously actionable |
+| Equivalent surviving mutants | 3 (mutmut_69/19/24, unchanged, documented) |
+| Test verifying second error clause | YES — `test_wilson_lower_successes_gt_n_error_message_body` |
+| Test verifying default suite_name="" | YES — `test_compute_suite_default_name_is_empty` |
+
+### Evidence
+
+New tests pass:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest \
+    tests/test_scoring.py::TestWilsonLowerInputValidation::test_wilson_lower_successes_gt_n_error_message_body \
+    tests/test_scoring.py::TestComputeSuite::test_compute_suite_default_name_is_empty -v
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-8.3.3, pluggy-1.6.0
+...
+tests/test_scoring.py::TestWilsonLowerInputValidation::test_wilson_lower_successes_gt_n_error_message_body PASSED
+tests/test_scoring.py::TestComputeSuite::test_compute_suite_default_name_is_empty PASSED
+2 passed in 0.24s
+```
+
+Full suite:
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................ [ 33%]
+........................................................................ [ 66%]
+........................................................................ [100%]
+216 passed in 2.97s
+```
+
+Ruff:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+21 files already formatted
+RUFF CLEAN
+```
+
+Mutant kill confirmation (re-running the 4 targeted mutants):
+
+```
+$ .venv/bin/mutmut run \
+    agenteval.scoring.x_wilson_lower__mutmut_10 \
+    agenteval.scoring.x_wilson_lower__mutmut_11 \
+    agenteval.scoring.x_wilson_lower__mutmut_12 \
+    agenteval.scoring.x_compute_suite__mutmut_1
+
+Running mutation testing
+ 4/233  🎉 4 🫥 0  ⏰ 0  🤔 0  🙁 0  🔇 0
+
+Mutant results
+--------------
+🎉 agenteval.scoring.x_compute_suite__mutmut_1
+🎉 agenteval.scoring.x_wilson_lower__mutmut_10
+🎉 agenteval.scoring.x_wilson_lower__mutmut_11
+🎉 agenteval.scoring.x_wilson_lower__mutmut_12
+```
+
+Fault injection proof that the new test would have caught mutmut_10 (but the old test did not):
+
+```python
+# Simulating the combined OR pattern — old test, mutant active:
+import re
+msg = 'successes (10) must be <= n (5); XXreceived more successes than total trialsXX'
+old_pattern = 'successes.*<=.*n|more successes than total'
+new_pattern = r'received more successes than total trials$'
+print(f'Old pattern matches mutmut_10: {bool(re.search(old_pattern, msg))}')  # True — mutant survives
+print(f'New pattern matches mutmut_10: {bool(re.search(new_pattern, msg))}')  # False — mutant killed
+
+# Old pattern matches because 'successes.*<=.*n' matches the first clause
+# New pattern fails because 'XXreceived...' doesn't end with 'received...trials'
+```
+
+Output:
+```
+Old pattern matches mutmut_10: True   (mutant survives old test — confirmed the bug)
+New pattern matches mutmut_10: False  (mutant killed by new test)
+```
+
+### Files changed
+
+- `tests/test_scoring.py` — module docstring updated with two new fault entries;
+  `TestWilsonLowerInputValidation.test_wilson_lower_successes_gt_n_error_message_body`
+  (new): anchors match to end-of-message with `$` so string mutations to the second
+  error clause cause test failure;
+  `TestComputeSuite.test_compute_suite_default_name_is_empty` (new): calls
+  `compute_suite(cases)` without suite_name kwarg and asserts result is `""`
+- `mutants/tests/test_scoring.py` — synced (identical to tests/test_scoring.py)
+- `reports/improvements.md` — this entry
+
+---
+
+## c7-p09-improve-2: Fix 4 README credibility gaps — date, stars, DeepEval omission, contract YAML drift (2026-09-29)
+
+### Finding source
+
+Systematic credibility audit of README.md against COMPARISONS.md (the repo's own
+research document with live star counts refreshed in c7-p02) and the actual
+`examples/contracts/research.yaml`. Four gaps found that a skeptical reviewer
+would notice within minutes:
+
+1. **BIGGEST GAP — README Contract YAML example is missing a check the real file has:**
+   The README `## Contract YAML` section showed 5 checks. The actual committed
+   `examples/contracts/research.yaml` has 6 checks — it includes `final_answer_not_empty`
+   which the README example omitted. A reviewer who copies the README example and diffs it
+   against the real file sees the discrepancy immediately. Worse: a reviewer who runs the
+   real demo and reads the contract output sees 6 checks passing; the README example implies
+   only 5 exist. No test existed to enforce sync.
+
+2. **Stale star count for promptfoo — and missing (OpenAI-owned) label:**
+   README "Where this fits" said "25k stars" but COMPARISONS.md (refreshed c7-p02 at
+   04:31 UTC from the GitHub API) shows 25,544 stars. The README also did not include the
+   "(OpenAI-owned)" label that COMPARISONS.md records. A reviewer who clicks the promptfoo
+   GitHub link sees the acquisition notice; the README reads as if it missed this.
+
+3. **DeepEval omitted from "Where this fits":**
+   DeepEval has 18,490 stars — the second largest tool in the LLM eval space after
+   Langfuse, and the largest tool-call-aware eval library. The README "Where this fits"
+   section listed Langfuse (35k), AgentOps (6k), and Phoenix (12k) but not DeepEval.
+   Omitting the second-largest tool looks cherry-picked to a reviewer who checks the
+   COMPARISONS.md table. DeepEval is the primary competitor for the "semantic/LLM-judged"
+   use case; naming it makes the positioning sharper (not cherry-picked).
+
+4. **Stale "Real results" date:**
+   README said "Generated from `bash examples/run_demo.sh` on 2026-09-28" but today is
+   2026-09-29. Minor but visible to any reviewer who notices.
+
+### Root cause
+
+**Gap 1:** The README Contract YAML example was written as a simplified illustration
+during c1-p09 and was not regenerated when `final_answer_not_empty` was added to the real
+`examples/contracts/research.yaml`. No test existed to detect check-type drift between the
+README illustration and the real file.
+
+**Gap 2:** The star count "25k" was rounded and not updated since c5-p09. COMPARISONS.md
+was updated with the live count in c7-p02 but README was not. The "(OpenAI-owned)" label
+was added to COMPARISONS.md in c7-p02 but not propagated to README.
+
+**Gap 3:** The "Where this fits" section was written before DeepEval was added to
+COMPARISONS.md. The c5-p09 pass added Langfuse/AgentOps/Phoenix to the section but did
+not include DeepEval (which was in COMPARISONS.md since c2-p02).
+
+**Gap 4:** The date was correct for the prior pass's demo run (2026-09-28) but became
+stale after midnight. This recurs on any pass that runs the demo.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 209 passed |
+| README Contract YAML example check count | 5 (missing `final_answer_not_empty`) |
+| Actual research.yaml check count | 6 |
+| Test catching README/contract drift | NONE |
+| README promptfoo star count | "25k" (stale, actual 25,544) |
+| README promptfoo (OpenAI-owned) label | ABSENT |
+| DeepEval in README "Where this fits" | ABSENT (18,490 stars — second largest in space) |
+| README "Real results" date | 2026-09-28 (stale) |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 210 passed (+1) |
+| README Contract YAML example check count | 6 (includes `final_answer_not_empty`) |
+| Actual research.yaml check count | 6 (matches README) |
+| Test catching README/contract drift | YES — `TestREADMEContractYAMLSync.test_readme_contract_yaml_contains_all_real_check_types` |
+| README promptfoo star count | "25,544" (matches COMPARISONS.md c7-p02 fetch) |
+| README promptfoo (OpenAI-owned) label | PRESENT |
+| DeepEval in README "Where this fits" | PRESENT — "DeepEval (18,490 stars) is the largest LLM-judged metric library" |
+| README "Real results" date | 2026-09-29 |
+
+### Evidence
+
+New test passes:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest tests/test_report.py::TestREADMEContractYAMLSync -v
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-8.3.3, pluggy-1.6.0
+...
+tests/test_report.py::TestREADMEContractYAMLSync::test_readme_contract_yaml_contains_all_real_check_types PASSED
+1 passed in 0.43s
+```
+
+Full suite:
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................ [ 34%]
+........................................................................ [ 68%]
+..................................................................       [100%]
+210 passed in 3.72s
+```
+
+Ruff:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+21 files already formatted
+RUFF CLEAN
+```
+
+Fault injection proof (test catches missing check type in README):
+
+```python
+# Simulate README with only 5 check types (missing final_answer_not_empty)
+import re
+readme_types = {"required_tools", "forbidden_tools", "max_tool_calls", "max_tokens", "no_pattern"}
+real_types = {"required_tools", "forbidden_tools", "max_tool_calls", "max_tokens",
+              "no_pattern", "final_answer_not_empty"}
+missing = real_types - readme_types
+print(f"Missing: {missing}")
+# Output: Missing: {'final_answer_not_empty'}
+# Test assertion `not missing` fails — correct.
+```
+
+Demo still passes:
+
+```
+$ bash examples/run_demo.sh | grep -E "PASS: gate exits|Demo complete"
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+### Files changed
+
+- `README.md` — (1) `## Contract YAML` section: added `final_answer_not_empty` check to
+  match actual `examples/contracts/research.yaml` (6 checks total); also changed `names:
+  [search_docs]` inline to multi-line format matching the real file. (2) `## Where this
+  fits`: promptfoo "25k stars" → "25,544 stars (OpenAI-owned)"; added DeepEval (18,490
+  stars) bullet as the second most prominent tool (LLM-as-judge / semantic dimension).
+  (3) "Real results" date: 2026-09-28 → 2026-09-29.
+- `tests/test_report.py` — updated module docstring to document the new test class;
+  added `TestREADMEContractYAMLSync` class (1 test):
+  `test_readme_contract_yaml_contains_all_real_check_types` — extracts all `type: <value>`
+  entries from `examples/contracts/research.yaml`, extracts all `type: <value>` entries
+  from the README `## Contract YAML` section, and asserts the README set is a superset of
+  the real file's types. Fails if any check type is added to the real contract but not
+  reflected in the README example.
+- `mutants/tests/test_report.py` — synced with tests/test_report.py (identical)
+- `reports/improvements.md` — this entry
+
+---
+
+
+
+## c7-p08-improve-1: Fix pass_rate out-of-range passes gate silently (2026-09-29)
+
+### Finding source
+
+Same class as C6P11-MIN-2 (negative token counts). The gate's existing non-finite guard
+(`math.isfinite`) correctly rejects NaN/Inf but does not reject `pass_rate` values outside
+the valid probability range [0.0, 1.0].
+
+Exploit:
+
+```
+$ .venv/bin/python -c "
+from agenteval.budget import compare, Baseline
+baseline = Baseline({'pass_rate': 0.9, 'total_tokens_in': 100, 'total_tokens_out': 100,
+                     'p95_latency_ms': 10.0, 'total_cost_usd': 0.01})
+current = {'pass_rate': 2.0, 'total_tokens_in': 100, 'total_tokens_out': 100,
+           'p95_latency_ms': 10.0, 'total_cost_usd': 0.01}
+report = compare(current, baseline)
+print(f'pass_rate=2.0: ok={report.ok}, trips={list(t.metric for t in report.trips)}')
+"
+pass_rate=2.0: ok=True, trips=[]
+```
+
+`pass_rate=2.0` is a physically impossible value (a probability cannot exceed 1.0), yet
+`compare()` silently returns `ok=True`. The mechanism: the gate computes
+`drop = baseline.pass_rate - cur_pass = 0.9 - 2.0 = -1.1`, and `-1.1 > 0.0` is False, so
+no trip fires. A corrupted or hand-crafted run file with `pass_rate=2.0` would defeat every
+downstream comparison.
+
+`pass_rate=-0.5` is also invalid. Without a range guard it silently proceeds, tripping the
+gate (ok=False) rather than raising — inconsistent with the fail-closed contract the gate
+module docstring promises.
+
+### Root cause
+
+The non-finite check (`math.isfinite`) was added to block NaN/Inf in c3-p08. That check
+correctly handles pathological float values but does not enforce domain constraints. `2.0` is
+finite, so it passes the finite check. No domain-range guard existed for `pass_rate`.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 204 passed |
+| `compare({'pass_rate': 2.0, ...}, baseline)` | `ok=True, trips=[]` — silent bypass |
+| `compare({'pass_rate': -0.5, ...}, baseline)` | `ok=False, trips=[pass_rate]` — silent, no error |
+| Test covering `pass_rate > 1.0` | none |
+| Test covering `pass_rate < 0.0` | none |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 209 passed (+5) |
+| `compare({'pass_rate': 2.0, ...}, baseline)` | `ValueError: current['pass_rate'] is 2.0; pass_rate must be in [0.0, 1.0]` |
+| `compare({'pass_rate': -0.5, ...}, baseline)` | `ValueError: current['pass_rate'] is -0.5; pass_rate must be in [0.0, 1.0]` |
+| `compare({'pass_rate': 0.0, ...}, baseline)` | ok=False (trips gate — valid behaviour) |
+| `compare({'pass_rate': 1.0, ...}, baseline)` | ok=True (valid — no regression) |
+| Test class | `TestGatePassRateRangeValidation` (5 tests) |
+
+### Evidence
+
+New tests:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest tests/test_budget_drift.py::TestGatePassRateRangeValidation -v
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-8.3.3, pluggy-1.6.0
+...
+tests/test_budget_drift.py::TestGatePassRateRangeValidation::test_compare_rejects_pass_rate_above_one PASSED
+tests/test_budget_drift.py::TestGatePassRateRangeValidation::test_compare_rejects_pass_rate_1_5 PASSED
+tests/test_budget_drift.py::TestGatePassRateRangeValidation::test_compare_rejects_negative_pass_rate PASSED
+tests/test_budget_drift.py::TestGatePassRateRangeValidation::test_compare_accepts_zero_pass_rate PASSED
+tests/test_budget_drift.py::TestGatePassRateRangeValidation::test_compare_accepts_one_pass_rate PASSED
+============================== 5 passed in 0.25s ===============================
+```
+
+Full suite:
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................ [ 34%]
+........................................................................ [ 68%]
+.................................................................        [100%]
+209 passed in 2.71s
+```
+
+Ruff:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+21 files already formatted
+RUFF CLEAN
+```
+
+Fault injection proof (before fix, bypass confirmed; after fix, blocked):
+
+```
+$ .venv/bin/python -c "
+from agenteval.budget import compare, Baseline
+baseline = Baseline({'pass_rate': 0.9, 'total_tokens_in': 100, 'total_tokens_out': 100,
+                     'p95_latency_ms': 10.0, 'total_cost_usd': 0.01})
+current = {'pass_rate': 2.0, 'total_tokens_in': 100, 'total_tokens_out': 100,
+           'p95_latency_ms': 10.0, 'total_cost_usd': 0.01}
+try:
+    report = compare(current, baseline)
+    print(f'VULNERABLE: ok={report.ok}')
+except ValueError as e:
+    print(f'BLOCKED: {e}')
+"
+BLOCKED: current['pass_rate'] is 2.0; pass_rate must be in [0.0, 1.0]
+```
+
+### Files changed
+
+- `src/agenteval/budget.py` — added `pass_rate` range guard after the non-finite check:
+  raises `ValueError` when `pass_rate` is finite but outside `[0.0, 1.0]`
+- `tests/test_budget_drift.py` — added `TestGatePassRateRangeValidation` class (5 tests)
+
+
+
+### Finding source
+
+Systematic credibility audit of docs/ADOPTION.md as the primary stranger-facing
+onboarding surface. The ADOPTION.md Step 0 install command (the first thing any engineer
+following the guide executes) contained:
+
+```
+uv pip install 'agent-eval-harness>=0.1.0'
+```
+
+The PyPI slot `agent-eval-harness` is occupied by a different, unrelated package
+(Franck Ndzomga, 2026-02-09). This was discovered and fixed in the README in c2-p08,
+but ADOPTION.md was never updated. The same bad name also appeared in the CI YAML
+example at line 280 (`pip install 'agent-eval-harness>=0.1.0'`). Additionally the
+secondary git+ URL in Step 0 pointed to `github.com/openclaw/...` (wrong account)
+rather than `github.com/AnnasMazhar/...`.
+
+This is the most credibility-damaging gap in the adoption guide: an engineer spends
+their first minute installing the wrong package, then gets `ImportError: No module named
+agenteval`, and has no idea why. The README had been corrected; ADOPTION.md had not.
+
+### Root cause
+
+The ADOPTION.md install step was written in c1-p03 before the PyPI name collision was
+discovered and fixed in c2-p08. The c2-p08 fix updated README.md and pyproject.toml
+but did not audit or update ADOPTION.md. No test existed that would detect the bad name
+in ADOPTION.md (the existing `TestREADMEInstallContract` only checks README.md).
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 192 passed |
+| ADOPTION.md Step 0 install command | `uv pip install 'agent-eval-harness>=0.1.0'` (wrong PyPI name) |
+| ADOPTION.md Step 0 secondary git+ URL | `git+https://github.com/openclaw/agent-eval-harness.git@feat/v0.1` (wrong account) |
+| ADOPTION.md CI YAML install | `pip install 'agent-eval-harness>=0.1.0'` (wrong PyPI name) |
+| Test detecting bad install in ADOPTION.md | NONE |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 193 passed (+1) |
+| ADOPTION.md Step 0 install command | `git clone https://github.com/AnnasMazhar/replayproof && uv pip install -e '.[dev]'` (source install, works today) |
+| ADOPTION.md Step 0 secondary git+ URL | `pip install git+https://github.com/AnnasMazhar/replayproof` (with "Requires the repo to be publicly accessible:" note) |
+| ADOPTION.md CI YAML install | `git clone https://github.com/AnnasMazhar/replayproof && pip install -e .` (correct) |
+| PyPI collision note | Added inline: "Note: `pip install agent-eval-harness` installs a **different, unrelated package**" |
+| Test detecting bad install in ADOPTION.md | YES — `TestAdoptionInstallContract.test_adoption_install_uses_correct_package_name` |
+
+### Evidence
+
+New test passes:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest tests/test_report.py::TestAdoptionInstallContract -v
+tests/test_report.py::TestAdoptionInstallContract::test_adoption_install_uses_correct_package_name PASSED
+1 passed in 0.24s
+```
+
+Full test suite:
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................ [ 37%]
+........................................................................ [ 74%]
+.................................................                        [100%]
+193 passed in 4.27s
+```
+
+Ruff clean:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+21 files already formatted
+RUFF CLEAN
+```
+
+Demo still passes:
+
+```
+$ bash examples/run_demo.sh | grep -E "PASS: gate exits|Demo complete"
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+Fault injection proof that test catches the bad name:
+
+```
+$ python3 -c "
+# Simulate ADOPTION.md with the old bad install line
+lines = ['cd your-project/', \"uv pip install 'agent-eval-harness>=0.1.0'\"]
+bad_names = (\"pip install agent-eval-harness\", \"uv pip install agent-eval-harness\")
+disclaimer_phrases = ('different, unrelated package', 'different package', 'occupied by')
+for i, line in enumerate(lines):
+    if any(b in line.lower() for b in bad_names):
+        window = lines[max(0, i-3):i+1]
+        combined = ' '.join(l.lower() for l in window)
+        has_disclaimer = any(p in combined for p in disclaimer_phrases)
+        print(f'Line {i+1}: bad name found, disclaimer={has_disclaimer}')
+"
+Line 2: bad name found, disclaimer=False
+# test assertion `not violations` fails — correct.
+```
+
+### Files changed
+
+- `docs/ADOPTION.md` — Step 0 code block: replaced `uv pip install 'agent-eval-harness>=0.1.0'`
+  with source install (`git clone AnnasMazhar/replayproof && uv pip install -e '.[dev]'`);
+  added git+ secondary with `# Requires the repo to be publicly accessible:` comment;
+  added inline PyPI collision note. CI YAML (line 280): replaced
+  `pip install 'agent-eval-harness>=0.1.0'` with `git clone ... && pip install -e .`
+  plus inline comment.
+- `tests/test_report.py` — updated module docstring; added `TestAdoptionInstallContract`
+  class (1 test): `test_adoption_install_uses_correct_package_name` — scans
+  docs/ADOPTION.md for any `pip install agent-eval-harness` or
+  `uv pip install agent-eval-harness` line without a nearby disclaimer phrase.
+- `mutants/tests/test_report.py` — synced with tests/test_report.py (identical)
+- `reports/improvements.md` — this entry
+
+---
+
+## c6-p09-improve-2: Fix ADOPTION.md wrong PyPI install name (2026-09-29)
+
+### Finding source
+
+Systematic credibility audit of docs/ADOPTION.md as the primary stranger-facing
+onboarding surface. The ADOPTION.md Step 0 install command (the first thing any engineer
+following the guide executes) contained:
+
+```
+uv pip install 'agent-eval-harness>=0.1.0'
+```
+
+The PyPI slot `agent-eval-harness` is occupied by a different, unrelated package
+(Franck Ndzomga, 2026-02-09). This was discovered and fixed in the README in c2-p08,
+but ADOPTION.md was never updated. The same bad name also appeared in the CI YAML
+example at line 280 (`pip install 'agent-eval-harness>=0.1.0'`). Additionally the
+secondary git+ URL in Step 0 pointed to `github.com/openclaw/...` (wrong account)
+rather than `github.com/AnnasMazhar/...`.
+
+This is the most credibility-damaging gap in the adoption guide: an engineer spends
+their first minute installing the wrong package, then gets `ImportError: No module named
+agenteval`, and has no idea why. The README had been corrected; ADOPTION.md had not.
+
+### Root cause
+
+The ADOPTION.md install step was written in c1-p03 before the PyPI name collision was
+discovered and fixed in c2-p08. The c2-p08 fix updated README.md and pyproject.toml
+but did not audit or update ADOPTION.md. No test existed that would detect the bad name
+in ADOPTION.md (the existing `TestREADMEInstallContract` only checks README.md).
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 192 passed |
+| ADOPTION.md Step 0 install command | `uv pip install 'agent-eval-harness>=0.1.0'` (wrong PyPI name) |
+| ADOPTION.md Step 0 secondary git+ URL | `git+https://github.com/openclaw/agent-eval-harness.git@feat/v0.1` (wrong account) |
+| ADOPTION.md CI YAML install | `pip install 'agent-eval-harness>=0.1.0'` (wrong PyPI name) |
+| Test detecting bad install in ADOPTION.md | NONE |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 193 passed (+1) |
+| ADOPTION.md Step 0 install command | `git clone https://github.com/AnnasMazhar/replayproof && uv pip install -e '.[dev]'` (source install, works today) |
+| ADOPTION.md Step 0 secondary git+ URL | `pip install git+https://github.com/AnnasMazhar/replayproof` (with "Requires the repo to be publicly accessible:" note) |
+| ADOPTION.md CI YAML install | `git clone https://github.com/AnnasMazhar/replayproof && pip install -e .` (correct) |
+| PyPI collision note | Added inline: "Note: `pip install agent-eval-harness` installs a **different, unrelated package**" |
+| Test detecting bad install in ADOPTION.md | YES — `TestAdoptionInstallContract.test_adoption_install_uses_correct_package_name` |
+
+### Evidence
+
+New test passes:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest tests/test_report.py::TestAdoptionInstallContract -v
+tests/test_report.py::TestAdoptionInstallContract::test_adoption_install_uses_correct_package_name PASSED
+1 passed in 0.24s
+```
+
+Full test suite:
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................ [ 37%]
+........................................................................ [ 74%]
+.................................................                        [100%]
+193 passed in 4.27s
+```
+
+Ruff clean:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+21 files already formatted
+RUFF CLEAN
+```
+
+Demo still passes:
+
+```
+$ bash examples/run_demo.sh | grep -E "PASS: gate exits|Demo complete"
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+Fault injection proof that test catches the bad name:
+
+```
+$ python3 -c "
+# Simulate ADOPTION.md with the old bad install line
+lines = ['cd your-project/', \"uv pip install 'agent-eval-harness>=0.1.0'\"]
+bad_names = (\"pip install agent-eval-harness\", \"uv pip install agent-eval-harness\")
+disclaimer_phrases = ('different, unrelated package', 'different package', 'occupied by')
+for i, line in enumerate(lines):
+    if any(b in line.lower() for b in bad_names):
+        window = lines[max(0, i-3):i+1]
+        combined = ' '.join(l.lower() for l in window)
+        has_disclaimer = any(p in combined for p in disclaimer_phrases)
+        print(f'Line {i+1}: bad name found, disclaimer={has_disclaimer}')
+"
+Line 2: bad name found, disclaimer=False
+# test assertion `not violations` fails — correct.
+```
+
+### Files changed
+
+- `docs/ADOPTION.md` — Step 0 code block: replaced `uv pip install 'agent-eval-harness>=0.1.0'`
+  with source install (`git clone AnnasMazhar/replayproof && uv pip install -e '.[dev]'`);
+  added git+ secondary with `# Requires the repo to be publicly accessible:` comment;
+  added inline PyPI collision note. CI YAML (line 280): replaced
+  `pip install 'agent-eval-harness>=0.1.0'` with `git clone ... && pip install -e .`
+  plus inline comment.
+- `tests/test_report.py` — updated module docstring; added `TestAdoptionInstallContract`
+  class (1 test): `test_adoption_install_uses_correct_package_name` — scans
+  docs/ADOPTION.md for any `pip install agent-eval-harness` or
+  `uv pip install agent-eval-harness` line without a nearby disclaimer phrase.
+- `reports/improvements.md` — this entry
+
+---
+
+## c6-p08-improve-1: Fix vacuous boundary tests in TestNormalQuantile — kill 5 surviving mutants (2026-09-29)
+
+### Finding source
+
+Mutation testing analysis (c5 mutation report: reports/mutation-c5.json).
+12 surviving mutants remained from the c5 run. Seven of them were in `_normal_quantile`:
+- mutmut_1: guard `p <= 0.0` → `p < 0.0`
+- mutmut_3: guard `or` → `and` (guard never fires)
+- mutmut_4: guard `p >= 1.0` → `p > 1.0`
+- mutmut_5: guard `p >= 1.0` → `p >= 2.0`
+- mutmut_6: `raise ValueError(f"...")` → `raise ValueError(None)` (message is None)
+- mutmut_19: `sign = 1.0 if p >= 0.5` → `sign = 1.0 if p > 0.5` (equivalent at p=0.5)
+- mutmut_24: `q = p if p >= 0.5` → `q = p if p > 0.5` (equivalent at p=0.5)
+
+Investigation showed that the existing tests `test_normal_quantile_boundary_zero` and
+`test_normal_quantile_boundary_one` used bare `pytest.raises(ValueError)` without a
+message match. The test docstring for `test_normal_quantile_boundary_zero` claimed:
+
+> "Injection: change guard to 'if p < 0.0 or p >= 1.0' => p=0.0 not caught =>
+> log(1-q) = log(1) = 0 => t=0 => returns -(c0/1) = -2.515"
+
+**This analysis was wrong.** With mutmut_1 active and p=0.0: `q = 1.0 - 0.0 = 1.0`,
+then `math.log(1.0 - 1.0) = math.log(0.0)` raises `ValueError: math domain error`.
+So mutmut_1 also raises ValueError — just with a different message ("math domain error"
+vs "p must be in (0, 1), got 0.0"). The bare `pytest.raises(ValueError)` cannot
+distinguish these, so the test passed for the mutant and it survived.
+
+This is the same class of issue as AR-MAJ-3 (fixed in c2-p08): a test whose docstring
+claims it detects a specific fault, but which actually fails to catch the mutation
+because the assertion is too broad.
+
+### Root cause
+
+The tests were written before the distinction between "our explicit guard raises the
+specific message" and "the math fallback also raises ValueError for boundary inputs"
+was understood. `_normal_quantile(0.0)` and `_normal_quantile(1.0)` raise ValueError
+via two different code paths:
+- **Correct behaviour**: the explicit guard fires and raises `ValueError("p must be in (0, 1), got 0.0")`
+- **Mutant behaviour**: the guard is weakened/removed, the boundary value falls through,
+  `math.log(0)` or `math.sqrt(-2*math.log(0))` raises `ValueError: math domain error`
+
+Both are `ValueError`, so `pytest.raises(ValueError)` catches both — making the test
+vacuous for boundary guard mutations.
+
+For mutmut_6 specifically: `raise ValueError(None)` — this fires with the right
+condition but raises with a `None` message instead of our string, which also passes
+bare `pytest.raises(ValueError)`.
+
+mutmut_19 and mutmut_24 are genuinely equivalent mutants: they only differ at
+`p=0.5` exactly, where both produce a result within floating-point noise (~1e-7).
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 191 passed |
+| Mutation kill rate | 94.8% (221/233) |
+| `_normal_quantile` surviving mutants | 7 (mutmut_1/3/4/5/6/19/24) |
+| `test_normal_quantile_boundary_zero` assertion | `pytest.raises(ValueError)` — vacuous |
+| `test_normal_quantile_boundary_zero` docstring | Wrong — claims mutmut_1 returns -2.515 |
+| `test_normal_quantile_boundary_one` assertion | `pytest.raises((ValueError, OverflowError))` — vacuous |
+| Equivalent mutants documented | mutmut_19 and mutmut_24 undocumented |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 192 passed (+1) |
+| Mutation kill rate | 97.0% (226/233) |
+| `_normal_quantile` surviving mutants | 2 (mutmut_19/24 — documented equivalents) |
+| `test_normal_quantile_boundary_zero` assertion | `pytest.raises(ValueError, match=r"p must be in \(0, 1\)")` |
+| `test_normal_quantile_boundary_zero` docstring | Corrected: describes the actual fault paths for all killed mutants |
+| `test_normal_quantile_boundary_one` assertion | `pytest.raises(ValueError, match=r"p must be in \(0, 1\)")` — kills mutmut_4 |
+| `test_normal_quantile_midpoint_exact` (new) | Documents mutmut_19/24 as equivalent; KAT for z(0.5)≈0 |
+| Equivalent mutants documented | YES — test docstring explains why mutmut_19/24 cannot be killed |
+
+### Evidence
+
+New mutmut run after fix:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/mutmut run
+Found 3 new tests, rerunning stats collection
+Running mutation testing
+ 233/233  🎉 226 🫥 0  ⏰ 0  🤔 0  🙁 7  🔇 0
+12.00 mutations/second
+```
+
+Surviving mutants (all equivalent):
+
+```
+$ .venv/bin/mutmut results
+    agenteval.scoring.x_wilson_lower__mutmut_10: survived   (string mutation in error message)
+    agenteval.scoring.x_wilson_lower__mutmut_11: survived   (string mutation in error message)
+    agenteval.scoring.x_wilson_lower__mutmut_12: survived   (string mutation in error message)
+    agenteval.scoring.x_wilson_lower__mutmut_69: survived   (min(1.0) -> min(2.0), unreachable)
+    agenteval.scoring.x__normal_quantile__mutmut_19: survived   (sign at p=0.5, diff=2e-7)
+    agenteval.scoring.x__normal_quantile__mutmut_24: survived   (q at p=0.5, identical result)
+    agenteval.scoring.x_compute_suite__mutmut_1: survived   (default param string)
+```
+
+Full test suite:
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................ [ 37%]
+........................................................................ [ 75%]
+................................................                         [100%]
+192 passed in 3.16s
+```
+
+Ruff clean:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+21 files already formatted
+RUFF CLEAN
+```
+
+New tests (targeted):
+
+```
+$ .venv/bin/python -m pytest tests/test_scoring.py::TestNormalQuantile -v 2>&1 | tail -16
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_boundary_zero PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_boundary_one PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_midpoint_exact PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_known_lookup_0975 PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_known_lookup_095 PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_known_lookup_099 PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_known_lookup_0995 PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_lookup_not_in_keys PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_approx_090 PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_approx_080 PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_negative_branch PASSED
+tests/test_scoring.py::TestNormalQuantile::test_normal_quantile_symmetry PASSED
+12 passed in 0.11s
+```
+
+Fault injection proof that the old bare `pytest.raises(ValueError)` was vacuous:
+
+```python
+# Simulate mutmut_3 (or -> and: guard never fires)
+import math
+def mutmut_3_guard(p):
+    if p <= 0.0 and p >= 1.0:  # never true
+        raise ValueError(f"p must be in (0, 1), got {p}")
+    ...
+
+# mutmut_3 at p=0.0: reaches log(1 - 1.0) = log(0) -> ValueError: math domain error
+# Old test: pytest.raises(ValueError) -> PASSES (wrong! guard was bypassed)
+# New test: pytest.raises(ValueError, match="p must be in") -> FAILS (correct! guard message absent)
+```
+
+### Files changed
+
+- `tests/test_scoring.py` — `TestNormalQuantile.test_normal_quantile_boundary_zero`:
+  corrected docstring (removed wrong claim about -2.515 return value; documented the
+  actual fault paths for mutmut_1/3/5 which raise `math domain error` instead of guard
+  message); changed `pytest.raises(ValueError)` → `pytest.raises(ValueError,
+  match=r"p must be in \(0, 1\)")`. `test_normal_quantile_boundary_one`: changed
+  `pytest.raises((ValueError, OverflowError))` → `pytest.raises(ValueError,
+  match=r"p must be in \(0, 1\)")`. Added `test_normal_quantile_midpoint_exact` (new):
+  KAT for z(0.5)≈0 and documentation that mutmut_19/24 are equivalent mutants.
+  Updated module docstring to include the three new/modified tests.
+- `mutants/tests/test_scoring.py` — synced (identical to tests/test_scoring.py)
+- `reports/improvements.md` — this entry
+
+---
+
+
+
+## c5-p09-improve-2: Fix fabricated EvalCore integration, README ecosystem omissions, gate JSONL error message (2026-09-28)
+
+### Finding source
+
+Systematic credibility audit of README.md against COMPARISONS.md (the repo's own research
+document) and the CLI implementation. Three gaps found:
+
+1. **BIGGEST GAP — fabricated EvalCore command sequence:** README showed:
+   ```
+   evalcore run --suite suite.yaml --cache replay --format jsonl --output /tmp/traces.jsonl
+   agenteval run --runs /tmp/traces.jsonl ...
+   ```
+   COMPARISONS.md (c5-p02) explicitly states EvalCore reads "OTel / OpenInference exports
+   and its own trajectory JSON. Not Inspect .eval, not message JSONL." The command implies
+   EvalCore outputs message JSONL that `agenteval run` can consume natively — it does not.
+   A skeptical reviewer running this snippet would get an error or wrong results. The README
+   contradicted the repo's own research document.
+
+2. **Selective comparison in "Where this fits":** Only 3 tools were named (EvalCore,
+   inspect_ai+inspect-replay, promptfoo). Langfuse (35,141 stars — the largest tool in the
+   space, added in c5-p02 COMPARISONS.md), AgentOps (5,847 stars), and Arize Phoenix
+   (11,644 stars) were absent. Omitting the largest tool in the ecosystem looks cherry-picked.
+
+3. **Unhelpful gate error when `--current` is a JSONL file:** Passing a `.jsonl` recording
+   to `agenteval gate --current` gave: "not valid JSON: Extra data" — no recovery hint.
+   A user who reads the EvalCore section and tries to pipe recordings directly to gate hits
+   this wall with no idea what to do next.
+
+### Root causes
+
+**Gap 1:** The c5-p09 improve pass added the EvalCore integration section but used a command
+from an earlier draft that assumed EvalCore outputs message JSONL. COMPARISONS.md was updated
+in c4-p02/c5-p02 to reflect EvalCore's actual format, but the README was not updated to match.
+
+**Gap 2:** The "Where this fits" section was written in c1-p09 before Langfuse/AgentOps/
+Phoenix were added to COMPARISONS.md in c4-p02 and c5-p02. The section was never revisited
+to include the newly-assessed tools.
+
+**Gap 3:** The `_cmd_gate` JSON decode error handler was a generic fallback that printed the
+raw exception message without checking whether the user had passed the wrong file type.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 187 passed |
+| README EvalCore integration command | `evalcore run --format jsonl --output /tmp/traces.jsonl` (unsupported) |
+| README "Where this fits" named tools | 3 (EvalCore, inspect_ai, promptfoo) |
+| Langfuse (35k stars) mentioned in "Where this fits" | NO |
+| `agenteval gate --current recording.jsonl` error | `"not valid JSON: Extra data"` (no recovery hint) |
+| Test for actionable JSONL gate error | NONE |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 188 passed (+1) |
+| README EvalCore integration | Honest prose: EvalCore outputs its own format; shows separate agenteval run step against agent's own JSONL |
+| README "Where this fits" named tools | 6 (EvalCore, inspect_ai, promptfoo, Langfuse, AgentOps, Arize Phoenix) |
+| Langfuse (35k stars) mentioned in "Where this fits" | YES — with star count |
+| `agenteval gate --current recording.jsonl` error | "not a valid JSON suite result. … run it through the contract first: agenteval run --contract ... --runs ... --output result.json. Then pass result.json to agenteval gate --current result.json." |
+| Test for actionable JSONL gate error | YES — `TestGateCLIActionableJSONLError.test_gate_cli_jsonl_current_error_is_actionable` |
+
+### Evidence
+
+Full test run:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest -q
+........................................................................ [ 38%]
+........................................................................ [ 76%]
+............................................                             [100%]
+188 passed in 2.75s
+```
+
+Ruff clean:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+21 files already formatted
+RUFF CLEAN
+```
+
+New error message (before: "not valid JSON: Extra data"; after: actionable with recovery):
+
+```
+$ .venv/bin/agenteval gate --baseline /tmp/sample_result.json --current examples/recordings/sample_run.jsonl 2>&1; echo "Exit: $?"
+error: 'examples/recordings/sample_run.jsonl' is not a valid JSON suite result.
+The --current argument must be a JSON file produced by 'agenteval run --output'.
+If you passed a JSONL recording, run it through the contract first:
+  agenteval run --contract <contract.yaml> --runs <recording.jsonl> --output <result.json>
+Then pass the result.json to 'agenteval gate --current result.json'.
+Exit: 1
+```
+
+Demo still passes:
+
+```
+$ bash examples/run_demo.sh | grep -E "PASS: gate exits|Demo complete"
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+New test:
+
+```
+$ .venv/bin/python -m pytest tests/test_budget_drift.py::TestGateCLIActionableJSONLError -v
+tests/test_budget_drift.py::TestGateCLIActionableJSONLError::test_gate_cli_jsonl_current_error_is_actionable PASSED
+1 passed in 0.19s
+```
+
+### Files changed
+
+- `README.md` — (1) `## Integration with EvalCore`: replaced the unsupported
+  `evalcore run --format jsonl` pipe with honest prose explaining EvalCore uses its own
+  OTel/trajectory format; corrected workflow to show agenteval run reading the agent's
+  own JSONL separately from EvalCore's replay run. (2) `## Where this fits`: added
+  Langfuse (35k stars), AgentOps (6k), Arize Phoenix (12k) as a fourth bullet covering
+  the dominant observability/LLM-judge platforms.
+- `src/agenteval/cli.py` — `_cmd_gate`: in the `json.JSONDecodeError` handler, detect
+  whether the error is likely from a JSONL file (`.jsonl` extension or "extra data" in
+  the exception message); if so, print an actionable 4-line error with the `agenteval run`
+  recovery path instead of the raw exception text.
+- `tests/test_budget_drift.py` — updated module docstring; added
+  `TestGateCLIActionableJSONLError` class (1 test):
+  `test_gate_cli_jsonl_current_error_is_actionable` — passes a `.jsonl` file as
+  `--current`, asserts rc=1 and that stderr contains 'agenteval run'.
+- `mutants/tests/test_budget_drift.py` — synced with tests/test_budget_drift.py
+- `reports/improvements.md` — this entry
+
+---
+
+
+
+## c5-p08: Fix fabricated mutation score in EVIDENCE.md — write real mutation-c5.json (2026-09-28)
+
+### Finding source
+
+Quality-contract audit: EVIDENCE.md section 9 claimed data from `reports/mutation-c4.json`
+that the file does not contain.
+
+Exact discrepancy:
+- EVIDENCE.md claimed: "Total mutants: 235, Killed: 223, Kill rate: 94.9%"
+- reports/mutation-c4.json actually contains: `"rc": 1, "killed": null, "total": null, "kill_rate": null`
+
+This is a fabricated evidence claim that violates QUALITY-CONTRACT §10 ("EVIDENCE.md is raw
+terminal output, pasted verbatim … If you did not run it, it does not go in the file.").
+
+### Root cause
+
+In c5-p04, the `mutation-c4.json` file was committed with `rc=1` and null values because the
+mutation runner had failed (the README path issue where the `test_readme_git_url_install_has_availability_note`
+test couldn't find README.md at `mutants/README.md`). That failure was fixed via `conftest.py`
+in the same c5-p04 commit, but the JSON committed at that time captured the failed run.
+
+In c5-p05, the EVIDENCE.md refresh wrote "Kill rate: 94.9%" from the c4-p04 pass (which did
+produce a real score of 94.8%) without reading the committed JSON file. The result: the section
+pointed at mutation-c4.json as its source but the values in the markdown did not match the JSON.
+
+No test existed that would fail when a mutation JSON has `rc=1` and null values — the only check
+was whether the file existed.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 186 passed |
+| EVIDENCE.md section 9 "Kill rate" claim | 94.9% (fabricated — not in mutation-c4.json) |
+| EVIDENCE.md section 9 "Killed" claim | 223 (fabricated — mutation-c4.json has null) |
+| reports/mutation-c4.json `rc` | 1 (runner failure) |
+| reports/mutation-c4.json `killed` | null |
+| reports/mutation-c5.json | MISSING |
+| Test validating mutation JSON has real data | NONE |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 187 passed (+1) |
+| EVIDENCE.md section 9 "Kill rate" claim | 94.8% — from reports/mutation-c5.json (real run) |
+| EVIDENCE.md section 9 "Killed" claim | 221 — from reports/mutation-c5.json (real run) |
+| reports/mutation-c5.json `rc` | 0 (success) |
+| reports/mutation-c5.json `killed` | 221 |
+| reports/mutation-c5.json `total` | 233 |
+| reports/mutation-c5.json `kill_rate` | 0.9485 (94.8%) |
+| Test validating mutation JSON has real data | YES — `TestMutationReportIntegrity.test_mutation_report_has_real_data` |
+
+### Evidence
+
+Mutation run (just completed, output from real mutmut run):
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/mutmut run
+    done in 664ms
+Found 21 new tests, rerunning stats collection
+    done
+Running mutation testing
+⠦ 233/233  🎉 221 🫥 0  ⏰ 0  🤔 0  🙁 12  🔇 0
+15.87 mutations/second
+
+$ .venv/bin/mutmut results
+    agenteval.scoring.x_wilson_lower__mutmut_10: survived
+    agenteval.scoring.x_wilson_lower__mutmut_11: survived
+    agenteval.scoring.x_wilson_lower__mutmut_12: survived
+    agenteval.scoring.x_wilson_lower__mutmut_69: survived
+    agenteval.scoring.x__normal_quantile__mutmut_1: survived
+    agenteval.scoring.x__normal_quantile__mutmut_3: survived
+    agenteval.scoring.x__normal_quantile__mutmut_4: survived
+    agenteval.scoring.x__normal_quantile__mutmut_5: survived
+    agenteval.scoring.x__normal_quantile__mutmut_6: survived
+    agenteval.scoring.x__normal_quantile__mutmut_19: survived
+    agenteval.scoring.x__normal_quantile__mutmut_24: survived
+    agenteval.scoring.x_compute_suite__mutmut_1: survived
+```
+
+Fault injection proof (test catches null values in mutation JSON):
+
+```
+$ python3 -c "
+data = {'cycle': 5, 'rc': 1, 'killed': None, 'total': None, 'kill_rate': None}
+assert data.get('rc') == 0, f'rc={data.get(\"rc\")} (expected 0)'
+"
+Traceback ... AssertionError: rc=1 (expected 0)
+# Simulation confirms test WOULD fail for mutation-c4.json's contents.
+```
+
+Full test run:
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................ [ 38%]
+........................................................................ [ 77%]
+...........................................                              [100%]
+187 passed in 2.75s
+```
+
+New test:
+
+```
+$ .venv/bin/python -m pytest tests/test_report.py::TestMutationReportIntegrity -v
+tests/test_report.py::TestMutationReportIntegrity::test_mutation_report_has_real_data PASSED
+1 passed in 0.21s
+```
+
+Ruff clean:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+21 files already formatted
+RUFF CLEAN
+```
+
+### Files changed
+
+- `reports/mutation-c5.json` — NEW: real mutation run output (221/233 = 94.8%, rc=0,
+  surviving mutants listed)
+- `EVIDENCE.md` — section 9 rewritten: "Mutation score (cycle 5)" with real terminal
+  output from the just-completed run; corrected kill count (221 not 223), total (233),
+  rate (94.8% not 94.9%); note explaining why mutation-c4.json has null values
+- `tests/test_report.py` — module docstring updated; added `TestMutationReportIntegrity`
+  class (1 test): `test_mutation_report_has_real_data` — asserts reports/mutation-c5.json
+  exists, has rc=0, integer killed/total, float kill_rate >0.70, and kill_rate is consistent
+  with killed/total within 1%
+- `mutants/tests/test_report.py` — synced with tests/test_report.py (identical)
+- `reports/improvements.md` — this entry
+
+---
+
+
+
+### Finding source
+
+Systematic audit of all CLI commands against the "actionable for strangers" bar.
+Three commands (`replay`, `drift`, `report`) still emitted raw Python tracebacks on
+missing-file input — the most common mistake a first-time user makes. The `run` and
+`gate` commands were fixed in c1-p09 but the remaining three were missed.
+
+Secondary fixes: README "Real results" date was `2026-09-27` (stale by one day after
+the c4-p03 recipe was executed on 2026-09-28); EvalCore was named in "Where this fits"
+with no code snippet — a skeptical reviewer has no way to verify the composability claim
+without running the commands themselves.
+
+### Root causes
+
+**Raw tracebacks in drift/replay/report:** The c1-p09 improve pass wired actionable
+error handling into `run` and `gate` but did not audit the remaining three subcommands
+(`replay`, `drift`, `report`). Each of the three opened files with a bare `open()` call
+and no `try/except FileNotFoundError` guard.
+
+**README date stale:** The "Real results" section date was copied from c4-p08 and not
+updated when c4-p03 ran the demo on 2026-09-28.
+
+**EvalCore no code example:** MARKET-VERDICTS and COMPARISONS.md both name EvalCore as
+the composable partner ("not a runner — reads recordings other tools make"), but the
+README "Where this fits" section only gestured at EvalCore in prose. No command snippet
+existed. ADOPTION.md has the full recipe (with EvalCore in the c2 deepening section)
+but the README is the first surface a reviewer reads.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 176 passed |
+| `agenteval drift --a missing.json ...` error | raw `FileNotFoundError` Python traceback |
+| `agenteval replay --run missing.jsonl` error | raw `FileNotFoundError` Python traceback |
+| `agenteval report --suite missing.json` error | raw `FileNotFoundError` Python traceback |
+| README "Real results" date | `2026-09-27` (stale) |
+| README EvalCore integration example | prose only, no code snippet |
+| Tests for drift/replay/report missing-file handling | NONE |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 180 passed (+4) |
+| `agenteval drift --a missing.json ...` error | `error: suite file not found for --a: 'missing.json'\nRun 'agenteval run --output <file>'...` |
+| `agenteval replay --run missing.jsonl` error | `error: run file not found: 'missing.jsonl'\nCheck the path, or see examples/recordings/...` |
+| `agenteval report --suite missing.json` error | `error: suite file not found: 'missing.json'\nRun 'agenteval run --output <file>'...` |
+| README "Real results" date | `2026-09-28` (current) |
+| README EvalCore integration example | YES — `## Integration with EvalCore` section with 3-command snippet |
+| Tests for drift/replay/report missing-file handling | YES — `TestCLIErrorHandlingMissingFiles` (4 tests) |
+
+### Evidence
+
+Full test run:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest -q
+........................................................................ [ 40%]
+........................................................................ [ 80%]
+....................................                                     [100%]
+180 passed in 4.48s
+```
+
+Ruff clean:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+20 files already formatted
+RUFF CLEAN
+```
+
+New error messages (before: raw traceback; after: actionable):
+
+```
+$ .venv/bin/agenteval drift --a nonexistent.json --b nonexistent2.json 2>&1; echo "Exit: $?"
+error: suite file not found for --a: 'nonexistent.json'
+Run 'agenteval run --output <file>' to generate a suite result first.
+Exit: 1
+
+$ .venv/bin/agenteval replay --run nonexistent.jsonl 2>&1; echo "Exit: $?"
+error: run file not found: 'nonexistent.jsonl'
+Check the path, or see examples/recordings/sample_run.jsonl for an example.
+Exit: 1
+
+$ .venv/bin/agenteval report --suite nonexistent.json 2>&1; echo "Exit: $?"
+error: suite file not found: 'nonexistent.json'
+Run 'agenteval run --output <file>' to generate a suite result first.
+Exit: 1
+```
+
+New tests pass:
+
+```
+$ .venv/bin/python -m pytest tests/test_budget_drift.py::TestCLIErrorHandlingMissingFiles -v
+tests/test_budget_drift.py::TestCLIErrorHandlingMissingFiles::test_drift_cli_missing_a PASSED
+tests/test_budget_drift.py::TestCLIErrorHandlingMissingFiles::test_drift_cli_missing_b PASSED
+tests/test_budget_drift.py::TestCLIErrorHandlingMissingFiles::test_replay_cli_missing_run PASSED
+tests/test_budget_drift.py::TestCLIErrorHandlingMissingFiles::test_report_cli_missing_suite PASSED
+4 passed in 0.32s
+```
+
+Demo still passes:
+
+```
+$ bash examples/run_demo.sh | grep -E "=== Demo complete|PASS: gate exits"
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+### Files changed
+
+- `src/agenteval/cli.py` — `_cmd_replay`: wrapped `open(args.run)` in `try/except
+  FileNotFoundError`; wrapped `Run.from_jsonl()` in `try/except (KeyError, ValueError)`;
+  both print actionable error messages and return 1. `_cmd_drift`: wrapped `open(args.a)`
+  and `open(args.b)` in separate pre-checks with actionable messages; wrapped `json.load()`
+  in `try/except JSONDecodeError` for both. `_cmd_report`: wrapped `open(args.suite)` in
+  `try/except FileNotFoundError` and `json.load()` in `try/except JSONDecodeError`.
+- `README.md` — (1) "Real results" date: `2026-09-27` → `2026-09-28`. (2) Added
+  `## Integration with EvalCore` section after the Inspect AI section: 3-command
+  concrete snippet showing `evalcore run --cache replay` → `agenteval run` → `agenteval gate`,
+  with a one-paragraph explanation of what each tool contributes.
+- `tests/test_budget_drift.py` — updated module docstring to document the 4 new tests;
+  added `TestCLIErrorHandlingMissingFiles` class (4 tests):
+  `test_drift_cli_missing_a`, `test_drift_cli_missing_b`,
+  `test_replay_cli_missing_run`, `test_report_cli_missing_suite`.
+- `reports/improvements.md` — this entry
+
+---
+
+
+
+## c4-p08: Fix ADV2-3 (install URL unreproducible) — README source-install primary, git+ URL qualified (2026-09-28)
+
+### Finding source
+
+ADV2-3 (major, c2-p10-adversarial-1): README install instruction
+`pip install git+https://github.com/AnnasMazhar/replayproof` is not reproducible —
+`git ls-remote` fails authentication because the repo is private. Evidence from c2-p10:
+
+```
+$ git ls-remote https://github.com/AnnasMazhar/agent-eval-harness
+remote: Invalid username or token. Password authentication is not supported for Git operations.
+fatal: Authentication failed for 'https://github.com/AnnasMazhar/agent-eval-harness/'
+```
+
+Still open as of c4-p05 (not addressed by any prior improve pass). The finding was recorded
+as "pending repo publish" but that is a deferral, not a fix — every person cloning the repo
+to evaluate it sees a broken first command.
+
+### Root cause
+
+The Install section led with the git-URL form (`pip install git+...`) which requires the
+repo to be publicly accessible. The source-install form (`git clone ... && pip install .`)
+was listed as an "Or from source" fallback. Someone following the docs in the natural order
+(primary form first) hit an authentication failure before reaching the fallback.
+
+No test existed that would fail when a bare `pip install git+` command appeared without any
+context indicating it requires public repo access.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 175 passed |
+| README Install primary instruction | `pip install git+https://github.com/AnnasMazhar/replayproof` (fails if private) |
+| README Install source path label | "Or from source" (secondary, buried) |
+| Top-level quickstart note | "Install from the git URL above or from source" (ambiguous) |
+| Test detecting bare git+ without availability note | NONE |
+| ADV2-3 status | open (major) |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 176 passed (+1) |
+| README Install primary instruction | `git clone ... && uv pip install -e '.[dev]'` (always works) |
+| README git+ form placement | secondary, labelled "Once the repo is public, you can also install..." |
+| Comment in git+ code block | `# Requires the repo to be publicly accessible:` on the line before the command |
+| Top-level quickstart note | updated: "install from source as shown above ... if not yet public, see Install section" |
+| Test detecting bare git+ without availability note | YES — `TestREADMEInstallContract.test_readme_git_url_install_has_availability_note` |
+| ADV2-3 status | fixed |
+
+### Evidence
+
+Full test run:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest -q
+........................................................................ [ 40%]
+........................................................................ [ 81%]
+................................                                         [100%]
+176 passed in 5.15s
+```
+
+Ruff clean:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+20 files already formatted
+RUFF CLEAN
+```
+
+New test verifies current README passes:
+
+```
+$ .venv/bin/python -m pytest tests/test_report.py::TestREADMEInstallContract -v
+tests/test_report.py::TestREADMEInstallContract::test_readme_git_url_install_has_availability_note PASSED
+1 passed in 0.19s
+```
+
+Fault injection (old README state — pip install git+ as primary with no preceding context):
+
+```
+$ python3 -c "
+lines = ['## Install', '', '\`\`\`bash', 'pip install git+https://github.com/AnnasMazhar/replayproof', '\`\`\`']
+notes = ('requires the repo to be publicly accessible', 'once the repo is public')
+for i, line in enumerate(lines):
+    if 'pip install git+' in line:
+        window = lines[max(0, i-3):i]
+        combined = ' '.join(l.lower() for l in window)
+        print(f'Has note: {any(n in combined for n in notes)}')
+"
+Has note: False
+```
+
+The test assertion `assert not violations` fails for that README state (violations = [4]).
+
+Demo still exits correctly:
+
+```
+$ bash examples/run_demo.sh | grep -E "=== Demo complete|PASS: gate exits"
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+### Files changed
+
+- `README.md` — (1) Install section: reordered — source-install (`git clone` + `uv pip install
+  -e '.[dev]'`) and plain pip variant are now primary; git-URL form is now secondary, preceded
+  by "Once the repo is public..." prose and `# Requires the repo to be publicly accessible:`
+  comment in the code block. (2) Top-level quickstart note: updated to reference "install from
+  source as shown above" and direct to Install section for the offline path.
+- `tests/test_report.py` — added `TestREADMEInstallContract` class (1 test):
+  `test_readme_git_url_install_has_availability_note` — parses README.md, finds every
+  `pip install git+` line, asserts that a qualifying availability note appears in the 3
+  lines preceding it. Added fault description to module docstring.
+- `reports/improvements.md` — this entry
+
+---
+
+
+
+## c3-p09: Fix four README credibility and usability gaps (2026-09-27)
+
+### Finding source
+
+Systematic audit of README.md against the actual CLI implementation and against
+ADOPTION.md (which was corrected in c3-p03 with real Inspect log evidence). Four gaps
+identified by reading what a stranger following the docs would encounter:
+
+1. **BLOCKER — wrong CLI command in Inspect integration section:** README line 244
+   `agenteval gate --baseline baseline.json --current recordings/my_eval_new.jsonl`
+   passes a JSONL file as `--current`. The gate CLI calls `json.load()` on `--current`;
+   it requires a JSON file produced by `agenteval run`. A JSONL file (newline-delimited
+   JSON objects) raises `JSONDecodeError` and exits 1 with an error. A stranger following
+   the docs hits a confusing error on the last command.
+
+2. **CREDIBILITY — self-contradiction in Limitations:** The Limitations section said
+   "v0.1 does not read Inspect `.eval` logs" with no mention of the bridge script. The
+   `## Integration with Inspect AI` section above it shows a working bridge script that
+   *does* convert `.eval` logs. A skeptical reviewer reading Limitations concludes the
+   Inspect integration is broken, then scrolls up and sees the script — the contradiction
+   undermines credibility.
+
+3. **USABILITY — `agenteval record` has no PYTHONPATH note:** The recording section
+   shows `agenteval record --agent examples.research_agent:research_agent` without any
+   mention that a project-local agent module requires `PYTHONPATH=$(pwd)`. This hits as
+   `ModuleNotFoundError: No module named 'examples'` for any non-installed agent
+   package. ADOPTION.md documents this as FM-6 but the README did not.
+
+4. **ROADMAP — "Inspect `.eval` log reader" listed as future work but bridge script
+   already ships:** The Roadmap listed "Inspect `.eval` log reader" as a pending item,
+   and `scripts/convert_inspect_log.py` is in the repo. The Roadmap item is accurate
+   for a *native* reader (no conversion step), but listing the bare phrase left a
+   reviewer unable to tell if the current state was "nothing exists" or "a bridge exists".
+
+### Root causes
+
+**Gap 1:** The Inspect integration CLI snippet was written before the CLI contract was
+clarified. The `gate` command was documented as receiving a JSONL directly, bypassing
+the `run` step. No test existed that would fail if a JSONL were passed as `--current`.
+
+**Gap 2:** The Limitations section was written early and never updated when the Inspect
+bridge was added. The two sections were maintained independently.
+
+**Gap 3:** The recording section was adapted from the `agenteval record` implementation
+pass without reference to the ADOPTION.md onboarding recipe, which documented the
+PYTHONPATH issue after FM-6 was observed in the c3-p03 real execution.
+
+**Gap 4:** The Roadmap was copied from the spec and never updated when `scripts/` gained
+the bridge script.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 149 passed |
+| README Inspect integration — gate command | `--current recordings/my_eval_new.jsonl` (wrong: JSONL not JSON) |
+| `agenteval gate --current <jsonl>` test exists | NO |
+| README Limitations — Inspect bridge mentioned | NO ("v0.1 does not read Inspect `.eval` logs") |
+| README record section — PYTHONPATH note | NO |
+| README Roadmap — Inspect entry | "Inspect `.eval` log reader" (ambiguous: no mention of existing bridge) |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 150 passed (+1) |
+| README Inspect integration — gate command | corrected: `run` step produces `current.json`, gate takes that |
+| `agenteval gate --current <jsonl>` test exists | YES — `TestGateCLIRejectsJSONL` |
+| README Limitations — Inspect bridge mentioned | YES: "native reader not built-in; conversion script at `scripts/convert_inspect_log.py`" |
+| README record section — PYTHONPATH note | YES — comment `PYTHONPATH=$(pwd) agenteval record ...` |
+| README Roadmap — Inspect entry | Clarified: "Inspect `.eval` log reader (native, no conversion script required)" |
+
+### Evidence
+
+Full test run:
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest -q
+........................................................................ [ 48%]
+........................................................................ [ 96%]
+......                                                                   [100%]
+150 passed in 2.75s
+```
+
+Ruff clean:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+20 files already formatted
+RUFF CLEAN
+```
+
+New test (`TestGateCLIRejectsJSONL`):
+
+```
+$ .venv/bin/python -m pytest tests/test_budget_drift.py::TestGateCLIRejectsJSONL -v
+tests/test_budget_drift.py::TestGateCLIRejectsJSONL::test_gate_cli_rejects_jsonl_as_current PASSED
+1 passed in 0.21s
+```
+
+Demo still passes:
+
+```
+$ bash examples/run_demo.sh | grep -E "=== Demo complete|PASS: gate exits"
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+### Files changed
+
+- `README.md` — (1) Inspect integration bash snippet: replaced `agenteval gate --current
+  recordings/my_eval_new.jsonl` with a correct two-step sequence (`agenteval run` produces
+  `current.json`, then `agenteval gate --current current.json`); (2) Limitations: updated
+  Inspect entry to "v0.1 does not natively read Inspect `.eval` logs … conversion script
+  included at `scripts/convert_inspect_log.py`"; (3) Recording section: added PYTHONPATH
+  comment; (4) Roadmap: updated Inspect entry to "native, no conversion script required"
+- `tests/test_budget_drift.py` — updated top docstring; added `TestGateCLIRejectsJSONL`
+  class (1 test): `test_gate_cli_rejects_jsonl_as_current`
+- `reports/improvements.md` — this entry
+
+---
+
+## c3-p08: Fix C2P11-MAJ-2 (gate accepts NaN/infinity) and C2P11-MAJ-1 (wilson_lower accepts negative confidence) (2026-09-27)
+
+### Finding source
+
+Adversarial review c2-p11 (cycle 2, adversarial pass 2). Two open major findings:
+
+- **C2P11-MAJ-2 (headline):** `compare()` accepts NaN/infinity in current metrics and
+  returns `ok=True`. A corrupted run file silently passes the gate. Root: NaN comparisons
+  in Python return False for all orderings; `drop > threshold` is False when `drop` is NaN,
+  so no gate ever trips. This inverts the gate's core safety property.
+- **C2P11-MAJ-1:** `wilson_lower()` accepts negative confidence values without raising.
+  `wilson_lower(3, 5, -0.5)` returned `0.733332` silently (meaningless value).
+
+### Root causes
+
+**C2P11-MAJ-2:** `compare()` extracted float metrics from the current dict with
+`float(current.get("pass_rate", 0.0))` and used them in comparisons directly. Python's
+IEEE 754 NaN semantics mean `float("nan") > 0.0 == False`, so the gate reported `ok=True`
+for any current dict where pass_rate was NaN, effectively disabling the pass_rate gate.
+Same problem for inf (which would incidentally trip, but the principle is wrong — non-finite
+values must not enter the arithmetic at all).
+
+**C2P11-MAJ-1:** `wilson_lower()` validated `successes` and `n` but not `confidence`.
+A negative `confidence` is passed to `_normal_quantile((1 + confidence) / 2)`. For
+`confidence=-0.5`, that's `_normal_quantile(0.25)` — a valid call that returns a negative
+z-score. The Wilson formula then runs with a wrong z and produces a plausible-looking float.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 138 passed |
+| `compare({'pass_rate': float('nan'), ...}, baseline).ok` | `True` (silent bypass — C2P11-MAJ-2) |
+| `compare({'pass_rate': float('inf'), ...}, baseline).ok` | `True` (silent bypass — C2P11-MAJ-2) |
+| `compare({'p95_latency_ms': float('nan'), ...}, baseline).ok` | `True` (silent bypass) |
+| `wilson_lower(3, 5, -0.5)` | `0.733332` (garbage, no error — C2P11-MAJ-1) |
+| `wilson_lower(3, 5, 0.0)` | returns float silently (invalid confidence) |
+| `wilson_lower(3, 5, 1.5)` | returns float silently (invalid confidence) |
+| Tests for NaN/inf gate rejection | NONE |
+| Tests for confidence validation | NONE |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 149 passed (+11) |
+| `compare({'pass_rate': float('nan'), ...}, baseline).ok` | `ValueError: current['pass_rate'] is not finite` |
+| `compare({'pass_rate': float('inf'), ...}, baseline).ok` | `ValueError: current['pass_rate'] is not finite` |
+| `compare({'p95_latency_ms': float('nan'), ...}, baseline).ok` | `ValueError: current['p95_latency_ms'] is not finite` |
+| `wilson_lower(3, 5, -0.5)` | `ValueError: confidence must be in (0, 1), got -0.5` |
+| `wilson_lower(3, 5, 0.0)` | `ValueError: confidence must be in (0, 1), got 0.0` |
+| `wilson_lower(3, 5, 1.5)` | `ValueError: confidence must be in (0, 1), got 1.5` |
+| Tests for NaN/inf gate rejection | YES — 4 tests in `TestGateNonFiniteRejection` |
+| Tests for confidence validation | YES — 7 tests in `TestWilsonLowerConfidenceValidation` |
+
+### Evidence
+
+```
+$ cd /home/openclaw/portfolio/agent-eval-harness && .venv/bin/python -m pytest -q
+........................................................................ [ 48%]
+........................................................................ [ 96%]
+.....                                                                    [100%]
+149 passed in 14.95s
+```
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+20 files already formatted
+RUFF CLEAN
+```
+
+NaN gate rejection (C2P11-MAJ-2 fix):
+
+```
+$ .venv/bin/python -c "
+from agenteval.budget import compare, Baseline
+import math
+baseline = Baseline({'pass_rate': 0.9, 'total_tokens_in': 100, 'total_tokens_out': 100,
+    'p95_latency_ms': 100.0, 'total_cost_usd': 0.0})
+for name, val in [('nan', float('nan')), ('inf', float('inf'))]:
+    try:
+        compare({'pass_rate': val, 'total_tokens_in': 100, 'total_tokens_out': 100,
+                 'p95_latency_ms': 100.0, 'total_cost_usd': 0.0}, baseline)
+        print(f'FAIL {name}: no error raised (gate bypassed)')
+    except ValueError as e:
+        print(f'PASS {name}: ValueError raised: {e}')
+"
+PASS nan: ValueError raised: current['pass_rate'] is not finite (nan); corrupted run files must not be passed to the gate
+PASS inf: ValueError raised: current['pass_rate'] is not finite (inf); corrupted run files must not be passed to the gate
+```
+
+Confidence validation (C2P11-MAJ-1 fix):
+
+```
+$ .venv/bin/python -c "
+from agenteval.scoring import wilson_lower
+for conf, desc in [(-0.5, 'negative'), (0.0, 'zero'), (1.0, 'one'), (1.5, 'gt one'), (0.95, 'valid')]:
+    try:
+        result = wilson_lower(3, 5, conf)
+        print(f'PASS {desc} ({conf}): result={result:.4f}')
+    except ValueError as e:
+        print(f'PASS {desc} ({conf}): ValueError: {e}')
+"
+PASS negative (-0.5): ValueError: confidence must be in (0, 1), got -0.5
+PASS zero (0.0): ValueError: confidence must be in (0, 1), got 0.0
+PASS one (1.0): ValueError: confidence must be in (0, 1), got 1.0
+PASS gt one (1.5): ValueError: confidence must be in (0, 1), got 1.5
+PASS valid (0.95): result=0.2307
+```
+
+New tests for C2P11-MAJ-2 (`TestGateNonFiniteRejection`):
+
+```
+$ .venv/bin/python -m pytest -q tests/test_budget_drift.py::TestGateNonFiniteRejection -v
+tests/test_budget_drift.py::TestGateNonFiniteRejection::test_compare_rejects_nan_pass_rate PASSED
+tests/test_budget_drift.py::TestGateNonFiniteRejection::test_compare_rejects_inf_pass_rate PASSED
+tests/test_budget_drift.py::TestGateNonFiniteRejection::test_compare_rejects_nan_latency PASSED
+tests/test_budget_drift.py::TestGateNonFiniteRejection::test_compare_rejects_inf_cost PASSED
+4 passed in 0.36s
+```
+
+New tests for C2P11-MAJ-1 (`TestWilsonLowerConfidenceValidation`):
+
+```
+$ .venv/bin/python -m pytest -q tests/test_scoring.py::TestWilsonLowerConfidenceValidation -v
+tests/test_scoring.py::TestWilsonLowerConfidenceValidation::test_wilson_lower_rejects_negative_confidence PASSED
+tests/test_scoring.py::TestWilsonLowerConfidenceValidation::test_wilson_lower_rejects_small_negative_confidence PASSED
+tests/test_scoring.py::TestWilsonLowerConfidenceValidation::test_wilson_lower_rejects_zero_confidence PASSED
+tests/test_scoring.py::TestWilsonLowerConfidenceValidation::test_wilson_lower_rejects_confidence_one PASSED
+tests/test_scoring.py::TestWilsonLowerConfidenceValidation::test_wilson_lower_rejects_confidence_gt_one PASSED
+tests/test_scoring.py::TestWilsonLowerConfidenceValidation::test_wilson_lower_accepts_095_confidence PASSED
+tests/test_scoring.py::TestWilsonLowerConfidenceValidation::test_wilson_lower_accepts_099_confidence PASSED
+7 passed in 0.28s
+```
+
+Demo still passes:
+
+```
+$ bash examples/run_demo.sh | grep -E "=== Demo complete|PASS: gate exits"
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+### Files changed
+
+- `src/agenteval/budget.py` — added `import math`; added non-finite guard at start of
+  `compare()` for `pass_rate`, `p95_latency_ms`, `total_cost_usd`; updated module
+  docstring to document the fail-closed semantics
+- `src/agenteval/scoring.py` — added `if not (0.0 < confidence < 1.0): raise ValueError`
+  guard in `wilson_lower()` before calling `_normal_quantile`
+- `tests/test_budget_drift.py` — updated module docstring; added `TestGateNonFiniteRejection`
+  class (4 tests): `test_compare_rejects_nan_pass_rate`, `test_compare_rejects_inf_pass_rate`,
+  `test_compare_rejects_nan_latency`, `test_compare_rejects_inf_cost`
+- `tests/test_scoring.py` — updated module docstring; added `TestWilsonLowerConfidenceValidation`
+  class (7 tests) covering negative, zero, ≥1 confidence values, and boundary 0.95/0.99
+- `reports/improvements.md` — this entry
+
+---
+
+
+
+## c2-p09: Fix ADOPTION.md broken contract examples, README Contract YAML sync, COMPARISONS star count (2026-09-27)
+
+### Finding source
+
+Audit of ADOPTION.md against `src/agenteval/assertions.py` — the biggest credibility gap
+a skeptical reviewer would find: the adoption guide is broken for anyone who follows it.
+
+Two contract examples in ADOPTION.md raise `TypeError` when passed to `_build_check()`:
+
+1. **cs-002 `tool_sequence`**: uses `tools:` but `ToolSequenceCheck.__init__()` requires
+   `expected:`. Error: `ToolSequenceCheck.__init__() got an unexpected keyword argument 'tools'`
+2. **cs-005 `no_pattern`**: uses `field: content` but `NoPatternCheck.__init__()` requires
+   `field_name:`. Error: `NoPatternCheck.__init__() got an unexpected keyword argument 'field'`
+   Also present in the FM-3 "fix" example block (ADOPTION.md line 373).
+
+Secondary credibility issues fixed in the same pass:
+- README "Real results" date: `2026-09-26` → `2026-09-27` (demo was regenerated on Sep 27)
+- README Contract YAML section: example lacked `id` and `severity` fields, inconsistent
+  with the actual `examples/contracts/research.yaml`. Updated to match the real file.
+- COMPARISONS.md star count for promptfoo: `25,477` → `25,482` (RESEARCH.md had 25,482
+  from the same GitHub API fetch; COMPARISONS.md had a stale earlier number).
+
+### Root causes
+
+**Broken ADOPTION.md contracts:** The ADOPTION.md customer_service.yaml was written during
+the c1-p09 improve pass as a documentation example. At the time, the parameter names
+were not cross-checked against the `@dataclass` field names in `assertions.py`.
+`ToolSequenceCheck` uses `expected` (per the spec), not `tools`. `NoPatternCheck` uses
+`field_name` (per the code), not `field`.
+
+**README Contract YAML:** The README example was a simplified illustration and was not
+regenerated from the actual `examples/contracts/research.yaml` file after that file was
+updated in c1-p09 to add explicit `id` and `severity` fields.
+
+**COMPARISONS.md star count drift:** The two files are maintained independently and the
+promptfoo count was updated in RESEARCH.md (via GitHub API re-fetch in c2-p02) but the
+COMPARISONS.md table was not updated in the same pass.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 133 passed |
+| ADOPTION.md cs-002 tool_sequence parameter | `tools:` (raises TypeError) |
+| ADOPTION.md cs-005 no_pattern parameter | `field: content` (raises TypeError) |
+| ADOPTION.md FM-3 fix no_pattern parameter | `field: content` (raises TypeError) |
+| README Contract YAML has `id` / `severity` | NO (missing, inconsistent with real file) |
+| README "Real results" date | 2026-09-26 (stale) |
+| COMPARISONS.md promptfoo stars | 25,477 (stale) |
+| Tests catching ADOPTION.md parameter bugs | NONE |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 136 passed (+3) |
+| ADOPTION.md cs-002 tool_sequence parameter | `expected:` (correct, no error) |
+| ADOPTION.md cs-005 no_pattern parameter | `field_name: final_content` (correct) |
+| ADOPTION.md FM-3 fix no_pattern parameter | `field_name: final_content` (correct) |
+| README Contract YAML has `id` / `severity` | YES — matches actual `research.yaml` |
+| README "Real results" date | 2026-09-27 |
+| COMPARISONS.md promptfoo stars | 25,482 (consistent with RESEARCH.md) |
+| Tests catching ADOPTION.md parameter bugs | YES — 3 new tests in `TestAdoptionGuideContracts` |
+
+### Evidence
+
+All ADOPTION.md contract checks pass after fix:
+
+```
+$ python3 -c "
+from agenteval.assertions import _build_check
+checks = [
+    {'type': 'required_tools', 'id': 'cs-001', 'severity': 'error', 'description': 'required', 'names': ['search_knowledge_base']},
+    {'type': 'tool_sequence', 'id': 'cs-002', 'severity': 'error', 'description': 'sequence', 'expected': ['search_knowledge_base'], 'ordered': True},
+    {'type': 'forbidden_tools', 'id': 'cs-003', 'severity': 'warn', 'description': 'forbidden', 'names': ['get_internal_debug_info']},
+    {'type': 'arg_schema', 'id': 'cs-004', 'severity': 'error', 'description': 'schema', 'tool': 'search_knowledge_base', 'schema': {'type': 'object', 'required': ['query'], 'properties': {'query': {'type': 'string', 'minLength': 1}}}},
+    {'type': 'no_pattern', 'id': 'cs-005', 'severity': 'error', 'description': 'email', 'field_name': 'final_content', 'regex': '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'},
+    {'type': 'max_tool_calls', 'id': 'cs-006', 'severity': 'warn', 'description': 'max calls', 'n': 8},
+    {'type': 'max_tokens', 'id': 'cs-007', 'severity': 'warn', 'description': 'max tokens', 'n': 4000},
+]
+for c in checks:
+    try:
+        obj = _build_check(c)
+        print(f'OK: {c[\"id\"]}')
+    except Exception as e:
+        print(f'FAIL: {c[\"id\"]}: {e}')
+"
+OK: cs-001
+OK: cs-002
+OK: cs-003
+OK: cs-004
+OK: cs-005
+OK: cs-006
+OK: cs-007
+```
+
+Full test run:
+
+```
+$ pytest -q
+........................................................................[52%]
+................................................................        [100%]
+136 passed in 2.65s
+```
+
+Ruff clean:
+
+```
+$ ruff check . && ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+19 files already formatted
+RUFF CLEAN
+```
+
+New tests added (`TestAdoptionGuideContracts`):
+
+```
+$ pytest -q tests/test_assertions.py::TestAdoptionGuideContracts -v
+tests/test_assertions.py::TestAdoptionGuideContracts::test_adoption_customer_service_yaml_parses PASSED
+tests/test_assertions.py::TestAdoptionGuideContracts::test_adoption_tool_sequence_expected_field PASSED
+tests/test_assertions.py::TestAdoptionGuideContracts::test_adoption_no_pattern_field_name PASSED
+3 passed in 0.22s
+```
+
+Demo still passes:
+
+```
+$ bash examples/run_demo.sh | grep -E "=== Demo complete|PASS: gate exits"
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+### Files changed
+
+- `docs/ADOPTION.md` — cs-002: `tools:` → `expected:`; cs-005: `field: content` →
+  `field_name: final_content`; FM-3 fix block: same `field: content` → `field_name: final_content`
+- `README.md` — Contract YAML section: added explicit `id` and `severity` fields to match
+  real `examples/contracts/research.yaml`; "Real results" date: `2026-09-26` → `2026-09-27`
+- `COMPARISONS.md` — promptfoo star count: `25,477` → `25,482` (consistent with RESEARCH.md)
+- `tests/test_assertions.py` — added `TestAdoptionGuideContracts` class (3 tests):
+  `test_adoption_customer_service_yaml_parses`, `test_adoption_tool_sequence_expected_field`,
+  `test_adoption_no_pattern_field_name`; updated top docstring to include the new class
+- `reports/improvements.md` — this entry
+
+---
+
+
+
+## c2-p08: Fix AR-MAJ-1 (PyPI name collision), AR-MAJ-3 (timestamp test), AR2-MAJ-4 (gate zero-baseline bypass), AR2-MIN-2 (wilson_lower invalid input) (2026-09-27)
+
+### Finding source
+
+Four findings from the cycle-1 adversarial review:
+- AR-MAJ-1 (`c1-p10`): `pip install agent-eval-harness` installs a third-party package (Franck Ndzomga). The PyPI name `agent-eval-harness` is occupied. False claim in the top 5 lines of README.
+- AR-MAJ-3 (`c1-p10`): `test_markdown_no_timestamps` does not fail on its named fault. Regex only matched ISO-T form (`2026-09-27T12:34:56`); `datetime.now()` renders with a space separator (`2026-09-27 12:34:56.789`) and bypassed the check.
+- AR2-MAJ-4 (`c1-p11`): Gate zero-baseline bypass silently disables token/latency/cost gates. A run consuming 2M tokens and $1000 passed against a zero baseline with `ok=True` and no indication that three gates were skipped.
+- AR2-MIN-2 (`c1-p11`): `wilson_lower(10, 5)` accepted invalid input (successes > n) and returned 1.0 silently.
+
+### Root causes
+
+**AR-MAJ-1:** `pyproject.toml` had `name = "agent-eval-harness"` — an occupied PyPI slot. README showed `pip install agent-eval-harness` twice (lines 15 and 48). The repo's correct positioning name per MARKET-VERDICTS is `replayproof`.
+
+**AR-MAJ-3:** The test regex `\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}` requires the ISO-T separator. The fault injection used `str(datetime.now())` which produces `2026-09-27 11:06:01.789012` (space, microseconds). The test docstring claimed it caught `2026-09-26` and `12:34:56` patterns — those claims were false.
+
+**AR2-MAJ-4:** `compare()` silently skipped percentage gates when baseline values were zero (to avoid division by zero), but did not record which gates were skipped. `GateReport` had no `skipped_zero_baseline` field.
+
+**AR2-MIN-2:** `wilson_lower()` had no input validation on the range of `successes`. A value of `successes > n` is physically impossible and the function should fail-closed.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 125 passed |
+| `pyproject.toml` distribution name | `agent-eval-harness` (PyPI-occupied) |
+| README install instruction | `pip install agent-eval-harness` (false) |
+| `test_markdown_no_timestamps` catches `datetime.now()` injection | NO — test passed with fault active |
+| `GateReport` surfaces skipped zero-baseline gates | NO — no `skipped_zero_baseline` field |
+| `compare(huge_tokens, zero_baseline).ok` | True with no warning (silent bypass) |
+| `wilson_lower(10, 5)` | Returns 1.0 silently (invalid input accepted) |
+| `wilson_lower(-1, 5)` | Returns nonsensical value silently |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 133 passed (+8) |
+| `pyproject.toml` distribution name | `replayproof` |
+| README install instruction | `pip install git+https://github.com/AnnasMazhar/agent-eval-harness` + note explaining PyPI collision |
+| `test_markdown_no_timestamps` catches `datetime.now()` injection | YES — broadened regex catches both `\d{4}-\d{2}-\d{2}` and `\d{2}:\d{2}:\d{2}` |
+| `GateReport` surfaces skipped zero-baseline gates | YES — `skipped_zero_baseline: tuple[str, ...]` field + `to_dict()` includes it |
+| `compare(huge_tokens, zero_baseline)` output | `ok=True, skipped_zero_baseline=['total_tokens', 'p95_latency_ms', 'total_cost_usd']` |
+| CLI gate output surfaces skipped gates | YES — Warning line printed when any gate is skipped |
+| `wilson_lower(10, 5)` | Raises `ValueError: successes (10) must be <= n (5)` |
+| `wilson_lower(-1, 5)` | Raises `ValueError: successes must be >= 0, got -1` |
+
+### Evidence
+
+```
+$ cd /build/portfolio/agent-eval-harness && source .venv/bin/activate && pytest -q
+........................................................................ [ 54%]
+.............................................................            [100%]
+133 passed in 2.64s
+```
+
+```
+$ ruff check . && ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+19 files already formatted
+RUFF CLEAN
+```
+
+```
+$ python3 -c "import agenteval; print(agenteval.__version__)"
+0.1.0
+```
+
+```
+$ agenteval --help | head -3
+usage: agenteval [-h] [--version] {record,replay,run,gate,drift,report} ...
+
+Deterministic, offline-replayable regression testing for LLM agents.
+```
+
+Zero-baseline gate bypass now surfaced (AR2-MAJ-4):
+
+```
+$ source .venv/bin/activate && agenteval run \
+    --contract examples/contracts/research.yaml \
+    --runs examples/recordings/sample_run.jsonl \
+    --output /tmp/sample_result.json \
+  && agenteval gate --baseline /tmp/sample_result.json --current /tmp/sample_result.json
+Gate: PASS — no regressions detected.
+Warning: the following gates were not enforced because the baseline value is zero (first-run or corrupted baseline): total_tokens, total_cost_usd
+```
+
+Timestamp fault injection now caught (AR-MAJ-3):
+
+```
+Injected output contains date pattern? True ['2026-09-27']
+Injected output contains time pattern? True ['11:06:01']
+PASS: the broadened test WOULD catch this fault (assertion would fail in pytest)
+```
+
+wilson_lower input validation (AR2-MIN-2):
+
+```
+PASS: raises ValueError for successes>n: successes (10) must be <= n (5); received more successes than total trials
+PASS: raises ValueError for negative successes: successes must be >= 0, got -1
+PASS: wilson_lower(0, 10) = 0.0000
+PASS: wilson_lower(5, 5) = 0.5655
+```
+
+Demo still exits correctly:
+
+```
+$ bash examples/run_demo.sh
+...
+--- Step 3: gate good run vs itself (expect: PASS, exit 0) ---
+Gate: PASS — no regressions detected.
+Warning: the following gates were not enforced because the baseline value is zero (first-run or corrupted baseline): total_tokens, total_cost_usd
+Exit code: 0
+
+--- Step 4: gate regressed run vs good baseline (expect: FAIL, exit 1) ---
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+Warning: the following gates were not enforced ...
+Exit code: 1
+...
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+### Files changed
+
+- `pyproject.toml` — distribution `name` changed from `agent-eval-harness` to `replayproof`
+- `README.md` — replaced both `pip install agent-eval-harness` with `pip install git+https://github.com/AnnasMazhar/agent-eval-harness`; added note explaining PyPI name collision; moved "No API keys" claim to "What problem this solves"
+- `src/agenteval/budget.py` — added `skipped_zero_baseline: tuple[str, ...]` field to `GateReport`; `compare()` now records skipped gates in `skipped_zero_baseline`; `to_dict()` includes the field; module docstring explains zero-baseline semantics
+- `src/agenteval/cli.py` — `_cmd_gate` prints a Warning line when `skipped_zero_baseline` is non-empty
+- `src/agenteval/scoring.py` — `wilson_lower()` validates `successes >= 0` and `successes <= n` before proceeding; added `import pytest` to fix test imports
+- `tests/test_report.py` — `test_markdown_no_timestamps` regex broadened from ISO-T pattern to separate `\d{4}-\d{2}-\d{2}` and `\d{2}:\d{2}:\d{2}` patterns matching the test docstring's claim
+- `tests/test_budget_drift.py` — added `TestGateZeroBaselineSurfaces` class with 4 new tests for AR2-MAJ-4
+- `tests/test_scoring.py` — added `import pytest`; added `TestWilsonLowerInputValidation` class with 4 new tests for AR2-MIN-2
+- `reports/improvements.md` — this entry
+
+---
+
+
+
+## c1-p09: Fix contract/README mismatch, error messages, record command (2026-09-27)
+
+### Finding source
+
+Adversarial inspection of README vs filesystem: the README Contract YAML section showed
+`forbidden_tools: [send_email]` but the actual `examples/contracts/research.yaml` had no
+such check. Any reviewer who ran the demo and compared the README example to the real file
+would find an immediate discrepancy.
+
+Secondary findings from error-message testing:
+- `FileNotFoundError`, `KeyError: 'name'`, and YAML `ScannerError` all dumped raw Python
+  tracebacks — not actionable for a stranger cloning the repo.
+- `agenteval record` printed "Not yet wired to a live agent in this demo build" — a stub
+  that makes the tool look incomplete when the real implementation is simple.
+- Total Tokens = 0 in the real results table had no explanation — looks like a bug.
+
+### Root cause
+
+The contract YAML in the README was written to illustrate the full feature set
+(`forbidden_tools`, etc.) but the actual file was created independently without syncing.
+The CLI had no error handling wrappers, so any input mistake produced a traceback.
+The `record` command was left as a stub after the implementation pass.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 113 passed |
+| `examples/contracts/research.yaml` has `forbidden_tools` | NO (mismatch with README) |
+| README contract example matches actual contract | NO |
+| `agenteval record` works | NO (stub: "Not yet wired") |
+| Bad inputs produce actionable errors | NO (raw tracebacks) |
+| Total Tokens = 0 explained in README | NO |
+| Inspect AI integration example in README | NO |
+| `agenteval run --contract nonexistent.yaml` error message | raw FileNotFoundError traceback |
+| `agenteval run --runs bad.jsonl` error message | raw KeyError: 'name' traceback |
+| `agenteval gate --baseline nonexistent.json` error message | raw FileNotFoundError traceback |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 113 passed (no regressions) |
+| `examples/contracts/research.yaml` has `forbidden_tools` | YES — `names: [send_email]` |
+| README contract example matches actual contract | YES — identical |
+| `agenteval record` works | YES — loads module, calls `build_tools()` factory, writes JSONL |
+| Bad inputs produce actionable errors | YES — all 5 error paths give specific fix hints |
+| Total Tokens = 0 explained in README | YES — explicit note in Real results section |
+| Inspect AI integration example in README | YES — `## Integration with Inspect AI` section |
+| `agenteval run --contract nonexistent.yaml` error message | `error: contract file not found: 'nonexistent.yaml'\nCheck the path, or see examples/contracts/research.yaml for a template.` |
+| `agenteval run --runs bad.jsonl` error message | `error: cannot parse run on line 1 of 'bad_run.jsonl': 'name'\nEach line must be a JSON object with at least 'name', 'turns', and 'schema_version' fields.` |
+| `agenteval gate --baseline nonexistent.json` error message | `error: baseline file not found: 'nonexistent.json'\nRun 'agenteval run --output <baseline_file>' on a known-good run and commit it.` |
+
+### Evidence
+
+```
+$ cd /build/portfolio/agent-eval-harness && source .venv/bin/activate && pytest -q
+........................................................................ [ 63%]
+.........................................                                [100%]
+113 passed in 2.68s
+```
+
+```
+$ ruff check . && ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+19 files already formatted
+RUFF CLEAN
+```
+
+```
+$ agenteval run --contract nonexistent.yaml --runs examples/recordings/sample_run.jsonl
+error: contract file not found: 'nonexistent.yaml'
+Check the path, or see examples/contracts/research.yaml for a template.
+```
+
+```
+$ echo '{"broken": true}' > /tmp/bad_run.jsonl && \
+  agenteval run --contract examples/contracts/research.yaml --runs /tmp/bad_run.jsonl
+error: cannot parse run on line 1 of '/tmp/bad_run.jsonl': 'name'
+Each line must be a JSON object with at least 'name', 'turns', and 'schema_version' fields. See examples/recordings/sample_run.jsonl.
+```
+
+```
+$ PYTHONPATH=. agenteval record \
+    --agent examples.research_agent:research_agent \
+    --task "How do solar panels work" \
+    --output /tmp/recorded_run.jsonl
+Recorded run: 'How do solar panels work'
+  turns       : 2
+  tool calls  : 2
+  output      : /tmp/recorded_run.jsonl
+```
+
+```
+$ bash examples/run_demo.sh
+=== agent-eval-harness demo ===
+...
+--- Step 4: gate regressed run vs good baseline (expect: FAIL, exit 1) ---
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+Exit code: 1
+...
+PASS: gate exits correctly (0 on good, 1 on regressed)
+=== Demo complete ===
+```
+
+### Files changed
+
+- `examples/contracts/research.yaml` — added `forbidden_tools: [send_email]`, corrected contract name from `research_contract` to `research`
+- `src/agenteval/cli.py` — wired `record` command (was stub); added actionable error handling to `run`, `gate` for `FileNotFoundError`, `KeyError`, `YAMLError`, `JSONDecodeError`
+- `README.md` — added token=0 explanation note; fixed quickstart (two-step evaluate then gate); added `## Integration with Inspect AI` section with Inspect bridge script; added `## Recording your own agent` section; confirmed contract YAML now matches actual file
+- `reports/improvements.md` — this file
+
+---
+
+## c1-p08: Fix wilson_lower(5, 5) wrong value in docs (2026-09-27)
+
+### Finding source
+
+Spec `agent-eval-harness.md` RESEARCH CORRECTIONS, Tier 2 item 10:
+
+> `wilson_lower(5, 5) ≈ 0.478` is **wrong — the actual value is 0.566**.
+> Off by ~9 percentage points.
+
+Confirmed by adversarial review finding F3 (ADVERSARIAL_REVIEW.md line 258), which itself
+states `wilson_lower(5, 5) = 0.478` — meaning the reviewer also copied the wrong value
+rather than running the code.
+
+### Root cause
+
+`docs/RESEARCH.md` section F-1 (falsification) stated `wilson_lower(5, 5, 0.95) ≈ 0.478`
+(4 occurrences). No test existed for this specific input, so the error persisted through
+two eval passes and an adversarial review undetected.
+
+The actual formula for p_hat = 1.0 simplifies cleanly:
+- term_under_root = 0 + z²/(4n²); sqrt(...) = z/(2n)
+- numerator = 1.0 + z²/(2n) - z·z/(2n) = 1.0
+- denominator = 1 + z²/n
+- lower = 1 / (1 + z²/n) = 1 / (1 + 3.8416/5) = 1 / 1.7683 = **0.5655**
+
+The wrong value 0.478 would arise from using z = 1.64 (one-sided 95%) instead of
+z = 1.96 (two-sided), or from a denominator error — both detectable by the new KAT.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 112 passed |
+| wilson_lower(5,5) documented value | 0.478 (wrong) |
+| Files with wrong value | RESEARCH.md (×4), ADVERSARIAL_REVIEW.md (×1) |
+| KAT for n=5 input | none |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 113 passed (+1) |
+| wilson_lower(5,5) documented value | 0.5655 (correct) |
+| Files with wrong value | 0 |
+| KAT for n=5 input | test_wilson_lower_n5_s5 (catches any implementation returning <0.5 or ~0.478) |
+
+### Evidence
+
+```
+$ cd /build/portfolio/agent-eval-harness && source .venv/bin/activate && pytest -q
+........................................................................ [ 63%]
+.........................................                                [100%]
+113 passed in 3.35s
+```
+
+```
+$ ruff check . && ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+19 files already formatted
+RUFF CLEAN
+```
+
+```
+$ python3 -c "from agenteval.scoring import wilson_lower; print(f'wilson_lower(5,5) = {wilson_lower(5,5,0.95):.4f}')"
+wilson_lower(5,5) = 0.5655
+```
+
+### Files changed
+
+- `tests/test_scoring.py` — added `test_wilson_lower_n5_s5` KAT with hand computation
+- `docs/RESEARCH.md` — corrected 4 occurrences of 0.478 → 0.5655 with correction note
+- `docs/ADVERSARIAL_REVIEW.md` — corrected F3 finding; status changed to Fixed
+- `reports/improvements.md` — this file
+
+### Finding source
+
+Spec `agent-eval-harness.md` RESEARCH CORRECTIONS, Tier 2 item 10:
+
+> `wilson_lower(5, 5) ≈ 0.478` is **wrong — the actual value is 0.566**.
+> Off by ~9 percentage points.
+
+Confirmed by adversarial review finding F3 (ADVERSARIAL_REVIEW.md line 258), which itself
+states `wilson_lower(5, 5) = 0.478` — meaning the reviewer also copied the wrong value
+rather than running the code.
+
+### Root cause
+
+`docs/RESEARCH.md` section F-1 (falsification) stated `wilson_lower(5, 5, 0.95) ≈ 0.478`
+(4 occurrences). No test existed for this specific input, so the error persisted through
+two eval passes and an adversarial review undetected.
+
+The actual formula for p_hat = 1.0 simplifies cleanly:
+- term_under_root = 0 + z²/(4n²); sqrt(...) = z/(2n)
+- numerator = 1.0 + z²/(2n) - z·z/(2n) = 1.0
+- denominator = 1 + z²/n
+- lower = 1 / (1 + z²/n) = 1 / (1 + 3.8416/5) = 1 / 1.7683 = **0.5655**
+
+The wrong value 0.478 would arise from using z = 1.64 (one-sided 95%) instead of
+z = 1.96 (two-sided), or from a denominator error — both detectable by the new KAT.
+
+### Before
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 112 passed |
+| wilson_lower(5,5) documented value | 0.478 (wrong) |
+| Files with wrong value | RESEARCH.md (×4), ADVERSARIAL_REVIEW.md (×1) |
+| KAT for n=5 input | none |
+
+### After
+
+| Metric | Value |
+| ------ | ----- |
+| Tests (pytest) | 113 passed (+1) |
+| wilson_lower(5,5) documented value | 0.5655 (correct) |
+| Files with wrong value | 0 |
+| KAT for n=5 input | test_wilson_lower_n5_s5 (catches any implementation returning <0.5 or ~0.478) |
+
+### Evidence
+
+```
+$ cd /build/portfolio/agent-eval-harness && source .venv/bin/activate && pytest -q
+........................................................................ [ 63%]
+.........................................                                [100%]
+113 passed in 3.35s
+```
+
+```
+$ ruff check . && ruff format --check . && echo "RUFF CLEAN"
+All checks passed!
+19 files already formatted
+RUFF CLEAN
+```
+
+```
+$ python3 -c "from agenteval.scoring import wilson_lower; print(f'wilson_lower(5,5) = {wilson_lower(5,5,0.95):.4f}')"
+wilson_lower(5,5) = 0.5655
+```
+
+### Files changed
+
+- `tests/test_scoring.py` — added `test_wilson_lower_n5_s5` KAT with hand computation
+- `docs/RESEARCH.md` — corrected 4 occurrences of 0.478 → 0.5655 with correction note
+- `docs/ADVERSARIAL_REVIEW.md` — corrected F3 finding; status changed to Fixed
+- `reports/improvements.md` — this file
+
+---
+
+## c9-p09-improve-2: Adoption readiness — error messages, docs-to-code gaps, README credibility (2026-09-29)
+
+### Finding source
+
+Improvement pass 2 audit of README, COMPARISONS.md, and ADOPTION.md for the biggest
+credibility gaps a skeptical reviewer would find.
+
+Three concrete issues found:
+
+**Issue 1 — actionable error message gap (FM-6)**
+
+`agenteval record` with a non-installed module produces:
+
+```
+error: cannot import module 'examples.research_agent': No module named 'examples'
+Make sure the module is on PYTHONPATH or installed in the active venv.
+```
+
+The fix is a two-second change (`PYTHONPATH=$(pwd) agenteval record ...`) but the old
+error message does not mention it. A first-time user hitting this on a Tuesday would not
+know the fix. This is documented as FM-6 in ADOPTION.md, but the code never closed the
+loop — the error message remained generic.
+
+**Issue 2 — stale star counts in README**
+
+The README "Where this fits" section contained star counts from an earlier pass:
+- promptfoo: 25,552 (stale) → 25,558 (c9-p03 fetch, 2026-09-29T18:01 UTC)
+- DeepEval: 18,497 (stale) → 18,502 (c9-p03 fetch, 2026-09-29T18:01 UTC)
+
+COMPARISONS.md had current counts; the README lagged. A reviewer who cross-checks the
+two documents would see a discrepancy.
+
+**Issue 3 — Contract YAML example shows 6 checks with no mention of the other 4 (biggest credibility gap)**
+
+The README "Contract YAML" section shows 6 checks in the example. COMPARISONS.md states
+"10 checks in a YAML contract." A skeptical reviewer reading the README contract example
+and counting 6 checks would question the "10 checks" claim elsewhere. There was no note
+in the README explaining that 6 of 10 were shown.
+
+The missing 4: `tool_sequence`, `arg_schema`, `max_latency_ms`, `final_answer_matches`.
+All 4 are implemented in `src/agenteval/assertions.py` and are in the registry. The
+YAML example is not misleading — it just shows the most common 6 — but without the
+note, the gap looked like an unsupported claim.
+
+### Root cause
+
+- FM-6 was documented in ADOPTION.md but never fed back into the error message in
+  `cli.py` (documentation and code were out of sync).
+- Star counts in README were updated in the research pass but not carried through to the
+  "Where this fits" prose section (the research pass updated COMPARISONS.md, not README).
+- The "10 checks" count was correct but the README example did not explain the
+  discrepancy with the 6-check YAML shown.
+
+### Changes made
+
+1. `src/agenteval/cli.py` — `_cmd_record` `ModuleNotFoundError` message now says:
+   ```
+   If the agent is a local module (not installed), add the repo root to PYTHONPATH:
+     PYTHONPATH=$(pwd) agenteval record --agent ...
+   Or install the package: pip install -e .
+   ```
+
+2. `README.md` — star counts updated in "Where this fits":
+   - promptfoo: 25,552 → 25,558 (source: c9-p03 GitHub API fetch, 2026-09-29T18:01 UTC)
+   - DeepEval: 18,497 → 18,502 (source: c9-p03 GitHub API fetch, 2026-09-29T18:01 UTC)
+
+3. `README.md` — added a note after the Contract YAML example:
+   > This example shows 6 of the 10 available check types. The full list, with the 4 not
+   > shown above: `tool_sequence` (required tool ordering, subsequence match), `arg_schema`
+   > (JSON-Schema validation of a tool's arguments), `max_latency_ms` (per-run latency cap),
+   > and `final_answer_matches` (regex on the final answer). All 10 types load from the same
+   > YAML format. See [docs/DESIGN.md](docs/DESIGN.md) for the full check reference.
+
+### Before / After
+
+| Metric | Before | After |
+| ------ | ------ | ----- |
+| `record` import error mentions PYTHONPATH | NO | YES |
+| promptfoo star count in README | 25,552 (stale) | 25,558 (c9-p03) |
+| DeepEval star count in README | 18,497 (stale) | 18,502 (c9-p03) |
+| Contract YAML section explains all 10 checks | NO | YES (note + names 4 missing) |
+| Tests (pytest) | 226 passed | 226 passed (unchanged) |
+| Lint (ruff) | clean | clean (unchanged) |
+| Demo (`bash examples/run_demo.sh`) | passes | passes (unchanged) |
+
+### Evidence
+
+New error message:
+
+```
+$ .venv/bin/agenteval record --agent examples.research_agent:research_agent \
+    --task "test" --output /tmp/x.jsonl
+error: cannot import module 'examples.research_agent': No module named 'examples'
+If the agent is a local module (not installed), add the repo root to PYTHONPATH:
+  PYTHONPATH=$(pwd) agenteval record --agent ...
+Or install the package: pip install -e .
+```
+
+Tests pass:
+
+```
+$ .venv/bin/python -m pytest -q
+........................................................................ [ 31%]
+........................................................................ [ 63%]
+........................................................................ [ 95%]
+..........                                                               [100%]
+226 passed in 2.71s
+```
+
+Lint clean:
+
+```
+$ .venv/bin/ruff check . && .venv/bin/ruff format --check . && echo CLEAN
+All checks passed!
+21 files already formatted
+CLEAN
+```
+
+Demo:
+
+```
+$ bash examples/run_demo.sh | tail -4
+--- Final checks ---
+PASS: gate exits correctly (0 on good, 1 on regressed)
+
+=== Demo complete ===
+```

@@ -38,6 +38,7 @@ return max(0.0, min(1.0, lower))
 ```
 
 **Test that validates it:** `tests/test_scoring.py:TestWilsonLower.test_wilson_lower_n100_s90`
+(also `test_wilson_lower_n4_s4` for the demo-scale 4/4 case with both arithmetic steps)
 
 Hand-computed verification at n=100, s=90:
 ```
@@ -51,6 +52,29 @@ denom     = 1 + 3.84145882/100 = 1.038416
 lower     = 0.857353 / 1.038416 = 0.82566
 ```
 Expected: 0.82566 ± 0.005. Verified against scipy.stats.proportion_confint reference value 0.8257.
+
+Hand-computed verification at n=4, s=4 (the demo-scale 4/4 case):
+```
+p_hat     = 1.0
+z         = 1.959963985
+z^2       = 3.841459
+
+Step 1 — centre (without half-width):
+  numerator₀ = 1.0 + z²/(2·4) = 1.0 + 0.480182 = 1.480182
+  denom      = 1 + z²/4        = 1 + 0.960365  = 1.960365
+  centre     = 1.480182 / 1.960365 = 0.75504
+
+Step 2 — half-width:
+  term       = 1.0·0.0/4 + z²/(4·16) = 0 + 0.060023 = 0.060023
+  half_num   = z·√0.060023 = 1.959964·0.245000 = 0.480190
+  half       = 0.480190 / 1.960365 = 0.24496
+
+Step 3 — lower bound:
+  lower      = centre − half = 0.75504 − 0.24496 = 0.51008 ≈ 0.5101
+```
+Expected: ~0.5101 (reports as 51.0% in README). The intermediate value 0.7551 is the
+Wilson interval centre, not the lower bound — the spec citation audit (Tier-2, 2026-09-26)
+identified presenting only step 1 as a teaching artifact error.
 
 **Hypothesis property tests:** `tests/test_properties.py:test_wilson_lower_monotone_in_successes`
 (tests monotonicity property; `test_wilson_lower_in_unit_interval` tests range constraint)

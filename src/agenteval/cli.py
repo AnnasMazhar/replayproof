@@ -59,7 +59,9 @@ def _cmd_record(args: argparse.Namespace) -> int:
     except ModuleNotFoundError as exc:
         print(
             f"error: cannot import module {module_path!r}: {exc}\n"
-            "Make sure the module is on PYTHONPATH or installed in the active venv.",
+            "If the agent is a local module (not installed), add the repo root to PYTHONPATH:\n"
+            "  PYTHONPATH=$(pwd) agenteval record --agent ...\n"
+            "Or install the package: pip install -e .",
             file=sys.stderr,
         )
         return 1
@@ -99,9 +101,28 @@ def _cmd_replay(args: argparse.Namespace) -> int:
     from agenteval.replay import replay
     from agenteval.transcript import Run
 
-    with open(args.run, encoding="utf-8") as fh:
-        line = fh.readline().strip()
-    run = Run.from_jsonl(line)
+    try:
+        with open(args.run, encoding="utf-8") as fh:
+            line = fh.readline().strip()
+    except FileNotFoundError:
+        print(
+            f"error: run file not found: {args.run!r}\n"
+            "Check the path, or see examples/recordings/sample_run.jsonl for an example.",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        run = Run.from_jsonl(line)
+    except (KeyError, ValueError) as exc:
+        print(
+            f"error: cannot parse run from {args.run!r}: {exc}\n"
+            "Each line must be a JSON object with at least 'name', 'turns', and "
+            "'schema_version' fields.",
+            file=sys.stderr,
+        )
+        return 1
+
     replayed = replay(run, tools={}, mode=args.mode)
 
     if args.format == "json":
@@ -220,10 +241,24 @@ def _cmd_gate(args: argparse.Namespace) -> int:
         )
         return 1
     except json.JSONDecodeError as exc:
-        print(
-            f"error: {args.current!r} is not valid JSON: {exc}",
-            file=sys.stderr,
-        )
+        # Detect the common mistake of passing a JSONL recording instead of a JSON result.
+        is_likely_jsonl = args.current.endswith(".jsonl") or "extra data" in str(exc).lower()
+        if is_likely_jsonl:
+            print(
+                f"error: {args.current!r} is not a valid JSON suite result.\n"
+                "The --current argument must be a JSON file produced by"
+                " 'agenteval run --output'.\n"
+                "If you passed a JSONL recording, run it through the contract first:\n"
+                "  agenteval run --contract <contract.yaml>"
+                " --runs <recording.jsonl> --output <result.json>\n"
+                "Then pass the result.json to 'agenteval gate --current result.json'.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"error: {args.current!r} is not valid JSON: {exc}",
+                file=sys.stderr,
+            )
         return 1
 
     try:
@@ -279,10 +314,36 @@ def _cmd_drift(args: argparse.Namespace) -> int:
     """Compute drift between two suite result files."""
     from agenteval.drift import drift
 
-    with open(args.a, encoding="utf-8") as fh:
-        a_data = json.load(fh)
-    with open(args.b, encoding="utf-8") as fh:
-        b_data = json.load(fh)
+    for label, path in (("--a", args.a), ("--b", args.b)):
+        try:
+            open(path, encoding="utf-8").close()
+        except FileNotFoundError:
+            print(
+                f"error: suite file not found for {label}: {path!r}\n"
+                "Run 'agenteval run --output <file>' to generate a suite result first.",
+                file=sys.stderr,
+            )
+            return 1
+
+    try:
+        with open(args.a, encoding="utf-8") as fh:
+            a_data = json.load(fh)
+    except json.JSONDecodeError as exc:
+        print(
+            f"error: {args.a!r} is not valid JSON: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        with open(args.b, encoding="utf-8") as fh:
+            b_data = json.load(fh)
+    except json.JSONDecodeError as exc:
+        print(
+            f"error: {args.b!r} is not valid JSON: {exc}",
+            file=sys.stderr,
+        )
+        return 1
 
     report = drift(a_data, b_data)
 
@@ -308,8 +369,22 @@ def _cmd_report(args: argparse.Namespace) -> int:
     from agenteval.report import to_html, to_markdown
     from agenteval.scoring import SuiteResult
 
-    with open(args.suite, encoding="utf-8") as fh:
-        data = json.load(fh)
+    try:
+        with open(args.suite, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        print(
+            f"error: suite file not found: {args.suite!r}\n"
+            "Run 'agenteval run --output <file>' to generate a suite result first.",
+            file=sys.stderr,
+        )
+        return 1
+    except json.JSONDecodeError as exc:
+        print(
+            f"error: {args.suite!r} is not valid JSON: {exc}",
+            file=sys.stderr,
+        )
+        return 1
 
     # Reconstruct a minimal SuiteResult from the dict.
     from agenteval.assertions import CheckResults
