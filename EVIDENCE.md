@@ -939,6 +939,24 @@ Test breakdown by file (c9-p05):
 - test_properties.py: 9 tests
 Total: 225 tests
 
+---
+
+## 16. Cycle 9 mutation gate baseline (authoritative, c10-p01 record)
+
+Measured baseline from `reports/mutation-c9.json` (cycle 9 mutation gate).
+Quoted exactly — not re-derived, estimated, or rounded:
+
+```
+$ python3 -c "import json; d=json.load(open('reports/mutation-c9.json')); print(f\"killed={d['killed']} total={d['total']} kill_rate={d['kill_rate']*100:.1f}% target={d['target']}\")"
+killed=230 total=233 kill_rate=98.7% target=0.7
+```
+
+- **230/233 mutants killed = 98.7%. Gate: 70%.** PASS (98.7 >= 70).
+- Supersedes the cycle-5 numbers in section 9 above (221/233 = 94.8%).
+- The 3 survivors are documented in `reports/mutation-c9.json` (`counts.survived = 3`).
+- Recorded here 2026-10-12 (c10-p01) so the improvement cycle grounds its delta
+  against the correct baseline. A wrong baseline misdirects the whole cycle.
+
 All acceptance criteria pass:
 1. pytest -q: 225 passed, no network required (+5 from c9-p05 new tests)
 2. bash examples/run_demo.sh: runs to completion, prints results table
