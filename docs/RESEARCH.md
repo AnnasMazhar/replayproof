@@ -12909,3 +12909,129 @@ Both c10-p01 open questions are now closed:
 
 Open question count: **0 (research questions); 1 (deferred to Pass 3: adoption recipe
 for the uncertainty layer).**
+
+---
+
+**Cycle 10 Pass 3 (c10-p03-research-3) — Real-World Applicability — 2026-10-27T21:00 UTC**
+
+This pass closes the one remaining open question from c10-p02: the Tuesday adoption
+recipe for the informational uncertainty interval layer (Newcombe CI + "n too small"
+warning). The full recipe is documented in `docs/ADOPTION.md` §"Cycle 10 deepening".
+
+Work done this pass:
+
+1. Computed the Newcombe Method 10 CI for all demo-scale n (raw output in ADOPTION.md).
+2. Determined the n threshold for significance (n >= 10 for a 50% drop at 95%).
+3. Specified the exact CLI surface: `agenteval gate --show-uncertainty`.
+4. Specified the output format (text + JSON `uncertainty` key).
+5. Documented the exact "n too small for significance" warning strings.
+6. Two new falsification items (F-C10-7, F-C10-8) — both not falsified.
+7. 254 tests pass — repo green at end of pass.
+
+## Raw evidence (c10-p03, 2026-10-27T21:00 UTC)
+
+```
+$ .venv/bin/agenteval run \
+    --contract examples/contracts/research.yaml \
+    --runs examples/recordings/sample_run.jsonl \
+    --output /tmp/c10p03_good.json
+# Cases 4 | Passed 4 | Pass Rate 100.0% | Wilson Lower Bound (95%) 51.0%
+
+$ .venv/bin/agenteval gate \
+    --baseline /tmp/c10p03_good.json \
+    --current /tmp/c10p03_good.json
+Gate: PASS — no regressions detected.
+Warning: ... not enforced ...: total_tokens, total_cost_usd
+exit=0
+
+$ .venv/bin/agenteval run \
+    --contract examples/contracts/research.yaml \
+    --runs examples/recordings/regressed_run.jsonl \
+    --output /tmp/c10p03_bad.json
+# Cases 4 | Passed 2 | Pass Rate 50.0% | Wilson Lower Bound (95%) 15.0%
+
+$ .venv/bin/agenteval gate \
+    --baseline /tmp/c10p03_good.json \
+    --current /tmp/c10p03_bad.json
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+Warning: ... not enforced ...: total_tokens, total_cost_usd
+exit=1
+
+# Newcombe CI computation (2026-10-27T21:00 UTC):
+$ .venv/bin/python3 newcombe_check.py
+4/4 vs 2/4: CI (-0.1021, 0.8500), excludes 0: False
+n=  4: 4/4 vs 2/4 -> CI (-0.1021, 0.8500) -> n too small (includes 0)
+n= 10: 10/10 vs 5/10 -> CI (0.1174, 0.7634) -> SIGNIFICANT
+n= 20: 20/20 vs 10/20 -> CI (0.2426, 0.7007) -> SIGNIFICANT
+n= 30: 30/30 vs 15/30 -> CI (0.2969, 0.6685) -> SIGNIFICANT
+n= 50: 50/50 vs 25/50 -> CI (0.3486, 0.6336) -> SIGNIFICANT
+
+$ .venv/bin/pytest -q --tb=short
+254 passed in 7.57s
+```
+
+## Exact CLI surface (binding — for implement passes)
+
+`agenteval gate --show-uncertainty`
+
+Flag is additive: adds an informational Newcombe block to stdout. Does NOT change the
+exit code. The threshold gate is the decision; the interval is evidence.
+
+**JSON output schema extension** (when `--format json --show-uncertainty`):
+
+```json
+{
+  "ok": false,
+  "trips": [...],
+  "skipped_zero_baseline": [],
+  "uncertainty": {
+    "method": "newcombe_method10",
+    "source": "Newcombe (1998) Statistics in Medicine 17(8):873-890",
+    "baseline_n": 4,
+    "current_n": 4,
+    "baseline_successes": 4,
+    "current_successes": 2,
+    "observed_drop": 0.5,
+    "ci_lower": -0.1021,
+    "ci_upper": 0.8500,
+    "ci_excludes_zero": false,
+    "significance_warning": "n=4 is too small for significance at 95%..."
+  }
+}
+```
+
+## "n too small for significance" warning strings (binding)
+
+**For n < 10:**
+`WARNING: n={n} is too small for significance at 95% (Newcombe CI includes 0). The threshold gate tripped (fail-closed) but the data are statistically consistent with no drop. Grow the suite to n>=10 for a significant 50% drop; n>=30 for a reliable interval.`
+
+**For 10 <= n < 30:**
+`Note: n={n} yields a Newcombe CI width of ~{width:.0f} pp. The interval is informative but conservative. Results with n>=30 are more reliable.`
+
+**For n >= 30:** No warning.
+
+## Falsification items (c10-p03)
+
+### F-C10-7: Newcombe CI (4/4 vs 2/4) matches c10-p01
+
+c10-p01 recorded (−0.1021, 0.8500). c10-p03 computed (−0.1021, 0.8500).
+**Not falsified (c10-p03, 2026-10-27).**
+
+### F-C10-8: n < 10 is the correct "too small" threshold for a 50% drop
+
+All n in {4,5,6,7,8,9} produce a CI including 0 for a 50% drop; n=10 is the first
+to exclude 0. Verified exhaustively by the raw table above.
+**Not falsified (c10-p03, 2026-10-27).**
+
+## Open questions after c10-p03
+
+All c10-p01 and c10-p02 open questions are closed:
+
+1. (Pass 2) No tracked tool ships Newcombe/SPRT/CUSUM — CLOSED (c10-p02).
+2. (Pass 3) Tuesday adoption recipe for the uncertainty layer — **CLOSED this pass**.
+   Full recipe in `docs/ADOPTION.md` §"Cycle 10 deepening".
+
+Open question count: **0**.
