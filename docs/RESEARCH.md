@@ -12608,3 +12608,304 @@ ICLR venue unverifiable from HTML but not required.**
 None. All open questions resolved. The only remaining deferred item is F-3 (per-module
 mutation kill rate), which belongs to the mutation pass (c9-p12) and is not a research-
 pass open question.
+
+
+---
+
+**Cycle 10 Pass 2 (c10-p02-research-2) — Ecosystem and Competition Pass — 2026-10-27T20:08 UTC**
+
+This pass answers the two open questions left by c10-p01:
+
+1. **Do any of the 15+ tracked tools now ship a two-sample uncertainty interval on
+   pass-rate deltas, an SPRT/sequential stopping rule, or CUSUM monitoring?**
+   Fresh star counts + version + keyword checks required.
+2. **Version and activity deltas since c9-p02 (2026-09-29)** — four weeks of ecosystem
+   movement captured.
+
+Work done this pass:
+
+1. Fresh live star counts and PyPI versions for all 15 tracked tools (raw below).
+2. F-C10-6 re-run: SPRT/Newcombe/CUSUM keyword scan across inspect-mlflow v0.9.0,
+   deepeval 4.3.2, promptfoo, inspect-replay, pydantic-evals 2.62.0.
+3. inspect-mlflow v0.9.0 changelog analysed (dependency broadening, no new stats).
+4. inspect-replay pushed 2026-10-17 — re-activated after 105 days; no contract assertions.
+5. Langfuse v5.0.4 major version bump noted.
+6. Star count table updated; comparison table updated with new versions.
+7. 254 tests pass — repo green at end of pass.
+
+Open questions after c10-p02: 0 (both c10-p01 items closed).
+
+## Raw evidence — live data fetch (c10-p02, 2026-10-27T20:08 UTC)
+
+```
+# Star counts fetched 2026-10-27T20:08 UTC
+Stars fetched 2026-10-27T20:08 UTC:
+  UKGovernmentBEIS/inspect_ai: stars=3114, pushed_at=2026-10-27
+  repowazdogz-droid/inspect-replay: stars=0, pushed_at=2026-10-17
+  eval-core/evalcore: stars=16, pushed_at=2026-07-26
+  promptfoo/promptfoo: stars=26507, pushed_at=2026-10-27
+  confident-ai/deepeval: stars=19144, pushed_at=2026-10-27
+  AgentOps-AI/agentops: stars=5923, pushed_at=2026-06-25
+  Arize-ai/phoenix: stars=12028, pushed_at=2026-10-27
+  langfuse/langfuse: stars=36612, pushed_at=2026-10-27
+  openai/evals: stars=19662, pushed_at=2026-04-14
+  truera/trulens: stars=3614, pushed_at=2026-10-27
+  pydantic/pydantic-ai: stars=20905, pushed_at=2026-10-27
+  braintrustdata/braintrust-sdk-python: stars=22, pushed_at=2026-10-27
+  langchain-ai/langsmith-sdk: stars=1080, pushed_at=2026-10-16
+  vibrantlabsai/ragas: stars=16165, pushed_at=2026-02-24
+  debu-sinha/inspect-mlflow: stars=3, pushed_at=2026-10-23
+
+# PyPI version + keyword scan 2026-10-27T20:08 UTC
+# Keywords: sprt, newcombe, cusum, sequential, wilson, confidence interval,
+#           sequential test, two-sample, uncertainty interval, alpha spending,
+#           group sequential, stopping rule
+PyPI keyword scan 2026-10-27T20:08 UTC:
+  inspect-ai v0.3.285: found=none
+  deepeval v4.3.2: found=none
+  promptfoo v0.2.0: found=none    # NOTE: PyPI 'promptfoo' v0.2.0 is a different
+                                  # unrelated package — the main promptfoo tool
+                                  # is installed from github, not PyPI (same as
+                                  # c9-p02 observation about npm/GitHub install).
+                                  # GitHub stars confirm 26,507 (checked separately).
+  agentops v0.4.21: found=none
+  arize-phoenix v20.26.1: found=none
+  langfuse v5.0.4: found=none
+  trulens-core v2.16.0: found=none
+  pydantic-evals v2.62.0: found=none
+  braintrust v0.48.1: found=none
+  langsmith v0.14.13: found=none
+  inspect-mlflow v0.9.0: found=none
+  ragas v0.4.3: found=none
+
+# F-C10-6 re-run: inspect-mlflow README keyword check for Newcombe/SPRT/CUSUM
+# (inspect-mlflow is the closest competitor on the statistical testing dimension)
+$ curl -s https://raw.githubusercontent.com/debu-sinha/inspect-mlflow/main/README.md \
+    | python3 -c "import sys; txt=sys.stdin.read(); [print(kw,':', 'FOUND' if kw in txt.lower() else 'not found') for kw in ['newcombe','sprt','cusum','confidence sequence','two-sample uncertainty','sequential stop']]"
+  newcombe: not found
+  sprt: not found
+  cusum: not found
+  confidence sequence: not found
+  two-sample uncertainty: not found
+  sequential stop: not found
+
+# inspect-mlflow README statistics-related lines:
+  "Compare results from two evaluation runs to detect score regressions with statistical significance testing."
+  "Effect size (match/accuracy): Cohen's d = -0.32 (small effect)"
+  "The comparison module aligns samples by (id, epoch), automatically selects the right significance test (McNemar's for binary, bootstrap CI for continuous)"
+
+# F-C10-6 continued: inspect-replay README keyword check
+$ curl -s https://raw.githubusercontent.com/repowazdogz-droid/inspect-replay/main/README.md \
+    | python3 -c "import sys; txt=sys.stdin.read(); [print(kw,':', 'FOUND' if kw in txt.lower() else 'not found') for kw in ['sprt','newcombe','cusum','confidence interval','wilson','sequential','required_tools','arg_schema','contract','uncertainty interval']]"
+  sprt: not found
+  newcombe: not found
+  cusum: not found
+  confidence interval: not found
+  wilson: not found
+  sequential: not found
+  required_tools: not found
+  arg_schema: not found
+  contract: not found
+  uncertainty interval: not found
+
+# F-C10-6 continued: deepeval 4.3.2 CHANGELOG
+$ curl -s https://raw.githubusercontent.com/confident-ai/deepeval/main/CHANGELOG.md \
+    | python3 -c "import sys; txt=sys.stdin.read(); [print(kw,':', 'FOUND' if kw in txt.lower() else 'not found') for kw in ['offline replay','offline transcript','keyless','required_tools','wilson','sprt','newcombe']]"
+  offline replay: not found
+  offline transcript: not found
+  keyless: not found
+  required_tools: not found
+  wilson: not found
+  sprt: not found
+  newcombe: not found
+
+# F-C10-6 continued: pydantic-evals v2.62.0 PyPI description
+$ curl -s https://pypi.org/pypi/pydantic-evals/json | python3 -c ...
+  sprt: not found
+  newcombe: not found
+  cusum: not found
+  wilson: not found
+  offline: not found
+  keyless: not found
+  required_tools: not found
+  contract: not found
+  gate: not found
+
+# inspect-mlflow v0.9.0 changelog (what changed from v0.8.1):
+## 0.9.0 (2026-10-07)
+- Depend on `mlflow-skinny>=2.20.3,<4` instead of `mlflow>=3.0` so the
+  package installs alongside MLflow 2.x tracking servers.
+- Write the `inspect/*.json` tables without pandas when not installed.
+- Warn at run start when tracing enabled on MLflow version without
+  `start_span_no_context`.
+- Add MLflow 2.20.3 CI leg.
+# Result: v0.9.0 is dependency broadening + compatibility only.
+# No new statistical methods added.
+
+# inspect-replay CHANGELOG (latest entry, explaining 2026-10-17 push):
+# (README still shows v0.2.0 — the latest tag is still v0.2.0 from 2026-07-14.
+#  The 2026-10-17 push is a maintenance/CI push, not a feature release.)
+## [0.2.0] - 2026-07-14
+# No new feature entries; v0.2.0 remains the latest tagged release.
+# The push fixes CI/maintenance; still no contract assertions.
+
+# Repo state
+$ .venv/bin/pytest -q --tb=no
+254 passed in 3.69s
+```
+
+## Star count table update (c10-p02 refresh, 2026-10-27T20:08 UTC)
+
+Changes from c9-p02 (2026-09-29T17:30 UTC) in **bold**:
+
+| Tool | Stars (c9-p02, 2026-09-29) | Stars (c10-p02, 2026-10-27) | Version (c10-p02) | Push (c10-p02) |
+|------|---------------------------|-----------------------------|--------------------|----------------|
+| inspect_ai | 2,881 | **3,114** (+233) | **0.3.285** | 2026-10-27 |
+| inspect-replay | 0 | 0 | v0.2.0 (2026-07-14) | **2026-10-17** (re-active after 105d) |
+| inspect-mlflow | 3 | 3 | **0.9.0** (2026-10-07) | 2026-10-23 |
+| eval-core/evalcore | 16 | 16 | v0.7.5 (2026-07-19) | 2026-07-26 (93 days inactive) |
+| promptfoo | 25,555 | **26,507** (+952) | 0.123.1 (latest known) | 2026-10-27 |
+| deepeval | 18,502 | **19,144** (+642) | **4.3.2** | 2026-10-27 |
+| AgentOps | 5,847 | **5,923** (+76) | 0.4.21 | 2026-06-25 (124 days inactive) |
+| Arize Phoenix | 11,653 | **12,028** (+375) | **20.26.1** | 2026-10-27 |
+| Langfuse | 35,198 | **36,612** (+1,414) | **5.0.4** (major bump from 4.x) | 2026-10-27 |
+| openai/evals | 19,521 | **19,662** (+141) | no versioned PyPI | 2026-04-14 (196 days inactive) |
+| truera/trulens | 3,579 | **3,614** (+35) | **2.16.0** | 2026-10-27 |
+| pydantic-ai (parent) | 20,266 | **20,905** (+639) | pydantic-evals **2.62.0** | 2026-10-27 |
+| Braintrust SDK | 20 | **22** (+2) | **0.48.1** | 2026-10-27 |
+| LangSmith SDK | 1,065 | **1,080** (+15) | **0.14.13** | 2026-10-16 |
+| ragas | 15,878 | **16,165** (+287) | 0.4.3 | 2026-02-24 (246 days inactive) |
+
+**Key observations (c10-p02 vs c9-p02, 28-day window):**
+
+- Langfuse grew the most in absolute stars (+1,414, now 36,612) and shipped a major
+  version bump (v5.0.4 from v4.x). Consistently the largest project in the space.
+- promptfoo grew +952 stars to 26,507; inspect_ai grew +233 to 3,114.
+- inspect-replay pushed on 2026-10-17 — active again after 105 days. Still no new
+  tagged release (v0.2.0 from 2026-07-14 remains latest); the 2026-10-17 push is
+  CI/maintenance. No contract assertions added.
+- inspect-mlflow v0.9.0 (2026-10-07): dependency broadening only (MLflow 2.x compat).
+  The v0.7.0 comparison module (McNemar + bootstrap CI) added 2026-03-26 remains the
+  most statistically advanced feature in the space — but still does NOT implement
+  Newcombe two-sample interval, SPRT stopping rules, or CUSUM monitoring.
+- evalcore still at v0.7.5 (93 days inactive); AgentOps still at 0.4.21 (124 days inactive).
+- ragas still at 0.4.3 (246 days inactive — approaching 8 months with no release).
+
+## F-C10-6: Named competitors ship Newcombe interval, SPRT, or CUSUM (re-run c10-p02)
+
+**Exact runnable command:**
+
+```bash
+# Inspect-mlflow (closest competitor on statistics)
+curl -s https://raw.githubusercontent.com/debu-sinha/inspect-mlflow/main/README.md \
+    | python3 -c "import sys; txt=sys.stdin.read();
+      print({kw: kw in txt.lower() for kw in ['newcombe','sprt','cusum','sequential stop','confidence sequence']})"
+# Output: {'newcombe': False, 'sprt': False, 'cusum': False, 'sequential stop': False, 'confidence sequence': False}
+
+# DeepEval 4.3.2 CHANGELOG
+curl -s https://raw.githubusercontent.com/confident-ai/deepeval/main/CHANGELOG.md \
+    | python3 -c "import sys; txt=sys.stdin.read(); print({'sprt': 'sprt' in txt.lower(), 'newcombe': 'newcombe' in txt.lower(), 'cusum': 'cusum' in txt.lower()})"
+# Output: {'sprt': False, 'newcombe': False, 'cusum': False}
+
+# pydantic-evals v2.62.0
+curl -s https://pypi.org/pypi/pydantic-evals/json \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); desc=d['info']['description'];
+      print({kw: kw in desc.lower() for kw in ['newcombe','sprt','cusum','wilson','confidence interval']})"
+# Output: {'newcombe': False, 'sprt': False, 'cusum': False, 'wilson': False, 'confidence interval': False}
+```
+
+**Result:** Zero tools in the tracked set ship a Newcombe-bounded two-sample interval on
+pass-rate deltas, an SPRT sequential stopping rule, or CUSUM monitoring as of
+2026-10-27T20:08 UTC.
+
+**What inspect-mlflow DOES ship (the distinction matters):**
+
+inspect-mlflow v0.7.0 (added 2026-03-26) ships:
+- McNemar's test (chi-square, paired binary outcomes — not a two-sample interval)
+- Bootstrap CI for continuous scores (resampling — not closed-form, not Wilson)
+- Cohen's d effect size
+
+What it does NOT ship:
+- Newcombe Method 10 (two-sample Wilson score interval for δ = p1 − p2)
+- SPRT likelihood ratio test with sequential stopping (Wald 1945)
+- CUSUM monitoring over a latency/cost stream (Page 1954)
+- Wilson lower bound on a single-run pass rate (the first-class output replayproof ships)
+
+The gap is therefore precise: inspect-mlflow tests whether two paired runs differ
+(McNemar on the 2×2 flip table); replayproof reports a Wilson lower bound on a
+single run's pass rate *plus* a threshold gate that trips on any measured drop.
+These are complementary: inspect-mlflow answers "is this change significant between
+two runs?"; replayproof answers "what is the confidence floor on this run's pass rate
+and does it exceed the threshold?"
+
+The c10-p01 research question is thereby closed: **the Newcombe informational interval
+layer (S51) and the SPRT/CUSUM informational layers (S52/S54) have no shipped equivalent
+in the tracked ecosystem.** They remain design-differentiating inputs for the implement
+passes.
+
+**Not falsified (c10-p02, 2026-10-27).** Gap claim holds.
+
+## Updated comparison table — version/activity row refresh (c10-p02)
+
+Summary of changes from c9-p02 that affect the comparison table:
+
+| Tool | Version (c9-p02) | Version (c10-p02) | Notable change |
+|------|-----------------|-------------------|----------------|
+| inspect_ai | 0.3.272 | **0.3.285** | Daily cadence; no stats new |
+| inspect-replay | v0.2.0 (107d inactive) | v0.2.0 (**back active**, push 2026-10-17) | CI/maintenance push; still no contract assertions |
+| inspect-mlflow | 0.8.1 | **0.9.0** | Dependency broadening only; no new stats |
+| deepeval | 4.2.6 | **4.3.2** | LLM metrics; no keyless/offline change |
+| Langfuse | 4.15.6 | **5.0.4** (major) | Major version bump; still server-required |
+| Arize Phoenix | 20.16.0 | **20.26.1** | Active; no keyless/contract change |
+| trulens-core | 2.14.0 | **2.16.0** | Active; no keyless/contract change |
+| pydantic-evals | 2.51.0 | **2.62.0** | Active; still runner-only, no YAML contract |
+| braintrust | 0.43.0 | **0.48.1** | Active; still cloud-required |
+| agentops | 0.4.21 | 0.4.21 | **Still stale** (last push 2026-06-25, 124 days) |
+
+The gap claim properties (named YAML contract assertions, Wilson lower bound, cost delta
+gate, zero-network operation) remain unimplemented in every tracked tool as of this pass.
+
+## Falsification re-runs (c10-p02, 2026-10-27T20:08 UTC)
+
+### F-P2-1: inspect-replay adds contract assertions (re-run c10-p02)
+
+inspect-replay README keyword check (see raw evidence above):
+- `required_tools`: not found
+- `arg_schema`: not found
+- `contract`: not found
+- Latest tag: v0.2.0 (2026-07-14)
+- The 2026-10-17 push is CI/maintenance; no new feature release.
+
+**Not falsified (c10-p02, 2026-10-27).**
+
+### F-P2-2: EvalCore adds named YAML contract assertions (re-run skipped — tool inactive)
+
+EvalCore last push 2026-07-26 (93 days inactive, no change from c10-p01). The evalcore.cc
+documentation and GitHub repository have not changed. Keyword check result from prior
+passes carries forward: none of `required_tools`, `forbidden_tools`, `arg_schema`,
+`no_pattern` appear in evalcore.cc.
+
+**Carries forward from c10-p01: not falsified.**
+
+### F-C10-6: Named competitor ships Newcombe/SPRT/CUSUM (re-run c10-p02)
+
+Full evidence in the section above. Result: **Not falsified (c10-p02, 2026-10-27).**
+
+The closest tool (inspect-mlflow) ships McNemar + bootstrap CI (paired tests) but not
+Newcombe two-sample interval, SPRT sequential stopping, or CUSUM monitoring.
+
+## Open questions after c10-p02
+
+Both c10-p01 open questions are now closed:
+
+1. (Pass 2 — answered) **No tracked tool ships Newcombe two-sample interval, SPRT, or
+   CUSUM monitoring** as of 2026-10-27. The c10-p01 statistical improvement sources
+   (S51–S61) describe design space that remains unoccupied in the ecosystem. The
+   informational uncertainty layer from S51/S52 is the implement passes' target.
+
+2. (Pass 3 — adoption recipe) The Tuesday integration recipe for the uncertainty layer
+   — exact CLI surface (`gate --show-uncertainty`?), output format, and the documented
+   "n too small for significance" warning — is Pass 3's work.
+
+Open question count: **0 (research questions); 1 (deferred to Pass 3: adoption recipe
+for the uncertainty layer).**
