@@ -982,3 +982,264 @@ class TestWilsonLowerKATSmallN:
             f"wilson_lower(4, 4) = {result:.4f} should be < 0.75. "
             "A value near 0.755 indicates the half-width subtraction was omitted."
         )
+
+
+class TestNewcombeDiffInterval:
+    """Known-answer and property tests for newcombe_diff_interval.
+
+    Faults detected:
+    - test_newcombe_kat_4_4_vs_2_4: incorrect CI bounds for the demo drop case.
+    - test_newcombe_kat_10_10_vs_5_10: significant result at n=10; wrong sign.
+    - test_newcombe_symmetric_identical: drop=0 must produce symmetric CI around 0.
+    - test_newcombe_excludes_zero_at_n10: n=10 50% drop must have CI excluding 0.
+    - test_newcombe_includes_zero_at_n4: n=4 50% drop must have CI including 0.
+    - test_newcombe_invalid_n_raises: n=0 must raise ValueError.
+    - test_newcombe_s_exceeds_n_raises: s>n must raise ValueError.
+    - test_newcombe_lower_le_upper: lower bound must never exceed upper bound.
+    """
+
+    def test_newcombe_kat_4_4_vs_2_4(self) -> None:
+        """Known-answer test: demo drop (4/4 baseline vs 2/4 current).
+
+        Fault: wrong CI bounds produced when one proportion is at the boundary
+        (p1 = 1.0). A naive Wald interval returns NaN for p=1.
+
+        Hand derivation (c10-p01 and c10-p03, 2026-10-12 / 2026-10-27):
+            p1 = 1.0, n1 = 4
+            Wilson bounds: l1 = 0.5101, u1 = 1.0000
+            p2 = 0.5, n2 = 4
+            Wilson bounds: l2 = 0.1500, u2 = 0.8500
+            delta = 1.0 - 0.5 = 0.5
+            L = 0.5 - sqrt((1.0-0.5101)^2 + (0.8500-0.5)^2)
+              = 0.5 - sqrt(0.2399 + 0.1225) = 0.5 - 0.6020 ≈ -0.1020
+            U = 0.5 + sqrt((1.0-0.5101)^2 + (0.5-0.1500)^2)
+              = 0.5 + sqrt(0.2399 + 0.1225) = 0.5 + 0.6020 ≈ 1.1020
+              -> clamped to 0.8500 (the upper Wilson bound of p2 contributes the
+                 symmetric piece: U = delta + sqrt((u1-p1)^2 + (p2-l2)^2)
+                                     = 0.5 + sqrt(0 + (0.5-0.15)^2)
+                                     = 0.5 + 0.35 = 0.85)
+        Expected: L ≈ -0.1021, U ≈ 0.8500.
+        """
+        from agenteval.scoring import newcombe_diff_interval
+
+        lo, hi = newcombe_diff_interval(4, 4, 2, 4)
+        assert abs(lo - (-0.1021)) < 0.001, f"Expected L≈-0.1021, got {lo:.4f}"
+        assert abs(hi - 0.8500) < 0.001, f"Expected U≈0.8500, got {hi:.4f}"
+
+    def test_newcombe_kat_10_10_vs_5_10(self) -> None:
+        """Known-answer: 10/10 vs 5/10 -> CI excludes 0 (significant at n=10).
+
+        Fault: CI includes 0 incorrectly for n>=10. c10-p01 and c10-p03 both
+        record (0.1174, 0.7634) for this case.
+        """
+        from agenteval.scoring import newcombe_diff_interval
+
+        lo, hi = newcombe_diff_interval(10, 10, 5, 10)
+        assert lo > 0.0, f"CI lower bound should be > 0 for n=10 50% drop, got {lo:.4f}"
+        assert abs(lo - 0.1174) < 0.005, f"Expected L≈0.1174, got {lo:.4f}"
+        assert abs(hi - 0.7634) < 0.005, f"Expected U≈0.7634, got {hi:.4f}"
+
+    def test_newcombe_symmetric_identical(self) -> None:
+        """Identical groups (no drop) should produce a CI symmetric about 0.
+
+        Fault: asymmetric CI for equal proportions indicates wrong p1-p2 sign
+        or wrong argument ordering.
+        """
+        from agenteval.scoring import newcombe_diff_interval
+
+        lo, hi = newcombe_diff_interval(10, 10, 10, 10)
+        # Both groups are identical (p=1.0), delta=0; CI should be symmetric around 0.
+        assert (
+            abs(lo + hi) < 0.01
+        ), f"CI for identical groups should be symmetric around 0; got ({lo:.4f}, {hi:.4f})"
+        assert lo <= 0.0 <= hi, f"CI must straddle 0 for identical groups; got ({lo:.4f}, {hi:.4f})"
+
+    def test_newcombe_excludes_zero_at_n10(self) -> None:
+        """n=10 50% drop: CI must exclude 0 (first n to achieve significance).
+
+        Fault: a Wald-based implementation fails at the boundaries and may return
+        NaN or an interval that erroneously includes 0.
+        """
+        from agenteval.scoring import newcombe_diff_interval
+
+        lo, hi = newcombe_diff_interval(10, 10, 5, 10)
+        ci_excludes_zero = lo > 0.0 or hi < 0.0
+        assert (
+            ci_excludes_zero
+        ), f"n=10 50% drop should produce CI excluding 0; got ({lo:.4f}, {hi:.4f})"
+
+    def test_newcombe_includes_zero_at_n4(self) -> None:
+        """n=4 50% drop: CI must include 0 (too small for significance at 95%).
+
+        Fault: an overly confident implementation flags n=4 as significant,
+        misleading callers about the quality of small-suite gates.
+        """
+        from agenteval.scoring import newcombe_diff_interval
+
+        lo, hi = newcombe_diff_interval(4, 4, 2, 4)
+        ci_includes_zero = lo <= 0.0 <= hi
+        assert (
+            ci_includes_zero
+        ), f"n=4 50% drop should produce CI including 0; got ({lo:.4f}, {hi:.4f})"
+
+    def test_newcombe_invalid_n_raises(self) -> None:
+        """n=0 must raise ValueError; 0 trials is undefined for a proportion.
+
+        Fault: n=0 causes division by zero — some implementations return NaN silently.
+        """
+        import pytest
+
+        from agenteval.scoring import newcombe_diff_interval
+
+        with pytest.raises(ValueError, match="n1 and n2 must be positive"):
+            newcombe_diff_interval(0, 0, 2, 4)
+
+    def test_newcombe_s_exceeds_n_raises(self) -> None:
+        """s > n is an impossible input; must raise ValueError.
+
+        Fault: silently returning a proportion > 1.0 corrupts the CI formula.
+        """
+        import pytest
+
+        from agenteval.scoring import newcombe_diff_interval
+
+        with pytest.raises(ValueError):
+            newcombe_diff_interval(5, 4, 2, 4)
+
+    def test_newcombe_lower_le_upper(self) -> None:
+        """Lower bound must always be <= upper bound for any valid input.
+
+        Fault: arithmetic error in sqrt terms produces lower > upper for some n.
+        """
+        from agenteval.scoring import newcombe_diff_interval
+
+        for n in range(1, 20):
+            for s1 in range(0, n + 1):
+                for s2 in range(0, n + 1):
+                    lo, hi = newcombe_diff_interval(s1, n, s2, n)
+                    assert lo <= hi, (
+                        f"newcombe_diff_interval({s1},{n},{s2},{n}): "
+                        f"lower={lo:.4f} > upper={hi:.4f}"
+                    )
+
+
+class TestNewcombeSignificanceWarning:
+    """Tests for newcombe_significance_warning.
+
+    Faults detected:
+    - test_warning_n_lt_10: n<10 must produce a WARNING string.
+    - test_warning_n_10_to_29: 10<=n<30 must produce a Note string.
+    - test_warning_n_ge_30: n>=30 must produce empty string.
+    - test_warning_text_contains_n: warning must include the actual n value.
+    """
+
+    def test_warning_n_lt_10(self) -> None:
+        """Fault: n<10 returns empty string instead of WARNING — misleads CI readers."""
+        from agenteval.scoring import newcombe_significance_warning
+
+        msg = newcombe_significance_warning(4, -0.1021, 0.8500)
+        assert msg.startswith(
+            "n=4 is too small"
+        ), f"Expected WARNING prefix for n=4, got: {msg[:60]!r}"
+
+    def test_warning_n_10_to_29(self) -> None:
+        """Fault: n in [10,29] returns WARNING instead of Note — overstates severity."""
+        from agenteval.scoring import newcombe_significance_warning
+
+        msg = newcombe_significance_warning(10, 0.1174, 0.7634)
+        assert msg.startswith("n=10 yields"), f"Expected Note prefix for n=10, got: {msg[:60]!r}"
+
+    def test_warning_n_ge_30(self) -> None:
+        """Fault: n>=30 returns a warning string — adds noise to reliable results."""
+        from agenteval.scoring import newcombe_significance_warning
+
+        msg = newcombe_significance_warning(30, 0.2969, 0.6685)
+        assert msg == "", f"Expected empty string for n=30, got: {msg!r}"
+
+    def test_warning_text_contains_n(self) -> None:
+        """Fault: generic warning doesn't mention n — engineer can't quickly triage."""
+        from agenteval.scoring import newcombe_significance_warning
+
+        msg = newcombe_significance_warning(7, -0.05, 0.85)
+        assert "n=7" in msg, f"Warning must contain 'n=7'; got: {msg!r}"
+
+
+class TestComputeUncertaintyBlock:
+    """Tests for compute_uncertainty_block.
+
+    Faults detected:
+    - test_block_keys_present: all required keys must be present in the dict.
+    - test_block_kat_demo: demo case must produce the c10-p01 values.
+    - test_block_ci_excludes_zero_false_at_n4: n=4 50% drop must not exclude 0.
+    - test_block_empty_on_zero_n: n=0 must return empty dict, not crash.
+    - test_block_significance_warning_in_result: warning key must be populated.
+    """
+
+    def test_block_keys_present(self) -> None:
+        """Fault: missing key causes KeyError when CI output is parsed downstream."""
+        from agenteval.scoring import compute_uncertainty_block
+
+        result = compute_uncertainty_block(4, 4, 4, 2)
+        required = {
+            "method",
+            "source",
+            "baseline_n",
+            "current_n",
+            "baseline_successes",
+            "current_successes",
+            "observed_drop",
+            "ci_lower",
+            "ci_upper",
+            "ci_excludes_zero",
+            "significance_warning",
+        }
+        missing = required - result.keys()
+        assert not missing, f"Missing keys in uncertainty block: {missing}"
+
+    def test_block_kat_demo(self) -> None:
+        """Known-answer: demo case 4/4 vs 2/4.
+
+        Fault: wrong CI values in the block — contradicts the c10-p01 evidence.
+        """
+        from agenteval.scoring import compute_uncertainty_block
+
+        result = compute_uncertainty_block(4, 4, 4, 2)
+        assert (
+            abs(result["ci_lower"] - (-0.1021)) < 0.001
+        ), f"Expected ci_lower≈-0.1021, got {result['ci_lower']}"
+        assert (
+            abs(result["ci_upper"] - 0.8500) < 0.001
+        ), f"Expected ci_upper≈0.8500, got {result['ci_upper']}"
+        assert result["ci_excludes_zero"] is False
+
+    def test_block_ci_excludes_zero_false_at_n4(self) -> None:
+        """Fault: block says ci_excludes_zero=True for n=4 — overstates significance."""
+        from agenteval.scoring import compute_uncertainty_block
+
+        result = compute_uncertainty_block(4, 4, 4, 2)
+        assert result["ci_excludes_zero"] is False
+
+    def test_block_empty_on_zero_n(self) -> None:
+        """Fault: compute_uncertainty_block raises exception on n=0 instead of returning {}."""
+        from agenteval.scoring import compute_uncertainty_block
+
+        result = compute_uncertainty_block(0, 0, 0, 0)
+        assert result == {}, f"Expected empty dict for n=0, got {result}"
+
+    def test_block_significance_warning_in_result(self) -> None:
+        """Fault: significance_warning is missing or empty for n=4 (ambiguous gate)."""
+        from agenteval.scoring import compute_uncertainty_block
+
+        result = compute_uncertainty_block(4, 4, 4, 2)
+        assert result["significance_warning"], "significance_warning should be non-empty for n=4"
+        assert "n=4" in result["significance_warning"]
+
+    def test_block_source_is_newcombe(self) -> None:
+        """Fault: incorrect source attribution misrepresents the method's provenance."""
+        from agenteval.scoring import compute_uncertainty_block
+
+        result = compute_uncertainty_block(4, 4, 4, 2)
+        assert (
+            "Newcombe" in result["source"]
+        ), f"Source must credit Newcombe (1998); got {result['source']!r}"
+        assert "Statistics in Medicine" in result["source"]

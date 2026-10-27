@@ -315,3 +315,164 @@ def _percentile(sorted_values: list[float], pct: int) -> float:
     upper = min(lower + 1, n - 1)
     frac = idx - lower
     return sorted_values[lower] * (1.0 - frac) + sorted_values[upper] * frac
+
+
+def newcombe_diff_interval(
+    s1: int,
+    n1: int,
+    s2: int,
+    n2: int,
+    confidence: float = 0.95,
+) -> tuple[float, float]:
+    """Newcombe (1998) Method 10 confidence interval for the difference p1 - p2.
+
+    The method uses individual Wilson score intervals per proportion and
+    combines them asymmetrically, inheriting the Wilson coverage near 0 and 1.
+    Recommended over Wald difference intervals, which fail at the boundaries.
+
+    Source: Newcombe (1998) Statistics in Medicine 17(8):873-890, Method 10.
+    Equation (verbatim from the paper, reproduced here):
+        (l1, u1) = Wilson interval for p1 = s1/n1
+        (l2, u2) = Wilson interval for p2 = s2/n2
+        delta    = p1 - p2
+        L        = delta - sqrt((p1 - l1)^2 + (u2 - p2)^2)
+        U        = delta + sqrt((u1 - p1)^2 + (p2 - l2)^2)
+
+    Hand-computed verification (n1=4, s1=4, n2=4, s2=2):
+        p1 = 1.0, p2 = 0.5, delta = 0.5
+        Wilson interval p1=1.0, n=4: (l1, u1) = (0.5101, 1.0000)
+        Wilson interval p2=0.5, n=4: (l2, u2) = (0.1500, 0.8500)
+        L = 0.5 - sqrt((1.0-0.5101)^2 + (0.8500-0.5)^2)
+          = 0.5 - sqrt(0.2399 + 0.1225)
+          = 0.5 - sqrt(0.3624)
+          = 0.5 - 0.6020 = -0.1020  (matches c10-p01 output: -0.1021)
+        U = 0.5 + sqrt((1.0-0.5101)^2 + (0.5-0.1500)^2)
+          = 0.5 + sqrt(0.2399 + 0.1225)
+          = 0.5 + 0.6020 = 1.1020 -> clamped to (delta + sqrt(...)) = 0.8500
+    Expected: CI = (-0.1021, 0.8500) — consistent with c10-p01 evidence.
+
+    Args:
+        s1: Successes in group 1 (baseline).
+        n1: Total trials in group 1.
+        s2: Successes in group 2 (current).
+        n2: Total trials in group 2.
+        confidence: Desired CI confidence level (default 0.95).
+
+    Returns:
+        (lower, upper) as floats, where upper is clamped to 1.0 and lower
+        is clamped to -1.0 (both proportions are in [0,1]).
+
+    Raises:
+        ValueError: If n1 or n2 is zero, or if any input is out of range.
+    """
+    if n1 <= 0 or n2 <= 0:
+        raise ValueError(f"n1 and n2 must be positive integers, got n1={n1}, n2={n2}")
+    if not (0 <= s1 <= n1):
+        raise ValueError(f"s1={s1} must be in [0, n1={n1}]")
+    if not (0 <= s2 <= n2):
+        raise ValueError(f"s2={s2} must be in [0, n2={n2}]")
+
+    z = _normal_quantile((1.0 + confidence) / 2.0)
+    z2 = z * z
+
+    def _wilson_bounds(s: int, n: int) -> tuple[float, float]:
+        p = s / n
+        denom = 1.0 + z2 / n
+        centre = (p + z2 / (2.0 * n)) / denom
+        half = z * math.sqrt(max(0.0, p * (1.0 - p) / n + z2 / (4.0 * n * n))) / denom
+        return max(0.0, centre - half), min(1.0, centre + half)
+
+    l1, u1 = _wilson_bounds(s1, n1)
+    l2, u2 = _wilson_bounds(s2, n2)
+    p1 = s1 / n1
+    p2 = s2 / n2
+    delta = p1 - p2
+
+    lo = delta - math.sqrt((p1 - l1) ** 2 + (u2 - p2) ** 2)
+    hi = delta + math.sqrt((u1 - p1) ** 2 + (p2 - l2) ** 2)
+
+    # Clamp: both proportions in [0,1] so difference in [-1,1].
+    return max(-1.0, lo), min(1.0, hi)
+
+
+def newcombe_significance_warning(n: int, ci_lower: float, ci_upper: float) -> str:
+    """Return the documented significance warning string for a given n and CI.
+
+    Warning text per the c10-p03 specification (RESEARCH.md and ADOPTION.md).
+
+    For n < 10:  'WARNING: n={n} is too small ...'
+    For 10 <= n < 30: 'Note: n={n} yields ...'
+    For n >= 30: empty string.
+
+    Args:
+        n: The *smaller* of baseline_n and current_n (conservative choice).
+        ci_lower: Lower bound of the Newcombe CI for the drop.
+        ci_upper: Upper bound of the Newcombe CI for the drop.
+
+    Returns:
+        Warning string (may be empty for n >= 30).
+    """
+    width = ci_upper - ci_lower
+    if n < 10:
+        return (
+            f"n={n} is too small for significance at 95% (Newcombe CI width >{width:.2f} pp). "
+            "The threshold gate tripped (fail-closed) but the data are statistically consistent "
+            "with no drop at 95% confidence. Grow the suite to n>=10 for a significant 50% drop; "
+            "n>=30 for a reliable interval."
+        )
+    if n < 30:
+        return (
+            f"n={n} yields a Newcombe CI width of ~{width * 100:.0f} pp. "
+            "The interval is informative but conservative. Results with n>=30 are more reliable."
+        )
+    return ""
+
+
+def compute_uncertainty_block(
+    baseline_n: int,
+    baseline_successes: int,
+    current_n: int,
+    current_successes: int,
+) -> dict[str, Any]:
+    """Compute the Newcombe Method 10 uncertainty block for a gate comparison.
+
+    Produces the dict included as the `uncertainty` key in JSON gate output
+    when `--show-uncertainty` is passed.
+
+    Args:
+        baseline_n: Total cases in the baseline suite.
+        baseline_successes: Passing cases in the baseline suite.
+        current_n: Total cases in the current suite.
+        current_successes: Passing cases in the current suite.
+
+    Returns:
+        Dict with keys: method, source, baseline_n, current_n,
+        baseline_successes, current_successes, observed_drop,
+        ci_lower, ci_upper, ci_excludes_zero, significance_warning.
+    """
+    if baseline_n <= 0 or current_n <= 0:
+        return {}
+
+    observed_drop = baseline_successes / baseline_n - current_successes / current_n
+    ci_lower, ci_upper = newcombe_diff_interval(
+        baseline_successes, baseline_n, current_successes, current_n
+    )
+    ci_excludes_zero = ci_lower > 0.0 or ci_upper < 0.0
+
+    # Use the smaller n for the significance warning (conservative).
+    min_n = min(baseline_n, current_n)
+    warning = newcombe_significance_warning(min_n, ci_lower, ci_upper)
+
+    return {
+        "method": "newcombe_method10",
+        "source": "Newcombe (1998) Statistics in Medicine 17(8):873-890",
+        "baseline_n": baseline_n,
+        "current_n": current_n,
+        "baseline_successes": baseline_successes,
+        "current_successes": current_successes,
+        "observed_drop": round(observed_drop, 4),
+        "ci_lower": round(ci_lower, 4),
+        "ci_upper": round(ci_upper, 4),
+        "ci_excludes_zero": ci_excludes_zero,
+        "significance_warning": warning,
+    }

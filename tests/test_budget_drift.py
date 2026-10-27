@@ -830,3 +830,261 @@ class TestCLIErrorHandlingMissingFiles:
         assert rc == 1, (
             "report CLI must return exit code 1 when --suite file is missing; got rc=" + str(rc)
         )
+
+
+class TestGateShowUncertainty:
+    """Tests for the --show-uncertainty flag on agenteval gate.
+
+    Faults detected:
+    - test_show_uncertainty_does_not_change_exit_code_pass: flag must not flip
+      a passing gate to fail.
+    - test_show_uncertainty_does_not_change_exit_code_fail: flag must not flip
+      a failing gate to pass.
+    - test_show_uncertainty_json_includes_key: JSON output must include the
+      'uncertainty' key when the flag is set.
+    - test_show_uncertainty_json_absent_without_flag: JSON output must NOT
+      include 'uncertainty' key when flag is not set.
+    - test_show_uncertainty_text_output_contains_newcombe: text output must
+      mention Newcombe CI.
+    - test_show_uncertainty_ci_values_match_kat: CI values in JSON must match
+      the c10-p01 KAT.
+    - test_show_uncertainty_n4_warning_present: n=4 warning must appear in
+      significance_warning.
+    """
+
+    def _make_suite_json(self, tmp_path: "pytest.TempDir", n: int, passed: int) -> str:  # type: ignore[name-defined]
+        """Write a minimal suite result JSON and return the path as a string."""
+        import json as _json
+
+        data = {
+            "suite_name": "test",
+            "pass_rate": passed / n if n > 0 else 0.0,
+            "wilson_lower": 0.0,
+            "total_tokens_in": 0,
+            "total_tokens_out": 0,
+            "total_cost_usd": 0.0,
+            "p50_latency_ms": 0.0,
+            "p95_latency_ms": 0.0,
+            "n_cases": n,
+            "n_passed": passed,
+            "cases": [],
+        }
+        path = tmp_path / f"suite_{n}_{passed}.json"
+        path.write_text(_json.dumps(data))
+        return str(path)
+
+    def test_show_uncertainty_does_not_change_exit_code_pass(
+        self,
+        tmp_path: "pytest.TempDir",  # type: ignore[name-defined]
+    ) -> None:
+        """Fault: --show-uncertainty trips the gate (exit 1) on a passing run.
+
+        The flag is additive and informational only. A passing gate must still
+        exit 0 even when the Newcombe CI includes 0.
+        """
+        from agenteval.cli import _cmd_gate, build_parser
+
+        good = self._make_suite_json(tmp_path, n=4, passed=4)
+        parser = build_parser()
+        args = parser.parse_args(
+            ["gate", "--baseline", good, "--current", good, "--show-uncertainty"]
+        )
+        rc = _cmd_gate(args)
+        assert rc == 0, f"Gate should pass (exit 0) when baseline==current; got {rc}"
+
+    def test_show_uncertainty_does_not_change_exit_code_fail(
+        self,
+        tmp_path: "pytest.TempDir",  # type: ignore[name-defined]
+    ) -> None:
+        """Fault: --show-uncertainty changes exit code from 1 to 0 by misreading CI.
+
+        The threshold gate must still exit 1 on a measured regression even when
+        the Newcombe CI includes 0 (advisory only, fail-closed policy).
+        """
+        from agenteval.cli import _cmd_gate, build_parser
+
+        baseline = self._make_suite_json(tmp_path, n=4, passed=4)
+        current = self._make_suite_json(tmp_path, n=4, passed=2)
+        parser = build_parser()
+        args = parser.parse_args(
+            ["gate", "--baseline", baseline, "--current", current, "--show-uncertainty"]
+        )
+        rc = _cmd_gate(args)
+        assert rc == 1, f"Gate should fail (exit 1) when pass_rate drops 1.0→0.5; got {rc}"
+
+    def test_show_uncertainty_json_includes_key(
+        self,
+        tmp_path: "pytest.TempDir",
+        capsys: "pytest.CaptureFixture",  # type: ignore[name-defined]
+    ) -> None:
+        """Fault: JSON output omits 'uncertainty' key when --show-uncertainty is set.
+
+        Downstream tooling that parses gate JSON relies on the key being present
+        (or absent) consistently.
+        """
+        import json as _json
+
+        from agenteval.cli import _cmd_gate, build_parser
+
+        baseline = self._make_suite_json(tmp_path, n=4, passed=4)
+        current = self._make_suite_json(tmp_path, n=4, passed=2)
+        parser = build_parser()
+        args = parser.parse_args(
+            [
+                "gate",
+                "--baseline",
+                baseline,
+                "--current",
+                current,
+                "--format",
+                "json",
+                "--show-uncertainty",
+            ]
+        )
+        _cmd_gate(args)
+        captured = capsys.readouterr()
+        data = _json.loads(captured.out)
+        assert "uncertainty" in data, (
+            f"JSON output must include 'uncertainty' key when --show-uncertainty is set. "
+            f"Keys: {list(data.keys())}"
+        )
+
+    def test_show_uncertainty_json_absent_without_flag(
+        self,
+        tmp_path: "pytest.TempDir",
+        capsys: "pytest.CaptureFixture",  # type: ignore[name-defined]
+    ) -> None:
+        """Fault: 'uncertainty' key appears in JSON output even when flag is not set.
+
+        Backward compatibility: existing tooling must not break when parsing
+        gate JSON without the flag.
+        """
+        import json as _json
+
+        from agenteval.cli import _cmd_gate, build_parser
+
+        baseline = self._make_suite_json(tmp_path, n=4, passed=4)
+        current = self._make_suite_json(tmp_path, n=4, passed=2)
+        parser = build_parser()
+        args = parser.parse_args(
+            [
+                "gate",
+                "--baseline",
+                baseline,
+                "--current",
+                current,
+                "--format",
+                "json",
+            ]
+        )
+        _cmd_gate(args)
+        captured = capsys.readouterr()
+        data = _json.loads(captured.out)
+        assert (
+            "uncertainty" not in data
+        ), "'uncertainty' key must NOT appear in JSON output when --show-uncertainty is not set"
+
+    def test_show_uncertainty_text_output_contains_newcombe(
+        self,
+        tmp_path: "pytest.TempDir",
+        capsys: "pytest.CaptureFixture",  # type: ignore[name-defined]
+    ) -> None:
+        """Fault: text output lacks the uncertainty block header — engineer misses the advisory.
+
+        The uncertainty block must be clearly labelled in text mode so it is not
+        confused with the gate trip table.
+        """
+        from agenteval.cli import _cmd_gate, build_parser
+
+        baseline = self._make_suite_json(tmp_path, n=4, passed=4)
+        current = self._make_suite_json(tmp_path, n=4, passed=2)
+        parser = build_parser()
+        args = parser.parse_args(
+            ["gate", "--baseline", baseline, "--current", current, "--show-uncertainty"]
+        )
+        _cmd_gate(args)
+        captured = capsys.readouterr()
+        assert (
+            "Newcombe" in captured.out or "uncertainty" in captured.out.lower()
+        ), f"Text output must mention Newcombe CI; got:\n{captured.out[:500]}"
+
+    def test_show_uncertainty_ci_values_match_kat(
+        self,
+        tmp_path: "pytest.TempDir",
+        capsys: "pytest.CaptureFixture",  # type: ignore[name-defined]
+    ) -> None:
+        """Known-answer: JSON uncertainty CI must match c10-p01 values for demo drop.
+
+        Fault: the CI in the gate JSON block contradicts the research evidence
+        (c10-p01 live run: L=-0.1021, U=0.8500 for 4/4 vs 2/4).
+        """
+        import json as _json
+
+        from agenteval.cli import _cmd_gate, build_parser
+
+        baseline = self._make_suite_json(tmp_path, n=4, passed=4)
+        current = self._make_suite_json(tmp_path, n=4, passed=2)
+        parser = build_parser()
+        args = parser.parse_args(
+            [
+                "gate",
+                "--baseline",
+                baseline,
+                "--current",
+                current,
+                "--format",
+                "json",
+                "--show-uncertainty",
+            ]
+        )
+        _cmd_gate(args)
+        captured = capsys.readouterr()
+        data = _json.loads(captured.out)
+        unc = data["uncertainty"]
+        assert (
+            abs(unc["ci_lower"] - (-0.1021)) < 0.002
+        ), f"Expected ci_lower≈-0.1021, got {unc['ci_lower']}"
+        assert (
+            abs(unc["ci_upper"] - 0.8500) < 0.002
+        ), f"Expected ci_upper≈0.8500, got {unc['ci_upper']}"
+        assert unc["ci_excludes_zero"] is False
+
+    def test_show_uncertainty_n4_warning_present(
+        self,
+        tmp_path: "pytest.TempDir",
+        capsys: "pytest.CaptureFixture",  # type: ignore[name-defined]
+    ) -> None:
+        """Fault: n=4 warning absent — small suite gate trips without advisory context.
+
+        When n < 10, the significance_warning must be non-empty and must tell
+        the engineer to grow the suite.
+        """
+        import json as _json
+
+        from agenteval.cli import _cmd_gate, build_parser
+
+        baseline = self._make_suite_json(tmp_path, n=4, passed=4)
+        current = self._make_suite_json(tmp_path, n=4, passed=2)
+        parser = build_parser()
+        args = parser.parse_args(
+            [
+                "gate",
+                "--baseline",
+                baseline,
+                "--current",
+                current,
+                "--format",
+                "json",
+                "--show-uncertainty",
+            ]
+        )
+        _cmd_gate(args)
+        captured = capsys.readouterr()
+        data = _json.loads(captured.out)
+        unc = data["uncertainty"]
+        assert unc.get(
+            "significance_warning"
+        ), "significance_warning must be non-empty for n=4 suite"
+        assert (
+            "n=4" in unc["significance_warning"]
+        ), f"Warning must reference n=4; got: {unc['significance_warning'][:100]!r}"
