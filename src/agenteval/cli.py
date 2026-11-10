@@ -286,8 +286,30 @@ def _cmd_gate(args: argparse.Namespace) -> int:
         print("error: gate metrics must be finite numbers", file=sys.stderr)
         return 2
 
+    # Compute uncertainty block when requested.
+    show_uncertainty = getattr(args, "show_uncertainty", False)
+    uncertainty: dict | None = None
+    if show_uncertainty:
+        from agenteval.scoring import compute_uncertainty_block
+
+        # Load baseline counts from the baseline file.
+        try:
+            with open(args.baseline, encoding="utf-8") as fh:
+                baseline_data = json.load(fh)
+        except Exception:
+            baseline_data = {}
+        b_n = int(baseline_data.get("n_cases", 0))
+        b_succ = int(baseline_data.get("n_passed", 0))
+        c_n = int(current.get("n_cases", 0))
+        c_succ = int(current.get("n_passed", 0))
+        if b_n > 0 and c_n > 0:
+            uncertainty = compute_uncertainty_block(b_n, b_succ, c_n, c_succ)
+
     if args.format == "json":
-        print(json.dumps(gate.to_dict(), indent=2))
+        gate_dict = gate.to_dict()
+        if uncertainty is not None:
+            gate_dict["uncertainty"] = uncertainty
+        print(json.dumps(gate_dict, indent=2))
     else:
         if gate.ok:
             print("Gate: PASS — no regressions detected.")
@@ -306,8 +328,36 @@ def _cmd_gate(args: argparse.Namespace) -> int:
                 "baseline value is zero (first-run or corrupted baseline): "
                 + ", ".join(gate.skipped_zero_baseline)
             )
+        if uncertainty is not None:
+            _print_uncertainty_block(uncertainty, gate.ok)
 
     return 0 if gate.ok else 1
+
+
+def _print_uncertainty_block(unc: dict, gate_passed: bool) -> None:
+    """Print the Newcombe uncertainty block to stdout."""
+    print()
+    print("Uncertainty interval (informational — does NOT change exit code):")
+    drop = unc.get("observed_drop", 0.0)
+    lo = unc.get("ci_lower", 0.0)
+    hi = unc.get("ci_upper", 0.0)
+    excludes = unc.get("ci_excludes_zero", False)
+    warning = unc.get("significance_warning", "")
+    print(f"  Observed drop: {drop:.4f} ({drop * 100:.1f} pp)")
+    print(f"  Newcombe 95% CI for drop: ({lo:.4f}, {hi:.4f})")
+    print(f"  CI excludes 0: {excludes}")
+    if warning:
+        # Indent warning lines
+        for line in warning.split(". "):
+            if line:
+                print(f"  WARNING: {line.rstrip('.')}.")
+    if gate_passed:
+        print("  Gate decision: PASS (exit 0)")
+    else:
+        print(
+            "  Gate decision: THRESHOLD TRIPPED (exit 1)"
+            " — uncertainty interval is advisory only."
+        )
 
 
 def _cmd_drift(args: argparse.Namespace) -> int:
@@ -469,6 +519,16 @@ def build_parser() -> argparse.ArgumentParser:
     gate_p.add_argument("--baseline", required=True, help="Baseline JSON file")
     gate_p.add_argument("--current", required=True, help="Current suite JSON file")
     gate_p.add_argument("--format", choices=["json", "md"], default="md")
+    gate_p.add_argument(
+        "--show-uncertainty",
+        action="store_true",
+        default=False,
+        help=(
+            "Print an informational Newcombe 95%% CI for the pass-rate drop. "
+            "Does NOT change the exit code. The threshold gate is the decision; "
+            "the interval is advisory context."
+        ),
+    )
 
     # drift
     drift_p = subs.add_parser("drift", help="Diff two suite results")

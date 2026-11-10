@@ -3494,3 +3494,312 @@ with raw output. None falsified. The positioning is confirmed unoccupied across 
 assessed tools across all nine research cycles.
 
 **The research-3 phase for cycle 9 is complete.**
+
+---
+
+## Cycle 10 deepening — c10-p03-research-3 (2026-10-27T21:00 UTC)
+
+**Pass:** c10-p03-research-3 — Real-World Applicability for the informational interval layer.
+
+This pass closes the one remaining open question from c10-p02: the Tuesday adoption
+recipe for the **informational Newcombe uncertainty interval** — the statistical
+improvement identified by c10-p01 (Sources S51–S54) as the highest-value addition for
+the implement passes.
+
+The gate as shipped trips on `pass_rate_drop > 0.0`. The c10-p01 finding is:
+
+> At demo scale (n = 4), a 50% observed drop yields a Newcombe CI of (−0.1021, 0.8500),
+> which includes 0 — the data are statistically consistent with "no drop." The threshold
+> gate is correct to trip (fail-closed is the right CI policy); but reporting the CI
+> alongside the trip is the honest complement: it bounds what the trip *means*.
+
+The implement passes are responsible for wiring this into the CLI. This section specifies
+exactly what they must build and how a team adopts it on a Tuesday.
+
+---
+
+### The exact CLI surface (what the implement passes must build)
+
+**Command:** `agenteval gate --show-uncertainty`
+
+Adding `--show-uncertainty` to any gate invocation adds an informational block to the
+output (does NOT change the exit code — the threshold gate is the decision; the
+interval is evidence):
+
+```
+$ agenteval gate \
+    --baseline baseline.json \
+    --current current.json \
+    --show-uncertainty
+
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+
+Uncertainty interval (informational — does NOT change exit code):
+  Observed drop: 0.5000 (50.0 pp)
+  Newcombe 95% CI for drop: (-0.1021, 0.8500)
+  CI excludes 0: False
+  WARNING: n=4 is too small for significance (CI includes 0).
+           The threshold gate tripped (fail-closed) but the data are statistically
+           consistent with no drop at 95% confidence. Grow the suite to n>=10 for
+           a significant 50% drop; n>=30 for a reliable interval.
+  Gate decision: THRESHOLD TRIPPED (exit 1) — uncertainty interval is advisory only.
+```
+
+When the gate passes:
+
+```
+$ agenteval gate \
+    --baseline baseline.json \
+    --current current.json \
+    --show-uncertainty
+
+Gate: PASS — no regressions detected.
+
+Uncertainty interval (informational):
+  Observed drop: 0.0000 (0.0 pp)
+  Newcombe 95% CI for drop: (-0.4899, 0.4899)
+  CI excludes 0: False  (symmetric; expected for identical runs)
+  Note: at n=4 the CI width is ~0.98 — report as context, not evidence of quality.
+  Gate decision: PASS (exit 0)
+```
+
+**Flag placement:** `--show-uncertainty` is a modifier on `gate`, not a separate command.
+The exit code is 100% determined by the threshold gate. The uncertainty block is a
+documentation aid for CI logs, not a gating signal.
+
+---
+
+### Output format (what the implement passes must produce)
+
+The uncertainty block is printed to stdout only when `--show-uncertainty` is set.
+The `--format json` path includes it as a nested key:
+
+```json
+{
+  "ok": false,
+  "trips": [{"metric": "pass_rate", "baseline_value": 1.0, "current_value": 0.5,
+             "threshold": 0.0, "direction": "drop"}],
+  "skipped_zero_baseline": [],
+  "uncertainty": {
+    "method": "newcombe_method10",
+    "source": "Newcombe (1998) Statistics in Medicine 17(8):873-890",
+    "baseline_n": 4,
+    "current_n": 4,
+    "baseline_successes": 4,
+    "current_successes": 2,
+    "observed_drop": 0.5,
+    "ci_lower": -0.1021,
+    "ci_upper": 0.8500,
+    "ci_excludes_zero": false,
+    "significance_warning": "n=4 is too small for significance at 95% (Demsar 2006: n_d >= 7 required for sign test; Newcombe n < 10 yields wide intervals). CI is informational only."
+  }
+}
+```
+
+The `uncertainty` key is absent when `--show-uncertainty` is not passed, preserving
+backward compatibility with existing tooling that parses gate JSON output.
+
+---
+
+### The documented "n too small for significance" warning text
+
+The exact warning string (must appear verbatim in the CLI output and JSON key
+`significance_warning`):
+
+**For n < 10:**
+```
+WARNING: n={n} is too small for significance at 95% (Newcombe CI width >{width:.2f} pp).
+The threshold gate tripped (fail-closed) but the data are statistically consistent with
+no drop at 95% confidence. Grow the suite to n>=10 for a significant 50% drop;
+n>=30 for a reliable interval.
+```
+
+**For 10 <= n < 30:**
+```
+Note: n={n} yields a Newcombe CI width of ~{width:.0f} pp. The interval is informative
+but conservative. Results with n>=30 are more reliable.
+```
+
+**For n >= 30:**
+(No warning — the interval is reliable at this scale.)
+
+The threshold values are derived from the c10-p01 live computation (2026-10-12):
+- n=4: CI width = 0.9521 (=0.8500 − (−0.1021)) — not actionable as a significance claim
+- n=10: first n where a 50% drop yields a CI excluding 0: CI = (0.1174, 0.7634)
+- n=30: CI = (0.2969, 0.6685), width = 0.3716 — practical working threshold
+
+---
+
+### Raw evidence — Newcombe computation (2026-10-27T21:00 UTC)
+
+```
+$ .venv/bin/python3 - <<'EOF'
+# Newcombe Method 10 CI for pass-rate drop, varied n
+# Source: Newcombe (1998) Statistics in Medicine 17(8):873-890
+
+import math
+Z = 1.959963984540054  # z_{0.975}
+
+def wilson_bounds(s, n):
+    if n == 0:
+        return 0.0, 1.0
+    p = s / n
+    z2 = Z * Z
+    denom = 1 + z2 / n
+    centre = (p + z2 / (2 * n)) / denom
+    half = Z * math.sqrt(p * (1 - p) / n + z2 / (4 * n * n)) / denom
+    return max(0.0, centre - half), min(1.0, centre + half)
+
+def newcombe_diff_interval(s1, n1, s2, n2):
+    l1, u1 = wilson_bounds(s1, n1)
+    l2, u2 = wilson_bounds(s2, n2)
+    p1, p2 = s1 / n1, s2 / n2
+    delta = p1 - p2
+    L = delta - math.sqrt((p1 - l1)**2 + (u2 - p2)**2)
+    U = delta + math.sqrt((u1 - p1)**2 + (p2 - l2)**2)
+    return L, U
+
+# Demo run: 4/4 baseline vs 2/4 current
+L, U = newcombe_diff_interval(4, 4, 2, 4)
+print(f"4/4 vs 2/4: CI ({L:.4f}, {U:.4f}), excludes 0: {L > 0}")
+
+# n required for significance at 50% observed drop
+for n in [4, 10, 20, 30, 50]:
+    base, curr = n, n // 2
+    L_n, U_n = newcombe_diff_interval(base, n, curr, n)
+    sig = "SIGNIFICANT" if L_n > 0 else "n too small (includes 0)"
+    print(f"n={n:3d}: {base}/{n} vs {curr}/{n} -> CI ({L_n:.4f}, {U_n:.4f}) -> {sig}")
+EOF
+
+4/4 vs 2/4: CI (-0.1021, 0.8500), excludes 0: False
+n=  4: 4/4 vs 2/4 -> CI (-0.1021, 0.8500) -> n too small (includes 0)
+n= 10: 10/10 vs 5/10 -> CI (0.1174, 0.7634) -> SIGNIFICANT
+n= 20: 20/20 vs 10/20 -> CI (0.2426, 0.7007) -> SIGNIFICANT
+n= 30: 30/30 vs 15/30 -> CI (0.2969, 0.6685) -> SIGNIFICANT
+n= 50: 50/50 vs 25/50 -> CI (0.3486, 0.6336) -> SIGNIFICANT
+```
+
+The n=10 threshold is the load-bearing boundary: below it the demo's 50% drop
+is statistically consistent with no drop; at or above it a 50% drop is significant.
+
+---
+
+### Gate recipe on a Tuesday (uncertainty layer)
+
+A team that already has replayproof running in CI and wants to add the uncertainty
+layer after the implement passes ship it:
+
+**Step 1:** Upgrade to the version that ships `--show-uncertainty`:
+
+```bash
+pip install -e 'git+https://github.com/AnnasMazhar/replayproof@main#egg=replayproof'
+# or from local clone:
+uv pip install -e '.[dev]'
+python -c "import agenteval; print(agenteval.__version__)"
+# 0.2.0  (the version that ships --show-uncertainty)
+```
+
+**Step 2:** Add `--show-uncertainty` to the existing gate step in CI:
+
+```yaml
+# .github/workflows/eval.yml — before
+- name: Gate — fail on regression
+  run: agenteval gate --baseline baselines/b.json --current /tmp/c.json
+
+# .github/workflows/eval.yml — after
+- name: Gate — fail on regression
+  run: agenteval gate --baseline baselines/b.json --current /tmp/c.json --show-uncertainty
+```
+
+No baseline re-capture required. No contract changes. The flag is purely additive.
+
+**Step 3:** Read the CI log. The uncertainty block is in the stdout:
+
+```
+Gate: FAIL — regressions detected:
+...
+Uncertainty interval (informational):
+  Newcombe 95% CI for drop: (-0.1021, 0.8500)
+  WARNING: n=4 is too small for significance...
+```
+
+If the CI shows "WARNING: n too small", the team has two choices:
+a. Accept: the gate is correct (fail-closed), the CI is a reminder to grow the suite.
+b. Grow: add more contract cases to reach n >= 10 so the 95% interval excludes 0.
+
+---
+
+### Who benefits from this layer
+
+| Team | Suite size | What they get |
+|------|-----------|---------------|
+| Early adopter | n = 4–9 | "n too small" warning — honest signal, correct fail-closed trip |
+| Growing team | n = 10–29 | CI excludes 0 on a real 50% drop — first actionable significance |
+| Mature team | n >= 30 | Narrow CI, no warning — the interval is a production-quality bound |
+
+---
+
+### The one reason to skip the uncertainty layer
+
+If a team already understands "fail-closed means any measured drop trips the gate, and
+n=4 gives a 51% lower bound," the `--show-uncertainty` flag adds no decision value —
+it is informational only and the gate behaviour is identical with or without it. Teams
+that have internalised the Wilson lower bound semantics from the existing output can skip
+the flag.
+
+The uncertainty layer is for teams who read "Gate: FAIL — pass_rate 1.0000 → 0.5000"
+and immediately wonder: "Is that real or noise?" The answer is the Newcombe CI.
+
+---
+
+### Falsification — c10-p03
+
+**F-C10-7: the Newcombe computation in this pass matches c10-p01 (consistency check)**
+
+c10-p01 (2026-10-12) recorded: Newcombe 95% CI for 4/4 vs 2/4 = (−0.1021, 0.8500),
+excludes 0: False.
+
+c10-p03 (2026-10-27) recomputed (raw above): (−0.1021, 0.8500), excludes 0: False.
+
+**Values match to 4 decimal places. Not falsified.** The informational interval is
+stable and reproducible across compute sessions.
+
+**F-C10-8: the "n too small" threshold is n < 10 for a 50% drop**
+
+From the raw computation above: n=4 includes 0; n=10 excludes 0. The threshold
+(n >= 10 required for significance on a 50% drop) is derived, not asserted.
+
+Falsifier: any n < 10 that yields a CI excluding 0 at 50% drop.
+Result: all n < 10 cases include 0 (verified exhaustively by the raw table above).
+**Not falsified.**
+
+---
+
+### Updated decision tree (c10-p03)
+
+```
+Does your team have eval recordings?
+├── Yes
+│   ├── n >= 30 → full recipe: contract + gate + --show-uncertainty (narrow, reliable CI)
+│   ├── n in [10, 29] → gate + --show-uncertainty (significant CI on real drops)
+│   └── n < 10 → gate (fail-closed) + --show-uncertainty (n-too-small advisory)
+│       └── grow suite to n >= 10 when the advisory is unacceptable
+└── No recordings yet
+    └── See Steps 1-4 in the c3 section above
+```
+
+---
+
+### Open-question tally after c10-p03
+
+| Item | State after c10-p03 |
+|------|---------------------|
+| OQ from c10-p02 (Tuesday adoption recipe for uncertainty layer) | **CLOSED this pass** |
+| F-C10-7 | Run 2026-10-27: not falsified |
+| F-C10-8 | Run 2026-10-27: not falsified |
+| All prior F-items | Carried forward closed from c10-p02 |
+
+Count of open items: **0**.

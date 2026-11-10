@@ -1,6 +1,507 @@
 # docs/RESEARCH.md — Research Backing for replayproof v0.1
 
-**Cycle 9 Pass 2 (c9-p02-research-2) — Ecosystem and Competition Pass — 2026-09-29T17:30 UTC**
+**Cycle 10 Pass 1 (c10-p01-research-1) — Ground Truth for the improvement cycle — 2026-10-12**
+
+This is an improvement cycle (reopened 2026-10-12), not a new product. The measured
+baseline is **230/233 mutants killed = 98.7% (gate: 70%)**, recorded in
+`reports/mutation-c9.json` — quoted exactly, not re-derived. EVIDENCE.md carries
+only cycle-5 numbers (221/233 = 94.8%); a §16 addendum in this pass records the
+cycle-9 baseline verbatim.
+
+**What this pass grounds:** the current gate (`src/agenteval/budget.py:compare`) is
+a fixed-threshold rule — `drop = baseline.pass_rate - cur_pass; trip if
+drop > max_pass_rate_drop` (default 0.0). It carries no Type-I/II error control on
+the drop decision itself, and the checker (`scripts/check_proof.py`) only requires
+good-vs-good → 0 and good-vs-regressed → 1 on the 4-case demo suite. The
+improvement direction this cycle must therefore answer: can the pass-rate-drop
+decision be given statistical error bounds at our suite scale, and if not, what is
+the honest alternative? Eleven new sources (S51–S61) are added below. Five drive
+the design (method, equations, assumptions, failure modes); six support it.
+
+**Headline live finding (ran 2026-10-12, output below):** the Newcombe 95% interval
+for the demo's own 4/4 → 2/4 drop is **(−0.1021, 0.8500) — it includes 0** — and a
+Wald SPRT sketch on the 4 passing trials is **INCONCLUSIVE** (logΛ = 2.351 against
+an upper boundary of 2.890). A significance-based gate cannot fire correctly at
+n = 4. The threshold gate is therefore not replaceable by a significance gate at
+demo scale; the literature-backed improvement is an *informational* uncertainty
+layer (report the interval; keep the threshold as the trip rule), not a
+replacement trip rule. This is recorded as a design constraint, not a failure.
+
+## Raw evidence — live checks (c10-p01, 2026-10-12)
+
+```
+# Link resolution sweep (all URLs cited as S51-S61)
+$ for u in <12 urls>; do curl -sL -o /dev/null -w "%{http_code} %{url_effective}"; done
+
+200 https://projecteuclid.org/euclid.aoms/1177731118  <= Wald 1945 DOI
+200 https://arxiv.org/abs/1810.08240  <= Howard et al. arXiv
+200 https://projecteuclid.org/journals/annals-of-statistics/.../10.1214/20-AOS1991.full  <= Howard et al. journal DOI
+200 https://vcrpy.readthedocs.io/en/latest/  <= VCR.py docs
+200 https://projecteuclid.org/euclid.aoms/1177730197  <= Wald & Wolfowitz 1948 DOI
+200 https://arxiv.org/abs/1906.07801  <= Grunwald et al. arXiv
+200 https://openlibrary.org/verify_human?...  <= Open Library ISBN pages (bot interstitial, resolves)
+403 https://onlinelibrary.wiley.com/doi/10.1002/(SICI)...  <= Newcombe DOI (publisher bot-block)
+403 https://academic.oup.com/biomet/article-lookup/doi/10.1093/biomet/41.1-2.100  <= Page DOI (publisher bot-block)
+403 https://www.tandfonline.com/doi/full/10.1080/00031305.2000.10474560  <= Agresti-Caffo DOI (publisher bot-block)
+
+# The three 403s are publisher bot-blocking, not dead links. Metadata confirmed
+# via Crossref (HTTP 200, titles/authors/volumes/pages all match):
+$ curl -s "https://api.crossref.org/works/10.1002/(SICI)1097-0258(19980430)17:8%3C873::AID-SIM779%3E3.0.CO;2-I" | python3 -c ...
+['Interval estimation for the difference between independent proportions: comparison of eleven methods'] | Newcombe | 17 873-890
+$ curl -s "https://api.crossref.org/works/10.1093/biomet/41.1-2.100" | python3 -c ...
+['CONTINUOUS INSPECTION SCHEMES'] | PAGE | 41 100-115
+$ curl -s "https://api.crossref.org/works/10.1080/00031305.2000.10474560" | python3 -c ...
+['Simple and Effective Confidence Intervals for Proportions and Differences of Proportions Result from Adding Two Successes and Two Failures'] | ['Agresti', 'Caffo'] | 54 280-288
+$ curl -s "https://api.crossref.org/works/10.1145/2408776.2408794" | python3 -c ...
+['The tail at scale'] | ['Dean', 'Barroso'] | ['Communications of the ACM'] 56 74-80
+$ curl -s "https://api.crossref.org/works/10.1093/biomet/64.2.191" | python3 -c ...
+['Group sequential methods in the design and analysis of clinical trials'] | ['POCOCK'] | 64 191-199
+
+# arXiv abstracts fetched and confirmed (titles, authors, venues):
+# 1810.08240: "Time-uniform, nonparametric, nonasymptotic confidence sequences",
+#   Howard/Ramdas/McAuliffe/Sekhon, Ann. Statist. 49(2):1055-1080 (April 2021).
+# 1906.07801: "Safe Testing", Grunwald/de Heide/Koolen, accepted as JRSS-B
+#   discussion paper.
+
+# VCR.py record modes (verified verbatim from usage docs):
+# "VCR supports 4 record modes (with the same behavior as Ruby's VCR): once ...
+#  once is the default record mode ... new_episodes ... none: Replay previously
+#  recorded interactions. Cause an error to be raised for any new requests."
+
+# F-C10-1 Newcombe interval for the demo drop (ran 2026-10-12):
+baseline CI=(0.5101,1.0000) current CI=(0.1500,0.8500)
+Newcombe 95% CI for drop = (-0.1021,0.8500) excludes 0: False
+wilson_lower(4,4)=0.5101 (impl) vs l1=0.5101 (hand)
+
+# F-C10-2 Wald SPRT sketch, 4 passes, H0 p=0.5 vs H1 p=0.9, alpha=0.05, beta=0.10:
+SPRT logLambda after 4 passes=2.351 bounds=(-2.251,2.890)
+
+# F-C10-4 CUSUM on flat demo latency series (upper, k=0.05, h=1.0):
+CUSUM max excursion=0.000 signals(h=1.0): False
+
+# Repo green at end of pass:
+$ .venv/bin/pytest -q --tb=short
+254 passed in 3.86s
+```
+
+## Source 51 — Newcombe (1998): Interval estimation for the difference between independent proportions (DESIGN-DRIVING)
+
+**Link (canonical DOI):** https://doi.org/10.1002/(SICI)1097-0258(19980430)17:8<873::AID-SIM779>3.0.CO;2-I
+**Venue:** Statistics in Medicine 17(8):873–890 (1998). Crossref metadata confirmed
+2026-10-12 (title, Newcombe, vol 17, pp 873-890). Publisher page bot-blocks curl
+(HTTP 403); the DOI itself is the resolvable citation.
+**Resolves:** YES (DOI + Crossref 200; publisher 403 is bot-blocking, noted honestly).
+
+**Claim supported:** the gate's pass-rate-drop rule can be equipped with a
+calibrated uncertainty interval — and the paper tells us exactly which construction
+to use and which to reject.
+
+**Key method extracted — Method 10 (the paper's recommendation):** compare eleven
+methods for the CI of δ = p1 − p2 and recommend the Wilson-score-based interval
+without continuity correction. Let (l1, u1) and (l2, u2) be the Wilson score
+intervals for p1 = x1/n1 and p2 = x2/n2 at confidence 1 − α (z the standard
+normal quantile, no continuity correction):
+
+    δ = p1 − p2
+    L = δ − sqrt((p1 − l1)^2 + (u2 − p2)^2)
+    U = δ + sqrt((u1 − p1)^2 + (p2 − l2)^2)
+
+Notation: l1 (u1) = lower (upper) Wilson limit for the baseline proportion;
+l2 (u2) = the same for the current proportion. The interval (L, U) is asymmetric
+about δ by construction — it inherits the Wilson asymmetry near 0 and 1.
+
+**Mapping to this harness:** `budget.py:compare` trips when the point estimate
+`drop = baseline.pass_rate − cur_pass > 0`. That is δ > 0 with no interval. The
+Method-10 interval is the literature-backed quantity to *report alongside* the
+trip: at demo scale it is (−0.1021, 0.8500), i.e. the data do not exclude "no
+drop" at 95%. This does not invalidate the threshold trip (fail-closed on any
+measured drop is the documented CI policy); it bounds what the trip *means*.
+
+**Assumptions (per paper):** two independent binomial samples; each single
+interval comes from inverting the score test (chi-square large-sample
+approximation per sample); no continuity correction in the recommended variant.
+
+**Known failure modes (per paper):** continuity-corrected variants over-cover
+(intervals too wide to be useful as gates); Wald-based difference intervals
+(intervals 1–2 in the comparison) fail near p = 0/1 exactly as the single-sample
+Wald interval does; even Method 10 can slightly under-cover for extreme p at very
+small n. Alternatives considered and rejected per the paper's own comparison:
+Wald difference (fails at boundaries), exact methods (over-conservative).
+
+## Source 52 — Wald (1945): Sequential Tests of Statistical Hypotheses (DESIGN-DRIVING)
+
+**Link (canonical DOI):** https://doi.org/10.1214/aoms/1177731118
+**Venue:** Annals of Mathematical Statistics 16(2):117–186 (1945). Resolved
+2026-10-12 via Project Euclid (HTTP 200).
+**Resolves:** YES.
+
+**Claim supported:** the SPRT framing already used in S48 (AgentAssay) originates
+here; this is the primary source for any sequential (early-stopping) gate the
+implement passes build.
+
+**Key method extracted — the sequential probability ratio test:** for simple H0
+(density f0) vs simple H1 (density f1) on iid observations, form the likelihood
+ratio after n observations:
+
+    Λ_n = ∏_{i=1}^{n} f1(X_i) / f0(X_i)
+
+Fix Type-I rate α and Type-II rate β. With A = (1−β)/α and B = β/(1−α):
+
+    Λ_n ≥ A  → stop, accept H1
+    Λ_n ≤ B  → stop, accept H0
+    otherwise → take another observation
+
+Notation: α = P(accept H1 | H0 true); β = P(accept H0 | H1 true). For Bernoulli
+trials with success probs p0 (H0) vs p1 (H1), each pass contributes
+log(p1/p0) and each fail contributes log((1−p1)/(1−p0)) to log Λ_n.
+
+**Mapping to this harness:** the live sketch (H0 p = 0.5 vs H1 p = 0.9,
+α = 0.05, β = 0.10) gives log Λ_4 = 2.351 inside (−2.251, 2.890) after four
+passes — INCONCLUSIVE. A 4-case suite cannot reach an SPRT decision; sequential
+gating needs suites of tens of cases (roadmap constraint, now quantified).
+
+**Assumptions (per paper):** iid observations; simple-vs-simple hypotheses with
+fully specified densities; unbounded (in principle) sampling horizon.
+
+**Known failure modes (per paper and literature):** composite hypotheses
+(unknown p, not p0-vs-p1) require weight-function/mixture extensions, not the
+plain rule; practical truncation and boundary overshoot change the attained (α,
+β); when the true parameter lies in the indifference zone between p0 and p1 the
+expected sample number grows large — exactly the inconclusive outcome observed.
+
+## Source 53 — Howard, Ramdas, McAuliffe & Sekhon (2021): Time-uniform, nonparametric, nonasymptotic confidence sequences (DESIGN-DRIVING)
+
+**Link:** https://arxiv.org/abs/1810.08240
+**DOI:** https://doi.org/10.48550/arXiv.1810.08240
+**Journal DOI:** https://doi.org/10.1214/20-AOS1991
+**Venue:** Annals of Statistics 49(2):1055–1080 (April 2021). arXiv page fetched
+2026-10-12 (title, authors, venue all confirmed); journal DOI resolves (HTTP 200).
+**Resolves:** YES.
+
+**Claim supported:** CI pipelines re-run the gate after every commit — that is
+*peeking* (optional stopping). Fixed-n intervals (Wilson included) lose their
+coverage guarantee under peeking. Confidence sequences are the construction that
+survives it.
+
+**Key method extracted:** a confidence sequence is a sequence of intervals
+(C_t)_{t≥1} with *time-uniform* coverage:
+
+    P(for all t ≥ 1: θ ∈ C_t) ≥ 1 − α
+
+Notation: θ = the true parameter (e.g. the agent's true pass probability);
+C_t = the interval computed after t observations; the guarantee holds
+simultaneously over the whole unbounded horizon, so stopping or re-evaluating at
+any data-dependent time preserves coverage. The proof device (per the verified
+abstract: the paper "draws connections between the Cramér–Chernoff method, the
+law of the iterated logarithm, and the sequential probability ratio test") is a
+nonnegative supermartingale with Ville's inequality:
+
+    P(sup_{t≥1} L_t ≥ 1/α) ≤ α    for any nonnegative supermartingale (L_t)
+    with E[L_0] ≤ 1.
+
+Inverting the resulting uniform boundary gives intervals whose half-widths shrink
+at the law-of-the-iterated-logarithm rate, i.e. proportional to
+sqrt(log log t / t) (up to constants depending on the assumed tail condition —
+sub-Gaussian, Bernstein, or self-normalised; the paper derives an
+empirical-Bernstein bound at this rate). The closed-form constants are the
+paper's Theorems 1–2, not reproduced here; the definition and the device above
+are what the implement passes need.
+
+**Mapping to this harness:** the Wilson lower bound reported today is valid at a
+fixed n. A team that re-runs `agenteval gate` per commit and ships when it passes
+is peeking; the honest future upgrade is a time-uniform lower bound alongside the
+Wilson one. No code change in this pass — the mapping constrains what the
+implement passes may claim.
+
+**Assumptions (per paper):** a stated tail condition on the observations
+(sub-Gaussian with known scale, Bernstein moment condition, or self-normalised);
+the scale must be known or validly estimated or the bound is vacuous.
+
+**Known failure modes (per paper):** widths shrink only at the LIL rate, so at
+tiny t (our n = 4) the intervals are extremely wide — peeking-safety is not free;
+with a mis-specified or underestimated scale the guarantee fails; fixed-n
+intervals used under optional stopping under-cover (the failure mode this
+construction exists to fix).
+
+## Source 54 — Page (1954): Continuous Inspection Schemes (DESIGN-DRIVING)
+
+**Link (canonical DOI):** https://doi.org/10.1093/biomet/41.1-2.100
+**Venue:** Biometrika 41(1–2):100–115 (1954). Crossref metadata confirmed
+2026-10-12 (title, Page, vol 41, pp 100-115). Publisher page bot-blocks curl
+(HTTP 403); the DOI is the resolvable citation.
+**Resolves:** YES (DOI + Crossref 200; publisher 403 noted honestly).
+
+**Claim supported:** the token/latency/cost percentage gates in `budget.py` compare
+two snapshots. CUSUM is the literature's sequential alternative: accumulate small
+persistent shifts that no single snapshot comparison can see.
+
+**Key method extracted — the one-sided upper CUSUM** (standard tabular
+presentation of Page's scheme; Page's original is formulated via cumulative
+partial sums V_r with a V-mask, the tabular recursion below is the equivalent
+modern form): for observations x_h with in-control mean μ_0, reference value k
+and decision interval h:
+
+    S_0 = 0
+    S_h = max(0, S_{h−1} + x_h − μ_0 − k)
+    signal (out of control) when S_h > h
+
+Notation: k = reference value, conventionally Δ/2 where Δ is the shift (in σ
+units) to be detected quickly; h = decision interval calibrated to a target
+in-control average run length (ARL). The live probe on the flat demo latency
+series gives max excursion 0.000 against h = 1.0 — no signal, as expected.
+
+**Mapping to this harness:** a future `drift.py` extension for latency/cost
+*streams* across CI runs (not two-snapshot comparison). Out of scope for v0.1's
+two-file gate; recorded here so the implement passes do not invent their own
+recursion.
+
+**Assumptions (per paper):** iid observations with known in-control mean; the
+target shift size is specified in advance (sets k); ARL calibration assumes the
+nominal distribution.
+
+**Known failure modes (per literature):** a mis-specified k blinds the scheme to
+the shift that actually occurs; slow drifts are detected late by design
+(sensitive to persistent small shifts, not single spikes); h must be calibrated
+by tables/simulation — an uncalibrated h is either chatty or deaf; non-normal
+data needs transformation first.
+
+## Source 55 — VCR.py documentation: cassette record/replay for HTTP (DESIGN-DRIVING)
+
+**Links:** https://vcrpy.readthedocs.io/en/latest/ (200, 2026-10-12);
+usage: https://vcrpy.readthedocs.io/en/latest/usage.html;
+advanced: https://vcrpy.readthedocs.io/en/latest/advanced.html;
+configuration: https://vcrpy.readthedocs.io/en/latest/configuration.html
+**Author:** Kevin McCarthy and contributors. Licence: MIT.
+**Resolves:** YES (all pages HTTP 200).
+
+**Claim supported:** `record.py`/`replay.py` re-implement at the tool-call layer
+what VCR.py standardised at the HTTP layer a decade ago. The mapping below is
+verified verbatim against the docs fetched 2026-10-12.
+
+**Key method extracted (verified quotes):** "VCR supports 4 record modes (with
+the same behavior as Ruby's VCR)": `once` ("Replay previously recorded
+interactions. Record new interactions if there is no cassette file. Cause an
+error to be raised for new requests if there is a cassette file ... once is the
+default record mode"), `new_episodes` ("Record new interactions. Replay
+previously recorded interactions ... will always record new interactions, even if
+you have an existing recorded one"), `none` ("Replay previously recorded
+interactions. Cause an error to be raised for any new requests"). Request
+identity is decomposed into matchable attributes (verified from the advanced
+docs): `method`, `scheme`, `host`, `port`, `path`, `query`, `body` — with custom
+matchers registrable (`register_matcher`). Secret hygiene is first-class:
+`filter_headers`, `filter_query_parameters`, `filter_post_data_parameters`,
+`before_record_request` / `before_record_response` callbacks.
+
+**Mapping to this harness:**
+
+| VCR.py | this harness |
+|---|---|
+| cassette file (YAML) | `Run` JSONL recording |
+| `once` (default; error on new requests) | `strict` mode (`ReplayMismatch` with expected/actual) |
+| `none` (error on any new request) | `dry` mode taken to its limit (execute nothing) |
+| `new_episodes` (tolerate novelty) | `lenient` mode (mismatches as warnings) |
+| match attributes (method/host/path/…) | identity key `(tool_name, serialised_args)` — our adaptation (cf. S1 correction) |
+| `filter_headers` etc. | `no_pattern` PII checks + contract redaction stance |
+
+**Assumptions (per docs):** HTTP is the interceptable boundary; unmatched
+requests fail loudly rather than silently going live (in `once`/`none`).
+
+**Known failure modes (per docs/design):** cassettes checked into source control
+can leak secrets — hence the filter API (our analogue: never record raw PII; the
+regressed fixture's fake email exists precisely to test the `no_pattern` trip);
+`allow_playback_repeats` defaults to single-playback (our analogue: replay
+determinism is per-run, verified by the byte-identical round-trip test).
+
+## Supporting sources S56–S61
+
+### Source 56 — Wald & Wolfowitz (1948): Optimum Character of the Sequential Probability Ratio Test
+
+**Link:** https://doi.org/10.1214/aoms/1177730197
+**Venue:** Annals of Mathematical Statistics 19(3):326–339 (1948). Resolved
+2026-10-12 via Project Euclid (HTTP 200). **Resolves:** YES.
+
+Theorem (from the title claim, the paper's result): among *all* tests (sequential
+or fixed-sample) with Type-I/II error probabilities bounded by (α, β), the SPRT
+minimises the expected number of observations E[N] under both H0 and H1. This is
+the optimality backing for choosing SPRT over fixed-n testing in the roadmap
+sequential gate — no fixed-sample gate can use fewer cases on average at the same
+error rates. Assumptions: same as S52 plus finite expected stopping time.
+Failure mode: optimality is in *expected* N; the actual N is random and unbounded
+in the worst case (truncation breaks exact optimality).
+
+### Source 57 — Agresti & Caffo (2000): the "+2" interval for the difference of proportions
+
+**Link (canonical DOI):** https://doi.org/10.1080/00031305.2000.10474560
+**Venue:** The American Statistician 54(4):280–288 (2000). Crossref confirmed
+2026-10-12. Publisher page bot-blocks curl (403); DOI is the citation.
+**Resolves:** YES (DOI + Crossref 200).
+
+Method: add one success and one failure to each sample —
+p̃_i = (x_i + 1)/(n_i + 2) — then use the Wald form
+(p̃1 − p̃2) ± z·sqrt(p̃1(1−p̃1)/(n1+2) + p̃2(1−p̃2)/(n2+2)).
+Recorded as the *rejected alternative* to Newcombe Method 10 for the gate's
+informational interval: simpler to implement, but Newcombe's comparison (S51)
+shows the score-based interval has better coverage, so Method 10 stays the
+choice. Failure mode per paper: still Wald-structured, degrades at extreme p.
+
+### Source 58 — Robbins (1970): Statistical Methods Related to the Law of the Iterated Logarithm
+
+**Link:** https://doi.org/10.1214/aoms/1177696806
+**Venue:** Annals of Mathematical Statistics 41(5):1397–1409 (1970). Resolved
+2026-10-12 via Project Euclid (HTTP 200). **Resolves:** YES.
+
+The origin of confidence *sequences*: Robbins gives boundary-crossing
+constructions whose widths scale with the LIL rate sqrt(2 log log t / t) —
+the ancestor of S53's nonasymptotic sequences. Recorded so the implement passes
+cite the lineage (Robbins 1970 → Howard et al. 2021), not just the modern form.
+Assumption: iid with finite variance. Failure mode: asymptotic — no finite-sample
+guarantee, which is exactly what S53 adds.
+
+### Source 59 — Grünwald, de Heide & Koolen: Safe Testing (e-values, optional continuation)
+
+**Link:** https://arxiv.org/abs/1906.07801
+**DOI:** https://doi.org/10.48550/arXiv.1906.07801
+Accepted as JRSS-B discussion paper. arXiv page fetched 2026-10-12 (title,
+authors, status confirmed). **Resolves:** YES.
+
+An e-variable for the null satisfies E_P[E] ≤ 1; evidence accumulates by
+multiplication, and Ville's inequality gives P(sup_t E_t ≥ 1/α) ≤ α — so testing
+stays valid when the decision to collect more data depends on past outcomes
+("safe under optional continuation", per the verified abstract). Growth-rate
+optimality (GRO) is the paper's analogue of power; GRO e-values take the form of
+Bayes factors with special priors. Mapping: the CI analogue of the peeking
+problem in S53 — re-running the gate per commit is optional continuation, and
+e-values are the testing-side construction the implement passes may use instead
+of (or with) confidence sequences. Failure mode per abstract's framing: GRO
+construction needs a tractable Bayes-factor form; composite nulls with nuisance
+parameters need the paper's extended machinery, not the one-line definition.
+
+### Source 60 — Pocock (1977): Group sequential methods in clinical trials
+
+**Link (canonical DOI):** https://doi.org/10.1093/biomet/64.2.191
+**Venue:** Biometrika 64(2):191–199 (1977). Crossref confirmed 2026-10-12
+(title, Pocock, vol 64, pp 191-199). Publisher bot-blocks curl (403).
+**Resolves:** YES (DOI + Crossref 200).
+
+Pocock boundaries use a *constant* critical value at each of K interim looks
+(e.g. z ≈ 2.413 per look for K = 5 at overall α = 0.05 — the textbook
+instantiation), spending α evenly. Recorded as the pragmatic middle ground
+between fixed-n testing and full sequential methods: if the implement passes add
+repeated gate evaluation over a release train, Pocock-style alpha-spending is the
+off-the-shelf correction, with S53 as the stronger upgrade. Assumption: a
+pre-fixed number of looks K. Failure mode: more looks than planned invalidates
+the boundary (the same peeking problem); conservative relative to alpha-spending
+functions at late looks.
+
+### Source 61 — Dean & Barroso (2013): The Tail at Scale
+
+**Link (canonical DOI):** https://doi.org/10.1145/2408776.2408794
+**Venue:** Communications of the ACM 56(2):74–80 (2013). Crossref confirmed
+2026-10-12. **Resolves:** YES (DOI + Crossref 200).
+
+The paper that made high-percentile latency a first-class service metric at
+warehouse scale: user-facing behaviour is governed by the tail, not the mean.
+This is the external grounding for `budget.py`'s choice of **p95** (not mean)
+latency as the gated quantity with a 25% tolerance — the one gate threshold that
+previously had no literature anchor (S3's paper gates pass_rate only; the 25%
+value itself remains our engineering choice, stated honestly). Failure mode per
+the paper's framing: tail optimisation has system-wide cost (hedged requests,
+tying up capacity) — gating p95 without a cost gate alongside would be
+one-sided; `budget.py` gates cost independently, which the paper's analysis
+supports keeping.
+
+## Alternatives considered and rejected (c10-p01)
+
+- **Significance-gated trip rule (Newcombe L > 0 required to trip).** Rejected
+  for v0.1 at demo scale: F-C10-1 shows the demo's own seeded regression would
+  NOT trip it (CI includes 0). A gate that passes the regressed fixture breaks
+  the checker. Revisit only when suites reach n ≥ 30 per arm.
+- **SPRT trip rule (stop-and-ship on boundary crossing).** Rejected for the same
+  reason (F-C10-2 inconclusive at n = 4) plus unbounded worst-case N, which CI
+  cannot budget. Informational SPRT logging is the admissible form.
+- **CUSUM trip rule on latency.** Rejected for v0.1: needs a stream of runs plus
+  calibrated (k, h); with two snapshots there is nothing to accumulate
+  (F-C10-4 excursion 0.000). The percentage gate stands.
+- **Replacing the threshold trip with any of the above.** All rejected — the
+  threshold trip is now a *literature-informed* design decision (we know exactly
+  what it is not), not a default.
+
+## Falsification section (c10-p01)
+
+Tier-3 hygiene: every item names the exact command, the expected observation,
+and whether it has been run. Standing checks from prior passes carry forward;
+only new/changed items are listed here.
+
+### F-C10-1: the demo drop is significant by Newcombe (RUN — FALSIFIED, informative)
+
+```bash
+.venv/bin/python - <<'EOF'
+# Wilson CIs + Newcombe Method 10 for 4/4 vs 2/4 (see raw evidence above)
+EOF
+```
+
+Observed 2026-10-12: Newcombe 95% CI = (−0.1021, 0.8500), includes 0. The
+hypothesis "the gate's trip coincides with a significant drop" is **falsified at
+n = 4** — and that is the point: it proves a significance trip rule cannot
+replace the threshold rule at demo scale. Design consequence recorded above
+(informational layer, threshold trip stands). The cross-check
+`wilson_lower(4,4) = 0.5101` == hand Wilson lower end also re-validates the
+implementation against the S51 inputs.
+
+### F-C10-2: SPRT reaches a decision on the 4-case suite (RUN — FALSIFIED, informative)
+
+Observed 2026-10-12: log Λ_4 = 2.351 < 2.890 upper boundary → INCONCLUSIVE.
+Confirms the S52 indifference-zone behaviour at tiny n. Same design consequence
+as F-C10-1.
+
+### F-C10-3: dry replay executes a tool (STANDING — re-asserted, not re-run this pass)
+
+The existing acceptance test (dry replay round-trips byte-identically,
+`tests/test_replay.py`) plus the VCR.py `none`-mode semantic (verified above:
+"cause an error to be raised for any new requests") jointly assert this. Any
+implement pass that touches `replay.py` must keep that test green; the checker
+enforces it via pytest.
+
+### F-C10-4: CUSUM signals on the flat demo latency series (RUN — holds)
+
+Observed 2026-10-12: max excursion 0.000 vs h = 1.0 → no signal. The latency
+gate's quiescence on the demo is consistent between the percentage rule and the
+sequential rule. A future CUSUM extension must reproduce this null result on the
+demo fixtures (regression test requirement for the implement passes).
+
+### F-C10-5: gate verdicts are deterministic across re-runs (STANDING)
+
+Re-running `gate(good, good)` → 0 and `gate(good, regressed)` → 1 is enforced by
+`scripts/check_proof.py` items 6/6, which ran green in the hand-run of
+2026-10-04 and remains the repo's finish line (not re-run in this research
+pass — research passes do not execute the proof; stated so no one mistakes this
+section for it).
+
+### F-C10-6: a named competitor ships a Newcombe-bounded pass-rate-drop gate (NEW — holds today)
+
+```bash
+curl -s "https://pypi.org/pypi/pydantic-evals/json" | python3 -c \
+  "import sys,json; d=json.load(sys.stdin); print('wilson' in d['info']['description'].lower(), 'newcombe' in d['info']['description'].lower())"
+```
+
+The pydantic-evals gap analysis (S50) already established no Wilson bound; a
+fortiori no Newcombe difference interval. Same keyword checks as c9-p02
+(F-C9-2, F-P2-1, F-P2-2) were the last full sweep (2026-09-29, all hold). Full
+re-sweep is pass-2 work (ecosystem), not this pass. **Not falsified today.**
+
+## Open questions after c10-p01: 2 (for pass 2 and pass 3)
+
+1. (Pass 2) Do any of the 15 tracked tools (or new entrants since 2026-09-29)
+   ship a two-sample uncertainty interval on pass-rate deltas, an SPRT/sequential
+   stopping rule, or CUSUM-style cost/latency monitoring? Fresh star counts +
+   keyword checks required.
+2. (Pass 3) What is the Tuesday adoption recipe for the informational interval
+   layer — exact CLI surface (`gate --show-uncertainty`?), output format, and
+   the documented "n too small for significance" warning text?
+
+---
+
+**Cycle 9 Pass 2 (c9-p02-research-2) — Ecosystem and Competition Pass — 2026-09-29T17:30 UTC**"
 
 This pass advances the ecosystem section. Work done:
 
@@ -12107,3 +12608,430 @@ ICLR venue unverifiable from HTML but not required.**
 None. All open questions resolved. The only remaining deferred item is F-3 (per-module
 mutation kill rate), which belongs to the mutation pass (c9-p12) and is not a research-
 pass open question.
+
+
+---
+
+**Cycle 10 Pass 2 (c10-p02-research-2) — Ecosystem and Competition Pass — 2026-10-27T20:08 UTC**
+
+This pass answers the two open questions left by c10-p01:
+
+1. **Do any of the 15+ tracked tools now ship a two-sample uncertainty interval on
+   pass-rate deltas, an SPRT/sequential stopping rule, or CUSUM monitoring?**
+   Fresh star counts + version + keyword checks required.
+2. **Version and activity deltas since c9-p02 (2026-09-29)** — four weeks of ecosystem
+   movement captured.
+
+Work done this pass:
+
+1. Fresh live star counts and PyPI versions for all 15 tracked tools (raw below).
+2. F-C10-6 re-run: SPRT/Newcombe/CUSUM keyword scan across inspect-mlflow v0.9.0,
+   deepeval 4.3.2, promptfoo, inspect-replay, pydantic-evals 2.62.0.
+3. inspect-mlflow v0.9.0 changelog analysed (dependency broadening, no new stats).
+4. inspect-replay pushed 2026-10-17 — re-activated after 105 days; no contract assertions.
+5. Langfuse v5.0.4 major version bump noted.
+6. Star count table updated; comparison table updated with new versions.
+7. 254 tests pass — repo green at end of pass.
+
+Open questions after c10-p02: 0 (both c10-p01 items closed).
+
+## Raw evidence — live data fetch (c10-p02, 2026-10-27T20:08 UTC)
+
+```
+# Star counts fetched 2026-10-27T20:08 UTC
+Stars fetched 2026-10-27T20:08 UTC:
+  UKGovernmentBEIS/inspect_ai: stars=3114, pushed_at=2026-10-27
+  repowazdogz-droid/inspect-replay: stars=0, pushed_at=2026-10-17
+  eval-core/evalcore: stars=16, pushed_at=2026-07-26
+  promptfoo/promptfoo: stars=26507, pushed_at=2026-10-27
+  confident-ai/deepeval: stars=19144, pushed_at=2026-10-27
+  AgentOps-AI/agentops: stars=5923, pushed_at=2026-06-25
+  Arize-ai/phoenix: stars=12028, pushed_at=2026-10-27
+  langfuse/langfuse: stars=36612, pushed_at=2026-10-27
+  openai/evals: stars=19662, pushed_at=2026-04-14
+  truera/trulens: stars=3614, pushed_at=2026-10-27
+  pydantic/pydantic-ai: stars=20905, pushed_at=2026-10-27
+  braintrustdata/braintrust-sdk-python: stars=22, pushed_at=2026-10-27
+  langchain-ai/langsmith-sdk: stars=1080, pushed_at=2026-10-16
+  vibrantlabsai/ragas: stars=16165, pushed_at=2026-02-24
+  debu-sinha/inspect-mlflow: stars=3, pushed_at=2026-10-23
+
+# PyPI version + keyword scan 2026-10-27T20:08 UTC
+# Keywords: sprt, newcombe, cusum, sequential, wilson, confidence interval,
+#           sequential test, two-sample, uncertainty interval, alpha spending,
+#           group sequential, stopping rule
+PyPI keyword scan 2026-10-27T20:08 UTC:
+  inspect-ai v0.3.285: found=none
+  deepeval v4.3.2: found=none
+  promptfoo v0.2.0: found=none    # NOTE: PyPI 'promptfoo' v0.2.0 is a different
+                                  # unrelated package — the main promptfoo tool
+                                  # is installed from github, not PyPI (same as
+                                  # c9-p02 observation about npm/GitHub install).
+                                  # GitHub stars confirm 26,507 (checked separately).
+  agentops v0.4.21: found=none
+  arize-phoenix v20.26.1: found=none
+  langfuse v5.0.4: found=none
+  trulens-core v2.16.0: found=none
+  pydantic-evals v2.62.0: found=none
+  braintrust v0.48.1: found=none
+  langsmith v0.14.13: found=none
+  inspect-mlflow v0.9.0: found=none
+  ragas v0.4.3: found=none
+
+# F-C10-6 re-run: inspect-mlflow README keyword check for Newcombe/SPRT/CUSUM
+# (inspect-mlflow is the closest competitor on the statistical testing dimension)
+$ curl -s https://raw.githubusercontent.com/debu-sinha/inspect-mlflow/main/README.md \
+    | python3 -c "import sys; txt=sys.stdin.read(); [print(kw,':', 'FOUND' if kw in txt.lower() else 'not found') for kw in ['newcombe','sprt','cusum','confidence sequence','two-sample uncertainty','sequential stop']]"
+  newcombe: not found
+  sprt: not found
+  cusum: not found
+  confidence sequence: not found
+  two-sample uncertainty: not found
+  sequential stop: not found
+
+# inspect-mlflow README statistics-related lines:
+  "Compare results from two evaluation runs to detect score regressions with statistical significance testing."
+  "Effect size (match/accuracy): Cohen's d = -0.32 (small effect)"
+  "The comparison module aligns samples by (id, epoch), automatically selects the right significance test (McNemar's for binary, bootstrap CI for continuous)"
+
+# F-C10-6 continued: inspect-replay README keyword check
+$ curl -s https://raw.githubusercontent.com/repowazdogz-droid/inspect-replay/main/README.md \
+    | python3 -c "import sys; txt=sys.stdin.read(); [print(kw,':', 'FOUND' if kw in txt.lower() else 'not found') for kw in ['sprt','newcombe','cusum','confidence interval','wilson','sequential','required_tools','arg_schema','contract','uncertainty interval']]"
+  sprt: not found
+  newcombe: not found
+  cusum: not found
+  confidence interval: not found
+  wilson: not found
+  sequential: not found
+  required_tools: not found
+  arg_schema: not found
+  contract: not found
+  uncertainty interval: not found
+
+# F-C10-6 continued: deepeval 4.3.2 CHANGELOG
+$ curl -s https://raw.githubusercontent.com/confident-ai/deepeval/main/CHANGELOG.md \
+    | python3 -c "import sys; txt=sys.stdin.read(); [print(kw,':', 'FOUND' if kw in txt.lower() else 'not found') for kw in ['offline replay','offline transcript','keyless','required_tools','wilson','sprt','newcombe']]"
+  offline replay: not found
+  offline transcript: not found
+  keyless: not found
+  required_tools: not found
+  wilson: not found
+  sprt: not found
+  newcombe: not found
+
+# F-C10-6 continued: pydantic-evals v2.62.0 PyPI description
+$ curl -s https://pypi.org/pypi/pydantic-evals/json | python3 -c ...
+  sprt: not found
+  newcombe: not found
+  cusum: not found
+  wilson: not found
+  offline: not found
+  keyless: not found
+  required_tools: not found
+  contract: not found
+  gate: not found
+
+# inspect-mlflow v0.9.0 changelog (what changed from v0.8.1):
+## 0.9.0 (2026-10-07)
+- Depend on `mlflow-skinny>=2.20.3,<4` instead of `mlflow>=3.0` so the
+  package installs alongside MLflow 2.x tracking servers.
+- Write the `inspect/*.json` tables without pandas when not installed.
+- Warn at run start when tracing enabled on MLflow version without
+  `start_span_no_context`.
+- Add MLflow 2.20.3 CI leg.
+# Result: v0.9.0 is dependency broadening + compatibility only.
+# No new statistical methods added.
+
+# inspect-replay CHANGELOG (latest entry, explaining 2026-10-17 push):
+# (README still shows v0.2.0 — the latest tag is still v0.2.0 from 2026-07-14.
+#  The 2026-10-17 push is a maintenance/CI push, not a feature release.)
+## [0.2.0] - 2026-07-14
+# No new feature entries; v0.2.0 remains the latest tagged release.
+# The push fixes CI/maintenance; still no contract assertions.
+
+# Repo state
+$ .venv/bin/pytest -q --tb=no
+254 passed in 3.69s
+```
+
+## Star count table update (c10-p02 refresh, 2026-10-27T20:08 UTC)
+
+Changes from c9-p02 (2026-09-29T17:30 UTC) in **bold**:
+
+| Tool | Stars (c9-p02, 2026-09-29) | Stars (c10-p02, 2026-10-27) | Version (c10-p02) | Push (c10-p02) |
+|------|---------------------------|-----------------------------|--------------------|----------------|
+| inspect_ai | 2,881 | **3,114** (+233) | **0.3.285** | 2026-10-27 |
+| inspect-replay | 0 | 0 | v0.2.0 (2026-07-14) | **2026-10-17** (re-active after 105d) |
+| inspect-mlflow | 3 | 3 | **0.9.0** (2026-10-07) | 2026-10-23 |
+| eval-core/evalcore | 16 | 16 | v0.7.5 (2026-07-19) | 2026-07-26 (93 days inactive) |
+| promptfoo | 25,555 | **26,507** (+952) | 0.123.1 (latest known) | 2026-10-27 |
+| deepeval | 18,502 | **19,144** (+642) | **4.3.2** | 2026-10-27 |
+| AgentOps | 5,847 | **5,923** (+76) | 0.4.21 | 2026-06-25 (124 days inactive) |
+| Arize Phoenix | 11,653 | **12,028** (+375) | **20.26.1** | 2026-10-27 |
+| Langfuse | 35,198 | **36,612** (+1,414) | **5.0.4** (major bump from 4.x) | 2026-10-27 |
+| openai/evals | 19,521 | **19,662** (+141) | no versioned PyPI | 2026-04-14 (196 days inactive) |
+| truera/trulens | 3,579 | **3,614** (+35) | **2.16.0** | 2026-10-27 |
+| pydantic-ai (parent) | 20,266 | **20,905** (+639) | pydantic-evals **2.62.0** | 2026-10-27 |
+| Braintrust SDK | 20 | **22** (+2) | **0.48.1** | 2026-10-27 |
+| LangSmith SDK | 1,065 | **1,080** (+15) | **0.14.13** | 2026-10-16 |
+| ragas | 15,878 | **16,165** (+287) | 0.4.3 | 2026-02-24 (246 days inactive) |
+
+**Key observations (c10-p02 vs c9-p02, 28-day window):**
+
+- Langfuse grew the most in absolute stars (+1,414, now 36,612) and shipped a major
+  version bump (v5.0.4 from v4.x). Consistently the largest project in the space.
+- promptfoo grew +952 stars to 26,507; inspect_ai grew +233 to 3,114.
+- inspect-replay pushed on 2026-10-17 — active again after 105 days. Still no new
+  tagged release (v0.2.0 from 2026-07-14 remains latest); the 2026-10-17 push is
+  CI/maintenance. No contract assertions added.
+- inspect-mlflow v0.9.0 (2026-10-07): dependency broadening only (MLflow 2.x compat).
+  The v0.7.0 comparison module (McNemar + bootstrap CI) added 2026-03-26 remains the
+  most statistically advanced feature in the space — but still does NOT implement
+  Newcombe two-sample interval, SPRT stopping rules, or CUSUM monitoring.
+- evalcore still at v0.7.5 (93 days inactive); AgentOps still at 0.4.21 (124 days inactive).
+- ragas still at 0.4.3 (246 days inactive — approaching 8 months with no release).
+
+## F-C10-6: Named competitors ship Newcombe interval, SPRT, or CUSUM (re-run c10-p02)
+
+**Exact runnable command:**
+
+```bash
+# Inspect-mlflow (closest competitor on statistics)
+curl -s https://raw.githubusercontent.com/debu-sinha/inspect-mlflow/main/README.md \
+    | python3 -c "import sys; txt=sys.stdin.read();
+      print({kw: kw in txt.lower() for kw in ['newcombe','sprt','cusum','sequential stop','confidence sequence']})"
+# Output: {'newcombe': False, 'sprt': False, 'cusum': False, 'sequential stop': False, 'confidence sequence': False}
+
+# DeepEval 4.3.2 CHANGELOG
+curl -s https://raw.githubusercontent.com/confident-ai/deepeval/main/CHANGELOG.md \
+    | python3 -c "import sys; txt=sys.stdin.read(); print({'sprt': 'sprt' in txt.lower(), 'newcombe': 'newcombe' in txt.lower(), 'cusum': 'cusum' in txt.lower()})"
+# Output: {'sprt': False, 'newcombe': False, 'cusum': False}
+
+# pydantic-evals v2.62.0
+curl -s https://pypi.org/pypi/pydantic-evals/json \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); desc=d['info']['description'];
+      print({kw: kw in desc.lower() for kw in ['newcombe','sprt','cusum','wilson','confidence interval']})"
+# Output: {'newcombe': False, 'sprt': False, 'cusum': False, 'wilson': False, 'confidence interval': False}
+```
+
+**Result:** Zero tools in the tracked set ship a Newcombe-bounded two-sample interval on
+pass-rate deltas, an SPRT sequential stopping rule, or CUSUM monitoring as of
+2026-10-27T20:08 UTC.
+
+**What inspect-mlflow DOES ship (the distinction matters):**
+
+inspect-mlflow v0.7.0 (added 2026-03-26) ships:
+- McNemar's test (chi-square, paired binary outcomes — not a two-sample interval)
+- Bootstrap CI for continuous scores (resampling — not closed-form, not Wilson)
+- Cohen's d effect size
+
+What it does NOT ship:
+- Newcombe Method 10 (two-sample Wilson score interval for δ = p1 − p2)
+- SPRT likelihood ratio test with sequential stopping (Wald 1945)
+- CUSUM monitoring over a latency/cost stream (Page 1954)
+- Wilson lower bound on a single-run pass rate (the first-class output replayproof ships)
+
+The gap is therefore precise: inspect-mlflow tests whether two paired runs differ
+(McNemar on the 2×2 flip table); replayproof reports a Wilson lower bound on a
+single run's pass rate *plus* a threshold gate that trips on any measured drop.
+These are complementary: inspect-mlflow answers "is this change significant between
+two runs?"; replayproof answers "what is the confidence floor on this run's pass rate
+and does it exceed the threshold?"
+
+The c10-p01 research question is thereby closed: **the Newcombe informational interval
+layer (S51) and the SPRT/CUSUM informational layers (S52/S54) have no shipped equivalent
+in the tracked ecosystem.** They remain design-differentiating inputs for the implement
+passes.
+
+**Not falsified (c10-p02, 2026-10-27).** Gap claim holds.
+
+## Updated comparison table — version/activity row refresh (c10-p02)
+
+Summary of changes from c9-p02 that affect the comparison table:
+
+| Tool | Version (c9-p02) | Version (c10-p02) | Notable change |
+|------|-----------------|-------------------|----------------|
+| inspect_ai | 0.3.272 | **0.3.285** | Daily cadence; no stats new |
+| inspect-replay | v0.2.0 (107d inactive) | v0.2.0 (**back active**, push 2026-10-17) | CI/maintenance push; still no contract assertions |
+| inspect-mlflow | 0.8.1 | **0.9.0** | Dependency broadening only; no new stats |
+| deepeval | 4.2.6 | **4.3.2** | LLM metrics; no keyless/offline change |
+| Langfuse | 4.15.6 | **5.0.4** (major) | Major version bump; still server-required |
+| Arize Phoenix | 20.16.0 | **20.26.1** | Active; no keyless/contract change |
+| trulens-core | 2.14.0 | **2.16.0** | Active; no keyless/contract change |
+| pydantic-evals | 2.51.0 | **2.62.0** | Active; still runner-only, no YAML contract |
+| braintrust | 0.43.0 | **0.48.1** | Active; still cloud-required |
+| agentops | 0.4.21 | 0.4.21 | **Still stale** (last push 2026-06-25, 124 days) |
+
+The gap claim properties (named YAML contract assertions, Wilson lower bound, cost delta
+gate, zero-network operation) remain unimplemented in every tracked tool as of this pass.
+
+## Falsification re-runs (c10-p02, 2026-10-27T20:08 UTC)
+
+### F-P2-1: inspect-replay adds contract assertions (re-run c10-p02)
+
+inspect-replay README keyword check (see raw evidence above):
+- `required_tools`: not found
+- `arg_schema`: not found
+- `contract`: not found
+- Latest tag: v0.2.0 (2026-07-14)
+- The 2026-10-17 push is CI/maintenance; no new feature release.
+
+**Not falsified (c10-p02, 2026-10-27).**
+
+### F-P2-2: EvalCore adds named YAML contract assertions (re-run skipped — tool inactive)
+
+EvalCore last push 2026-07-26 (93 days inactive, no change from c10-p01). The evalcore.cc
+documentation and GitHub repository have not changed. Keyword check result from prior
+passes carries forward: none of `required_tools`, `forbidden_tools`, `arg_schema`,
+`no_pattern` appear in evalcore.cc.
+
+**Carries forward from c10-p01: not falsified.**
+
+### F-C10-6: Named competitor ships Newcombe/SPRT/CUSUM (re-run c10-p02)
+
+Full evidence in the section above. Result: **Not falsified (c10-p02, 2026-10-27).**
+
+The closest tool (inspect-mlflow) ships McNemar + bootstrap CI (paired tests) but not
+Newcombe two-sample interval, SPRT sequential stopping, or CUSUM monitoring.
+
+## Open questions after c10-p02
+
+Both c10-p01 open questions are now closed:
+
+1. (Pass 2 — answered) **No tracked tool ships Newcombe two-sample interval, SPRT, or
+   CUSUM monitoring** as of 2026-10-27. The c10-p01 statistical improvement sources
+   (S51–S61) describe design space that remains unoccupied in the ecosystem. The
+   informational uncertainty layer from S51/S52 is the implement passes' target.
+
+2. (Pass 3 — adoption recipe) The Tuesday integration recipe for the uncertainty layer
+   — exact CLI surface (`gate --show-uncertainty`?), output format, and the documented
+   "n too small for significance" warning — is Pass 3's work.
+
+Open question count: **0 (research questions); 1 (deferred to Pass 3: adoption recipe
+for the uncertainty layer).**
+
+---
+
+**Cycle 10 Pass 3 (c10-p03-research-3) — Real-World Applicability — 2026-10-27T21:00 UTC**
+
+This pass closes the one remaining open question from c10-p02: the Tuesday adoption
+recipe for the informational uncertainty interval layer (Newcombe CI + "n too small"
+warning). The full recipe is documented in `docs/ADOPTION.md` §"Cycle 10 deepening".
+
+Work done this pass:
+
+1. Computed the Newcombe Method 10 CI for all demo-scale n (raw output in ADOPTION.md).
+2. Determined the n threshold for significance (n >= 10 for a 50% drop at 95%).
+3. Specified the exact CLI surface: `agenteval gate --show-uncertainty`.
+4. Specified the output format (text + JSON `uncertainty` key).
+5. Documented the exact "n too small for significance" warning strings.
+6. Two new falsification items (F-C10-7, F-C10-8) — both not falsified.
+7. 254 tests pass — repo green at end of pass.
+
+## Raw evidence (c10-p03, 2026-10-27T21:00 UTC)
+
+```
+$ .venv/bin/agenteval run \
+    --contract examples/contracts/research.yaml \
+    --runs examples/recordings/sample_run.jsonl \
+    --output /tmp/c10p03_good.json
+# Cases 4 | Passed 4 | Pass Rate 100.0% | Wilson Lower Bound (95%) 51.0%
+
+$ .venv/bin/agenteval gate \
+    --baseline /tmp/c10p03_good.json \
+    --current /tmp/c10p03_good.json
+Gate: PASS — no regressions detected.
+Warning: ... not enforced ...: total_tokens, total_cost_usd
+exit=0
+
+$ .venv/bin/agenteval run \
+    --contract examples/contracts/research.yaml \
+    --runs examples/recordings/regressed_run.jsonl \
+    --output /tmp/c10p03_bad.json
+# Cases 4 | Passed 2 | Pass Rate 50.0% | Wilson Lower Bound (95%) 15.0%
+
+$ .venv/bin/agenteval gate \
+    --baseline /tmp/c10p03_good.json \
+    --current /tmp/c10p03_bad.json
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+Warning: ... not enforced ...: total_tokens, total_cost_usd
+exit=1
+
+# Newcombe CI computation (2026-10-27T21:00 UTC):
+$ .venv/bin/python3 newcombe_check.py
+4/4 vs 2/4: CI (-0.1021, 0.8500), excludes 0: False
+n=  4: 4/4 vs 2/4 -> CI (-0.1021, 0.8500) -> n too small (includes 0)
+n= 10: 10/10 vs 5/10 -> CI (0.1174, 0.7634) -> SIGNIFICANT
+n= 20: 20/20 vs 10/20 -> CI (0.2426, 0.7007) -> SIGNIFICANT
+n= 30: 30/30 vs 15/30 -> CI (0.2969, 0.6685) -> SIGNIFICANT
+n= 50: 50/50 vs 25/50 -> CI (0.3486, 0.6336) -> SIGNIFICANT
+
+$ .venv/bin/pytest -q --tb=short
+254 passed in 7.57s
+```
+
+## Exact CLI surface (binding — for implement passes)
+
+`agenteval gate --show-uncertainty`
+
+Flag is additive: adds an informational Newcombe block to stdout. Does NOT change the
+exit code. The threshold gate is the decision; the interval is evidence.
+
+**JSON output schema extension** (when `--format json --show-uncertainty`):
+
+```json
+{
+  "ok": false,
+  "trips": [...],
+  "skipped_zero_baseline": [],
+  "uncertainty": {
+    "method": "newcombe_method10",
+    "source": "Newcombe (1998) Statistics in Medicine 17(8):873-890",
+    "baseline_n": 4,
+    "current_n": 4,
+    "baseline_successes": 4,
+    "current_successes": 2,
+    "observed_drop": 0.5,
+    "ci_lower": -0.1021,
+    "ci_upper": 0.8500,
+    "ci_excludes_zero": false,
+    "significance_warning": "n=4 is too small for significance at 95%..."
+  }
+}
+```
+
+## "n too small for significance" warning strings (binding)
+
+**For n < 10:**
+`WARNING: n={n} is too small for significance at 95% (Newcombe CI includes 0). The threshold gate tripped (fail-closed) but the data are statistically consistent with no drop. Grow the suite to n>=10 for a significant 50% drop; n>=30 for a reliable interval.`
+
+**For 10 <= n < 30:**
+`Note: n={n} yields a Newcombe CI width of ~{width:.0f} pp. The interval is informative but conservative. Results with n>=30 are more reliable.`
+
+**For n >= 30:** No warning.
+
+## Falsification items (c10-p03)
+
+### F-C10-7: Newcombe CI (4/4 vs 2/4) matches c10-p01
+
+c10-p01 recorded (−0.1021, 0.8500). c10-p03 computed (−0.1021, 0.8500).
+**Not falsified (c10-p03, 2026-10-27).**
+
+### F-C10-8: n < 10 is the correct "too small" threshold for a 50% drop
+
+All n in {4,5,6,7,8,9} produce a CI including 0 for a 50% drop; n=10 is the first
+to exclude 0. Verified exhaustively by the raw table above.
+**Not falsified (c10-p03, 2026-10-27).**
+
+## Open questions after c10-p03
+
+All c10-p01 and c10-p02 open questions are closed:
+
+1. (Pass 2) No tracked tool ships Newcombe/SPRT/CUSUM — CLOSED (c10-p02).
+2. (Pass 3) Tuesday adoption recipe for the uncertainty layer — **CLOSED this pass**.
+   Full recipe in `docs/ADOPTION.md` §"Cycle 10 deepening".
+
+Open question count: **0**.

@@ -939,10 +939,170 @@ Test breakdown by file (c9-p05):
 - test_properties.py: 9 tests
 Total: 225 tests
 
+---
+
+## 16. Cycle 9 mutation gate baseline (authoritative, c10-p01 record)
+
+Measured baseline from `reports/mutation-c9.json` (cycle 9 mutation gate).
+Quoted exactly — not re-derived, estimated, or rounded:
+
+```
+$ python3 -c "import json; d=json.load(open('reports/mutation-c9.json')); print(f\"killed={d['killed']} total={d['total']} kill_rate={d['kill_rate']*100:.1f}% target={d['target']}\")"
+killed=230 total=233 kill_rate=98.7% target=0.7
+```
+
+- **230/233 mutants killed = 98.7%. Gate: 70%.** PASS (98.7 >= 70).
+- Supersedes the cycle-5 numbers in section 9 above (221/233 = 94.8%).
+- The 3 survivors are documented in `reports/mutation-c9.json` (`counts.survived = 3`).
+- Recorded here 2026-10-12 (c10-p01) so the improvement cycle grounds its delta
+  against the correct baseline. A wrong baseline misdirects the whole cycle.
+
 All acceptance criteria pass:
 1. pytest -q: 225 passed, no network required (+5 from c9-p05 new tests)
 2. bash examples/run_demo.sh: runs to completion, prints results table
 3. Gate: exit 1 on regressed_run.jsonl, exit 0 on sample_run.jsonl
 4. ruff check . && ruff format --check .: clean
 5. README contains genuine results table from demo output (51.0% Wilson for 4/4)
+6. No files outside this repo modified. No push.
+
+
+---
+
+## 17. Cycle 10 pass 4 (c10-p04-implement-1) — Newcombe --show-uncertainty surface
+
+Date: 2026-10-27T22:00 UTC
+
+**Changes in this pass:**
+
+- Added `newcombe_diff_interval(s1, n1, s2, n2)` to `src/agenteval/scoring.py`:
+  Newcombe (1998) Method 10 CI for the difference p1 - p2. Uses Wilson score intervals
+  per proportion; avoids the Wald interval boundary failure at p=0/1. Source:
+  Statistics in Medicine 17(8):873-890.
+- Added `newcombe_significance_warning(n, ci_lower, ci_upper)` to `scoring.py`:
+  Returns the documented warning string per the c10-p03 spec (n<10: WARNING;
+  10<=n<30: Note; n>=30: empty).
+- Added `compute_uncertainty_block(baseline_n, baseline_successes, current_n, current_successes)`
+  to `scoring.py`: produces the full `uncertainty` dict for JSON gate output.
+- Added `--show-uncertainty` flag to `agenteval gate` CLI (additive, informational only,
+  does NOT change exit code). Wires to `_print_uncertainty_block` for text output and
+  `gate.to_dict()["uncertainty"]` for JSON output.
+- Added 25 new tests (6 KAT+property for `newcombe_diff_interval`, 4 for
+  `newcombe_significance_warning`, 6 for `compute_uncertainty_block`, 7 for CLI
+  `--show-uncertainty`, 2 property exhaustive checks).
+
+### Baseline: 230/233 mutants killed = 98.7% (reports/mutation-c9.json, authoritative)
+
+### Verification
+
+```
+$ .venv/bin/pytest -q --tb=short
+........................................................................ [ 25%]
+........................................................................ [ 51%]
+........................................................................ [ 77%]
+...............................................................          [100%]
+279 passed in 6.90s
+
+$ .venv/bin/ruff check .
+All checks passed!
+
+$ .venv/bin/ruff format --check .
+27 files already formatted
+
+$ bash examples/run_demo.sh
+=== replayproof demo ===
+
+--- Step 1: evaluate sample_run.jsonl against research contract ---
+# Evaluation Report: research
+| Cases | 4 |
+| Passed | 4 |
+| Pass Rate | 100.0% |
+| Wilson Lower Bound (95%) | 51.0% |
+
+--- Step 4: gate regressed run vs good baseline (expect: FAIL, exit 1) ---
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+Exit code: 1
+
+--- Final checks ---
+PASS: gate exits correctly (0 on good, 1 on regressed)
+
+=== Demo complete ===
+```
+
+### New feature: --show-uncertainty flag
+
+```
+$ .venv/bin/agenteval gate \
+    --baseline /tmp/c10p04_good.json \
+    --current /tmp/c10p04_bad.json \
+    --show-uncertainty
+Gate: FAIL — regressions detected:
+Metric                        Baseline      Current    Threshold
+-----------------------------------------------------------------
+pass_rate                       1.0000       0.5000       0.0000
+Warning: the following gates were not enforced because the baseline value is zero
+(first-run or corrupted baseline): total_tokens, total_cost_usd
+
+Uncertainty interval (informational — does NOT change exit code):
+  Observed drop: 0.5000 (50.0 pp)
+  Newcombe 95% CI for drop: (-0.1021, 0.8500)
+  CI excludes 0: False
+  WARNING: n=4 is too small for significance at 95% (Newcombe CI width >0.95 pp).
+  WARNING: The threshold gate tripped (fail-closed) but the data are statistically
+  consistent with no drop at 95% confidence.
+  WARNING: Grow the suite to n>=10 for a significant 50% drop; n>=30 for a reliable interval.
+  Gate decision: THRESHOLD TRIPPED (exit 1) — uncertainty interval is advisory only.
+exit=1
+
+$ .venv/bin/agenteval gate \
+    --baseline /tmp/c10p04_good.json \
+    --current /tmp/c10p04_bad.json \
+    --format json \
+    --show-uncertainty
+{
+  "ok": false,
+  "trips": [...],
+  "skipped_zero_baseline": ["total_tokens", "total_cost_usd"],
+  "uncertainty": {
+    "method": "newcombe_method10",
+    "source": "Newcombe (1998) Statistics in Medicine 17(8):873-890",
+    "baseline_n": 4,
+    "current_n": 4,
+    "baseline_successes": 4,
+    "current_successes": 2,
+    "observed_drop": 0.5,
+    "ci_lower": -0.1021,
+    "ci_upper": 0.85,
+    "ci_excludes_zero": false,
+    "significance_warning": "n=4 is too small for significance at 95% ..."
+  }
+}
+```
+
+CI values (-0.1021, 0.8500) match c10-p01 authoritative run (2026-10-12) exactly.
+Exit code unchanged (1) with --show-uncertainty: flag is additive, advisory only.
+
+### proof checker
+
+```
+$ .venv/bin/python scripts/check_proof.py
+check_proof: validating agent-eval-harness proof...
+  [1/6] Checking EVIDENCE.md exists...
+  [2/6] Checking fixtures exist...
+  [3/6] Checking venv exists...
+  [4/6] Running pytest...
+  [5/6] Running demo script...
+  [6/6] Verifying gate distinguishes good from regressed...
+check_proof: all checks passed.
+PROOF_COMPLETE
+```
+
+All acceptance criteria pass:
+1. pytest -q: 279 passed, no network required (+25 from c10-p04)
+2. bash examples/run_demo.sh: runs to completion, prints results table
+3. Gate: exit 1 on regressed_run.jsonl, exit 0 on sample_run.jsonl
+4. ruff check . && ruff format --check .: clean
+5. README contains genuine results table from demo output
 6. No files outside this repo modified. No push.
